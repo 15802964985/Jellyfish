@@ -11,6 +11,7 @@ from app.schemas.common import ApiResponse, PaginatedData, created_response, emp
 from app.schemas.llm import (
     ImageGenerationOptionsRead,
     ModelCreate,
+    ModelConnectionTestRead,
     ModelRead,
     ModelSettingsRead,
     ModelSettingsUpdate,
@@ -38,6 +39,8 @@ from app.services.llm.manage import (
     update_model_settings as update_model_settings_service,
     update_provider as update_provider_service,
 )
+from app.services.llm.testing import test_provider_connection as test_provider_connection_service
+from app.services.llm.testing import test_text_model as test_text_model_service
 
 router = APIRouter()
 
@@ -57,7 +60,7 @@ MAX_PAGE_SIZE = 100
     summary="列出模型供应商（分页）",
 )
 async def list_providers(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     q: str | None = Query(None, description="关键字，过滤 name/description"),
     order: str | None = Query(None, description="排序字段：name, created_at, updated_at"),
     is_desc: bool = Query(False, description="是否倒序"),
@@ -93,7 +96,7 @@ async def list_supported_providers(
     summary="获取当前默认图片模型的关键帧规格选项",
 )
 async def get_image_generation_options(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ImageGenerationOptionsRead]:
     data = await get_image_generation_options_service(db)
     return success_response(data)
@@ -105,7 +108,7 @@ async def get_image_generation_options(
     summary="获取当前默认视频模型的动态比例选项",
 )
 async def get_video_generation_options(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[VideoGenerationOptionsRead]:
     data = await get_video_generation_options_service(db)
     return success_response(data)
@@ -119,7 +122,7 @@ async def get_video_generation_options(
 )
 async def create_provider(
     body: ProviderCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ProviderRead]:
     provider = await create_provider_service(db, body=body)
     return created_response(ProviderRead.model_validate(provider))
@@ -132,7 +135,7 @@ async def create_provider(
 )
 async def get_provider(
     provider_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ProviderRead]:
     provider = await get_provider_service(db, provider_id=provider_id)
     return success_response(ProviderRead.model_validate(provider))
@@ -146,7 +149,7 @@ async def get_provider(
 async def update_provider(
     provider_id: str,
     body: ProviderUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ProviderRead]:
     provider = await update_provider_service(db, provider_id=provider_id, body=body)
     return success_response(ProviderRead.model_validate(provider))
@@ -160,10 +163,23 @@ async def update_provider(
 )
 async def delete_provider(
     provider_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[None]:
     await delete_provider_service(db, provider_id=provider_id)
     return empty_response()
+
+
+@router.post(
+    "/providers/{provider_id}/test-connection",
+    response_model=ApiResponse[ModelConnectionTestRead],
+    summary="真实测试供应商文本连接",
+)
+async def test_provider_connection(
+    provider_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[ModelConnectionTestRead]:
+    result = await test_provider_connection_service(db, provider_id=provider_id)
+    return success_response(result)
 
 
 # ---------- Model ----------
@@ -175,7 +191,7 @@ async def delete_provider(
     summary="列出模型（分页）",
 )
 async def list_models(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     provider_id: str | None = Query(None, description="按供应商过滤"),
     category: ModelCategoryKey | None = Query(None, description="按模型类别过滤"),
     q: str | None = Query(None, description="关键字，过滤 name/description"),
@@ -205,7 +221,7 @@ async def list_models(
 )
 async def create_model(
     body: ModelCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ModelRead]:
     model = await create_model_service(db, body=body)
     return created_response(ModelRead.model_validate(model))
@@ -218,7 +234,7 @@ async def create_model(
 )
 async def get_model(
     model_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ModelRead]:
     model = await get_model_service(db, model_id=model_id)
     return success_response(ModelRead.model_validate(model))
@@ -232,7 +248,7 @@ async def get_model(
 async def update_model(
     model_id: str,
     body: ModelUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ModelRead]:
     model = await update_model_service(db, model_id=model_id, body=body)
     return success_response(ModelRead.model_validate(model))
@@ -246,10 +262,23 @@ async def update_model(
 )
 async def delete_model(
     model_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[None]:
     await delete_model_service(db, model_id=model_id)
     return empty_response()
+
+
+@router.post(
+    "/models/{model_id}/test",
+    response_model=ApiResponse[ModelConnectionTestRead],
+    summary="真实测试文本模型",
+)
+async def test_model(
+    model_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[ModelConnectionTestRead]:
+    result = await test_text_model_service(db, model_id=model_id)
+    return success_response(result)
 
 
 # ---------- ModelSettings（单例） ----------
@@ -261,7 +290,7 @@ async def delete_model(
     summary="获取模型全局设置（单例）",
 )
 async def get_model_settings(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ModelSettingsRead]:
     settings = await get_model_settings_service(db)
     return success_response(ModelSettingsRead.model_validate(settings))
@@ -274,7 +303,7 @@ async def get_model_settings(
 )
 async def update_model_settings(
     body: ModelSettingsUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ModelSettingsRead]:
     settings = await update_model_settings_service(db, body=body)
     return success_response(ModelSettingsRead.model_validate(settings))

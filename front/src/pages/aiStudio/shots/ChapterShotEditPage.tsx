@@ -34,6 +34,7 @@ import { useRelationTaskNotification } from '../components/taskNotificationHelpe
 import { useTaskPageContext } from '../components/taskPageContext'
 import { createTaskSettledReloader } from '../components/taskResultHelpers'
 import { TASK_COPY } from '../components/taskCopy'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 import {
   SCRIPT_EXTRACTION_RELATION_TYPE,
   useCancelableRelationTask,
@@ -332,16 +333,18 @@ export function ChapterShotEditPage() {
     setLoading(true)
     setDialogLoading(true)
     try {
-      const [projectRes, chRes, listRes, preparationRes, detailRes] = await Promise.all([
+      const [projectRes, chRes, allShots, preparationRes, detailRes] = await Promise.all([
         StudioProjectsService.getProjectApiV1StudioProjectsProjectIdGet({ projectId }),
         StudioChaptersService.getChapterApiV1StudioChaptersChapterIdGet({ chapterId }),
-        StudioShotsService.listShotsApiV1StudioShotsGet({
-          chapterId,
-          page: 1,
-          pageSize: 100,
-          order: 'index',
-          isDesc: false,
-        }),
+        loadAllPaginated<ShotRead>((page, pageSize) =>
+          StudioShotsService.listShotsApiV1StudioShotsGet({
+            chapterId,
+            page,
+            pageSize,
+            order: 'index',
+            isDesc: false,
+          }),
+        ),
         StudioShotsService.getShotPreparationStateApiApiV1StudioShotsShotIdPreparationStateGet({ shotId }),
         StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId }),
       ])
@@ -358,7 +361,7 @@ export function ChapterShotEditPage() {
       setChapterTitle(c?.title ?? '')
       setChapterIndex(typeof c?.index === 'number' ? c.index : null)
 
-      const items = listRes.data?.items ?? []
+      const items = allShots
       const preparationState = preparationRes.data ?? null
       const detail = detailRes.data ?? null
       const s = preparationState?.shot ?? null

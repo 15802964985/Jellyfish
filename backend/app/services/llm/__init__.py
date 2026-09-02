@@ -17,6 +17,7 @@ from app.services.llm.manage import (
 from app.services.llm.resolver import (
     build_default_text_llm,
     build_chat_model_from_provider,
+    build_text_llm_by_model,
     get_default_model_by_category,
     get_model_by_category,
     get_provider_by_id_or_obj,
@@ -58,6 +59,7 @@ __all__ = [
     "update_provider",
     "build_chat_model_from_provider",
     "build_default_text_llm",
+    "build_text_llm_by_model",
     "ProviderSpec",
     "ResolvedProviderConfig",
     "bootstrap_builtin_providers",

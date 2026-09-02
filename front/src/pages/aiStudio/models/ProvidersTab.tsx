@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Layout,
   Input,
@@ -16,6 +16,7 @@ import {
   Tooltip,
   Empty,
   Grid,
+  Pagination,
 } from 'antd'
 import type { TableColumnsType } from 'antd'
 import {
@@ -42,8 +43,10 @@ import {
   TABLE_ACTION_BTN_TEST_CLASS,
   maskUrl,
 } from './constants'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 
 export default function ProvidersTab() {
+  const requestIdRef = useRef(0)
   const [providers, setProviders] = useState<ProviderRead[]>([])
   const [supportedSpecs, setSupportedSpecs] = useState<ProviderSupportedRead[]>([])
   const [supportedLoading, setSupportedLoading] = useState(true)
@@ -51,6 +54,8 @@ export default function ProvidersTab() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'updated' | 'name'>('updated')
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
+  const [displayPage, setDisplayPage] = useState(1)
+  const DISPLAY_PAGE_SIZE = 20
   const [selectedProvider, setSelectedProvider] = useState<ProviderRead | null>(null)
   const [detailPanelOpen, setDetailPanelOpen] = useState(false)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
@@ -62,21 +67,24 @@ export default function ProvidersTab() {
   const isLargeScreen = lg ?? false
 
   const load = async () => {
+    const requestId = ++requestIdRef.current
     setLoading(true)
     try {
       const order = sortBy === 'name' ? 'name' : 'updated_at'
-      const res = await LlmService.listProvidersApiV1LlmProvidersGet({
-        q: search.trim() || undefined,
-        order,
-        isDesc: true,
-        page: 1,
-        pageSize: 100,
-      })
-      setProviders(res.data?.items ?? [])
+      const items = await loadAllPaginated((page, pageSize) =>
+        LlmService.listProvidersApiV1LlmProvidersGet({
+          q: search.trim() || undefined,
+          order,
+          isDesc: true,
+          page,
+          pageSize,
+        }),
+      )
+      if (requestId === requestIdRef.current) setProviders(items)
     } catch {
       message.error('加载失败')
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }
 
@@ -137,15 +145,29 @@ export default function ProvidersTab() {
     return list
   }, [providers, sortBy])
 
+  useEffect(() => setDisplayPage(1), [search, sortBy, viewMode])
+  const pagedProviderList = useMemo(
+    () => providerList.slice((displayPage - 1) * DISPLAY_PAGE_SIZE, displayPage * DISPLAY_PAGE_SIZE),
+    [displayPage, providerList],
+  )
+
   const handleTestConnection = async (provider?: ProviderRead) => {
     const p = provider ?? selectedProvider
     if (!p) return
     setTestConnecting(true)
     try {
-      await new Promise((r) => setTimeout(r, 800))
-      message.success('连接成功')
-    } catch {
-      message.error('连接失败，请检查 Base URL 与 AK/SK')
+      const res = await LlmService.testProviderConnectionApiV1LlmProvidersProviderIdTestConnectionPost({
+        providerId: p.id,
+      })
+      const result = res.data
+      message.success(
+        result
+          ? `连接成功：${result.model_name}，耗时 ${result.latency_ms} ms${result.response_preview ? `，响应 ${result.response_preview}` : ''}`
+          : '连接成功',
+      )
+    } catch (error) {
+      const body = (error as { body?: { detail?: string } })?.body
+      message.error(body?.detail || (error instanceof Error ? error.message : '连接失败，请检查 Base URL 与 API Key'))
     } finally {
       setTestConnecting(false)
     }
@@ -165,17 +187,22 @@ export default function ProvidersTab() {
         }
         if (values.api_key && values.api_key !== '********') requestBody.api_key = values.api_key
         if (values.api_secret && values.api_secret !== '********') requestBody.api_secret = values.api_secret
-        await LlmService.updateProviderApiV1LlmProvidersProviderIdPatch({
+        const res = await LlmService.updateProviderApiV1LlmProvidersProviderIdPatch({
           providerId: providerEditing.id,
           requestBody,
         })
+        const savedProvider = res.data
+        if (savedProvider) {
+          setProviders((prev) => prev.map((item) => (item.id === savedProvider.id ? savedProvider : item)))
+          setSelectedProvider((prev) => (prev?.id === savedProvider.id ? savedProvider : prev))
+        }
         message.success('供应商已更新')
       } else {
         const id =
           typeof crypto !== 'undefined' && crypto.randomUUID
             ? crypto.randomUUID()
             : `prov_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-        await LlmService.createProviderApiV1LlmProvidersPost({
+        const res = await LlmService.createProviderApiV1LlmProvidersPost({
           requestBody: {
             id,
             name: values.name,
@@ -188,12 +215,14 @@ export default function ProvidersTab() {
             api_secret: values.api_secret,
           },
         })
+        const createdProvider = res.data
+        if (createdProvider) setProviders((prev) => [createdProvider, ...prev.filter((item) => item.id !== createdProvider.id)])
         message.success('供应商已添加')
       }
       setProviderModalOpen(false)
       setProviderEditing(null)
       form.resetFields()
-      void load()
+      await load()
     } catch (e) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
       message.error('保存失败')
@@ -223,7 +252,8 @@ export default function ProvidersTab() {
         await LlmService.deleteProviderApiV1LlmProvidersProviderIdDelete({ providerId: p.id })
         message.success('已删除')
         if (selectedProvider?.id === p.id) setSelectedProvider(null)
-        void load()
+        setProviders((prev) => prev.filter((item) => item.id !== p.id))
+        await load()
       },
     })
   }
@@ -468,7 +498,7 @@ export default function ProvidersTab() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {providerList.map((p) => (
+              {pagedProviderList.map((p) => (
                 <Card
                   key={p.id}
                   hoverable
@@ -539,6 +569,18 @@ export default function ProvidersTab() {
               ))}
             </div>
           )}
+          {viewMode === 'card' && providerList.length > 0 ? (
+            <div className="mt-4 flex justify-end">
+              <Pagination
+                current={displayPage}
+                pageSize={DISPLAY_PAGE_SIZE}
+                total={providerList.length}
+                showSizeChanger={false}
+                showTotal={(total) => `共 ${total} 个供应商`}
+                onChange={setDisplayPage}
+              />
+            </div>
+          ) : null}
         </div>
 
         {selectedProvider && isLargeScreen && (

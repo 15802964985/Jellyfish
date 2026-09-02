@@ -29,7 +29,6 @@ import {
   CameraOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
-  CustomerServiceOutlined,
   DeleteOutlined,
   DoubleLeftOutlined,
   DoubleRightOutlined,
@@ -51,7 +50,6 @@ import {
   VideoCameraOutlined,
   ThunderboltOutlined,
   UndoOutlined,
-  UploadOutlined,
   VideoCameraAddOutlined,
   PlusOutlined,
   UserOutlined,
@@ -105,10 +103,12 @@ import type { Chapter } from '../../../mocks/data'
 import { executeTaskCancel } from '../components/taskActionHelpers'
 import { useRelationTaskNotification } from '../components/taskNotificationHelpers'
 import { TASK_COPY } from '../components/taskCopy'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 import { ChapterStudioBatchToolbar } from './components/ChapterStudioBatchToolbar'
 import { ChapterStudioMaintenancePanel } from './components/ChapterStudioMaintenancePanel'
 import { ChapterStudioReadinessDiagnosisPanel } from './components/ChapterStudioReadinessDiagnosisPanel'
 import { ChapterStudioVideoReadinessPanel } from './components/ChapterStudioVideoReadinessPanel'
+import { ShotAudioTracksPanel } from './components/ShotAudioTracksPanel'
 import { useGenerationDraft, type GenerationDraftState } from '../hooks/useGenerationDraft'
 import { useTaskPageContext } from '../components/taskPageContext'
 import type { RelationTaskState } from '../project/ProjectWorkbench/chapterDivisionTasks'
@@ -619,19 +619,21 @@ const ChapterStudio: React.FC = () => {
     if (!chapterId) return
     setLoadingShots(true)
     try {
-      const [res, runtimeRes] = await Promise.all([
-        StudioShotsService.listShotsApiV1StudioShotsGet({
-          chapterId,
-          page: 1,
-          pageSize: 100,
-          order: 'index',
-          isDesc: false,
-        }),
+      const [allShots, runtimeRes] = await Promise.all([
+        loadAllPaginated<ShotRead>((page, pageSize) =>
+          StudioShotsService.listShotsApiV1StudioShotsGet({
+            chapterId,
+            page,
+            pageSize,
+            order: 'index',
+            isDesc: false,
+          }),
+        ),
         StudioShotsService.listShotRuntimeSummaryApiV1StudioShotsRuntimeSummaryGet({
           chapterId,
         }),
       ])
-      const arr = res.data?.items ?? []
+      const arr = allShots
       const runtimeItems: ShotRuntimeSummaryRead[] = runtimeRes.data ?? []
       setShotRuntimeMap(
         Object.fromEntries(
@@ -2977,7 +2979,6 @@ function Inspector(props: {
   const [refImageType, setRefImageType] = useState<string | undefined>(undefined)
   const [refFrameTypeSelectLoading, setRefFrameTypeSelectLoading] = useState(false)
   const [useBoneDepth, setUseBoneDepth] = useState(false)
-  const [audioMode, setAudioMode] = useState<'none' | 'prompt' | 'upload'>('none')
   const [hideShot, setHideShot] = useState(false)
   const [inspectorTabKey, setInspectorTabKey] = useState<InspectorTabKey>('camera')
   const [sceneNameMap, setSceneNameMap] = useState<Record<string, string>>({})
@@ -5401,61 +5402,7 @@ function Inspector(props: {
                 key: 'av',
                 label: '音视频控制',
                 children: (
-                  <div>
-                    <div className="cs-group">
-                      <div className="cs-group-title">
-                        <CustomerServiceOutlined /> 配乐
-                      </div>
-                      <div className="space-y-3">
-                        <Radio.Group
-                          value={audioMode}
-                          onChange={(e) => setAudioMode(e.target.value)}
-                          options={[
-                            { value: 'none', label: '无' },
-                            { value: 'prompt', label: '提示词' },
-                            { value: 'upload', label: '上传音频' },
-                          ]}
-                        />
-                        {audioMode === 'prompt' && <TextArea rows={3} placeholder="配乐提示词（支持多版本）…" />}
-                        {audioMode === 'upload' && (
-                          <Button block icon={<UploadOutlined />}>
-                            上传音频
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="cs-group">
-                      <div className="cs-group-title">
-                        <SoundOutlined /> 音效
-                      </div>
-                      <div className="space-y-3">
-                        <Button block icon={<UploadOutlined />}>
-                          添加一条音效（Mock）
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="cs-group">
-                      <div className="cs-group-title">
-                        <SettingOutlined /> 开关
-                      </div>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">关闭配乐</span>
-                          <Switch />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">关闭对白</span>
-                          <Switch />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm">智能对口型</span>
-                          <Switch />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <ShotAudioTracksPanel shotId={selectedShot?.id ?? null} />
                 ),
               }] : []),
               {

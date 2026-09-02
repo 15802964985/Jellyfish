@@ -29,6 +29,7 @@ from app.services.studio.generation.video import (
     validate_images_count,
 )
 from app.services.studio.shot_status import recompute_shot_status
+from app.services.studio.media_composition import compose_shot_audio_if_present
 from app.services.worker.async_task_support import cancel_if_requested_async
 from app.services.worker.task_logging import log_task_event, log_task_failure
 from app.utils.files import create_file_from_url_or_b64
@@ -303,9 +304,30 @@ async def run_video_generation_task(
                 provider=provider,
                 api_key=api_key,
             )
+            composition = await compose_shot_audio_if_present(
+                session,
+                shot_id=shot_id,
+                source_video=file_obj,
+            )
+            if composition.file.id != file_obj.id:
+                composed_link = (
+                    await session.execute(
+                        select(GenerationTaskLink).where(
+                            GenerationTaskLink.task_id == task_id,
+                            GenerationTaskLink.resource_type == "video",
+                            GenerationTaskLink.relation_type == "video",
+                            GenerationTaskLink.relation_entity_id == shot_id,
+                        )
+                    )
+                ).scalars().first()
+                if composed_link is not None:
+                    composed_link.file_id = composition.file.id
 
             result_payload = result.model_dump()
-            result_payload["file_id"] = file_obj.id
+            result_payload["file_id"] = composition.file.id
+            result_payload["audio_track_count"] = composition.applied_track_count
+            if composition.warning:
+                result_payload["composition_warning"] = composition.warning
             await store.set_result(task_id, result_payload)
             if await cancel_if_requested_async(store=store, task_id=task_id, session=session):
                 log_task_event("video_generation", task_id, "cancelled", stage="after_persist")

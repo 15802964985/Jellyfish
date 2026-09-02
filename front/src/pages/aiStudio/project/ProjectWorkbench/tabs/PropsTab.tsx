@@ -9,6 +9,8 @@ import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { StudioEntitiesApi } from '../../../../../services/studioEntities'
 import { StudioAssetTypeFormModal } from '../../../assets/components/StudioAssetTypeFormModal'
 import { encodeWorkbenchAssetEditReturnTo, type WorkbenchAssetTabParam } from '../utils/workbenchAssetReturnTo'
+import { notifyProjectDataChanged } from '../projectDataEvents'
+import { loadAllPaginated } from '../../../../../services/loadAllPaginated'
 
 type AssetKind = 'prop' | 'costume'
 
@@ -54,19 +56,12 @@ function LinkedAssetTab({
   const loadLinks = async () => {
     setLoading(true)
     try {
-      const res = await StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
-        entityType: kind,
-        projectId,
-        chapterId: null,
-        shotId: null,
-        assetId: null,
-        order: null,
-        isDesc: false,
-        page: 1,
-        pageSize: 100,
-      })
-
-      const items = (res.data?.items ?? []) as any[]
+      const items = await loadAllPaginated((page, pageSize) =>
+        StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
+          entityType: kind, projectId, chapterId: null, shotId: null, assetId: null,
+          order: null, isDesc: false, page, pageSize,
+        }),
+      ) as any[]
       const typedItems = items as (ProjectPropLinkRead | ProjectCostumeLinkRead)[]
       setLinks(typedItems)
 
@@ -99,23 +94,12 @@ function LinkedAssetTab({
     setListLoading(true)
     try {
       const q = (qOverride ?? search).trim()
-      const res =
+      const items = await loadAllPaginated((page, pageSize) =>
         kind === 'prop'
-          ? await StudioEntitiesApi.list('prop', {
-              q: q || null,
-              order: 'updated_at',
-              isDesc: true,
-              page: 1,
-              pageSize: 100,
-            })
-          : await StudioEntitiesApi.list('costume', {
-              q: q || null,
-              order: 'updated_at',
-              isDesc: true,
-              page: 1,
-              pageSize: 100,
-            })
-      setAssets((res.data?.items ?? []) as AssetItemLike[])
+          ? StudioEntitiesApi.list('prop', { q: q || null, order: 'updated_at', isDesc: true, page, pageSize })
+          : StudioEntitiesApi.list('costume', { q: q || null, order: 'updated_at', isDesc: true, page, pageSize }),
+      )
+      setAssets(items as AssetItemLike[])
     } catch {
       message.error(`加载${kind === 'prop' ? '道具' : '服装'}失败`)
       setAssets([])
@@ -155,6 +139,7 @@ function LinkedAssetTab({
       message.success(`已关联${kind === 'prop' ? '道具' : '服装'}「${assetName}」`)
       setLinkModalOpen(false)
       await loadLinks()
+      notifyProjectDataChanged({ projectId, resources: ['project', kind === 'prop' ? 'props' : 'costumes'] })
     } catch {
       message.error('关联失败')
     } finally {
@@ -172,6 +157,7 @@ function LinkedAssetTab({
       }
       message.success('已取消关联')
       await loadLinks()
+      notifyProjectDataChanged({ projectId, resources: ['project', kind === 'prop' ? 'props' : 'costumes'] })
     } catch {
       message.error('取消关联失败')
     } finally {
@@ -301,6 +287,7 @@ function LinkedAssetTab({
         onCancel={() => setCreateModalOpen(false)}
         onSaved={async () => {
           await loadLinks()
+          notifyProjectDataChanged({ projectId, resources: ['project', kind === 'prop' ? 'props' : 'costumes'] })
         }}
       />
 

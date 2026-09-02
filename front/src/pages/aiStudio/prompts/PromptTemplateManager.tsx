@@ -277,13 +277,16 @@ const PromptTemplateManager: FC = () => {
         }
 
         message.success('提示词已添加')
+        const createdTemplate = res.data
         setFormOpen(false)
         createForm.resetFields()
-        setSelected(null)
+        setSelected(createdTemplate)
         setSearchText('')
         setQuery('')
         setPage(1)
-        void loadTemplates(1, '')
+        setTemplates((prev) => [createdTemplate, ...prev.filter((item) => item.id !== createdTemplate.id)].slice(0, PAGE_SIZE))
+        setTotal((prev) => prev + 1)
+        await loadTemplates(1, '')
         return
       }
 
@@ -308,7 +311,7 @@ const PromptTemplateManager: FC = () => {
       createForm.resetFields()
       setSelected((prev) => (prev?.id === updatedTemplate.id ? updatedTemplate : prev))
       setTemplates((prev) => prev.map((item) => (item.id === updatedTemplate.id ? updatedTemplate : item)))
-      void loadTemplates(page, query)
+      await loadTemplates(page, query)
     } catch (error) {
       if (error && typeof error === 'object' && 'errorFields' in error) return
       message.error(modalMode === 'create' ? '添加提示词失败' : '更新提示词失败')
@@ -333,11 +336,13 @@ const PromptTemplateManager: FC = () => {
           if (selected?.id === template.id) {
             setSelected(null)
           }
+          setTemplates((prev) => prev.filter((item) => item.id !== template.id))
+          setTotal((prev) => Math.max(0, prev - 1))
 
           if (templates.length === 1 && page > 1) {
             setPage(page - 1)
           } else {
-            void loadTemplates(page, query)
+            await loadTemplates(page, query)
           }
         } catch {
           message.error('删除提示词失败')
@@ -394,10 +399,16 @@ const PromptTemplateManager: FC = () => {
                 size="small"
                 extra={(
                   <div className="flex gap-2">
-                    <Button size="small" onClick={() => openEditModal(selected)}>编辑</Button>
-                    <Button size="small" danger onClick={() => handleDeleteTemplate(selected)}>
-                      删除
-                    </Button>
+                    {selected.is_system ? (
+                      <Tag color="gold">系统内置，只读</Tag>
+                    ) : (
+                      <>
+                        <Button size="small" onClick={() => openEditModal(selected)}>编辑</Button>
+                        <Button size="small" danger disabled={selected.is_default} onClick={() => handleDeleteTemplate(selected)}>
+                          删除
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
               >

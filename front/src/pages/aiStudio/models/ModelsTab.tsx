@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Alert,
   Layout,
@@ -18,6 +18,7 @@ import {
   Tooltip,
   Empty,
   Grid,
+  Pagination,
 } from 'antd'
 import type { TableColumnsType } from 'antd'
 import {
@@ -48,6 +49,7 @@ import {
   categoryColorMap,
   SORT_OPTIONS,
 } from './constants'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 
 export default function ModelsTab() {
   const [providers, setProviders] = useState<ProviderRead[]>([])
@@ -57,6 +59,8 @@ export default function ModelsTab() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'updated' | 'name' | 'category'>('updated')
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table')
+  const [displayPage, setDisplayPage] = useState(1)
+  const DISPLAY_PAGE_SIZE = 20
   const [selectedModel, setSelectedModel] = useState<ModelRead | null>(null)
   const [detailPanelOpen, setDetailPanelOpen] = useState(false)
   const [treeCollapsed, setTreeCollapsed] = useState(false)
@@ -64,33 +68,39 @@ export default function ModelsTab() {
   const [modelModalOpen, setModelModalOpen] = useState(false)
   const [modelEditing, setModelEditing] = useState<ModelRead | null>(null)
   const [providerOptionsLoading, setProviderOptionsLoading] = useState(true)
+  const [testingModelId, setTestingModelId] = useState<string | null>(null)
   const [form] = Form.useForm()
+  const requestIdRef = useRef(0)
   const selectedFormCategory = Form.useWatch<ModelCategoryKey | undefined>('category', form)
   const { lg } = Grid.useBreakpoint()
   const isLargeScreen = lg ?? false
 
   const load = async () => {
+    const requestId = ++requestIdRef.current
     setLoading(true)
     try {
-      const [provRes, modelsRes, supportedRes] = await Promise.all([
-        LlmService.listProvidersApiV1LlmProvidersGet({ page: 1, pageSize: 100 }),
-        LlmService.listModelsApiV1LlmModelsGet({
+      const [providerItems, modelItems, supportedRes] = await Promise.all([
+        loadAllPaginated((page, pageSize) => LlmService.listProvidersApiV1LlmProvidersGet({ page, pageSize })),
+        loadAllPaginated((page, pageSize) => LlmService.listModelsApiV1LlmModelsGet({
           q: search.trim() || undefined,
           order: sortBy === 'name' ? 'name' : sortBy === 'category' ? 'category' : 'updated_at',
           isDesc: true,
-          page: 1,
-          pageSize: 100,
-        }),
+          page,
+          pageSize,
+        })),
         LlmService.listSupportedProvidersApiV1LlmProvidersSupportedGet({}),
       ])
-      setProviders(provRes.data?.items ?? [])
-      setModels(modelsRes.data?.items ?? [])
+      if (requestId !== requestIdRef.current) return
+      setProviders(providerItems)
+      setModels(modelItems)
       setSupportedProviders(supportedRes.data ?? [])
     } catch {
       message.error('加载失败')
     } finally {
-      setLoading(false)
-      setProviderOptionsLoading(false)
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+        setProviderOptionsLoading(false)
+      }
     }
   }
 
@@ -103,6 +113,12 @@ export default function ModelsTab() {
     if (categoryFilter) list = list.filter((m) => m.category === categoryFilter)
     return list
   }, [models, categoryFilter])
+
+  useEffect(() => setDisplayPage(1), [search, sortBy, categoryFilter, viewMode])
+  const pagedModelList = useMemo(
+    () => modelList.slice((displayPage - 1) * DISPLAY_PAGE_SIZE, displayPage * DISPLAY_PAGE_SIZE),
+    [displayPage, modelList],
+  )
 
   const categoryCounts = useMemo(() => {
     const c: Record<string, number> = {}
@@ -123,6 +139,28 @@ export default function ModelsTab() {
   )
 
   const getProviderName = (id: string) => providers.find((p) => p.id === id)?.name ?? id
+
+  const handleTestModel = async (model: ModelRead) => {
+    if (model.category !== 'text') {
+      message.warning('图片/视频测试会产生生成费用，请在对应图片或视频生成工作台进行真实测试')
+      return
+    }
+    setTestingModelId(model.id)
+    try {
+      const res = await LlmService.testModelApiV1LlmModelsModelIdTestPost({ modelId: model.id })
+      const result = res.data
+      message.success(
+        result
+          ? `测试成功：耗时 ${result.latency_ms} ms${result.response_preview ? `，响应 ${result.response_preview}` : ''}`
+          : '测试成功',
+      )
+    } catch (error) {
+      const body = (error as { body?: { detail?: string } })?.body
+      message.error(body?.detail || (error instanceof Error ? error.message : '模型测试失败'))
+    } finally {
+      setTestingModelId(null)
+    }
+  }
 
   const resolveProviderSpec = (providerName: string) =>
     supportedProviders.find(
@@ -190,7 +228,7 @@ export default function ModelsTab() {
         return
       }
       if (modelEditing) {
-        await LlmService.updateModelApiV1LlmModelsModelIdPatch({
+        const res = await LlmService.updateModelApiV1LlmModelsModelIdPatch({
           modelId: modelEditing.id,
           requestBody: {
             name: values.name,
@@ -200,6 +238,11 @@ export default function ModelsTab() {
             params,
           },
         })
+        const savedModel = res.data
+        if (savedModel) {
+          setModels((prev) => prev.map((item) => (item.id === savedModel.id ? savedModel : item)))
+          setSelectedModel((prev) => (prev?.id === savedModel.id ? savedModel : prev))
+        }
         message.success('模型已更新')
       } else {
         if (!values.provider_id) {
@@ -210,7 +253,7 @@ export default function ModelsTab() {
           typeof crypto !== 'undefined' && crypto.randomUUID
             ? crypto.randomUUID()
             : `model_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-        await LlmService.createModelApiV1LlmModelsPost({
+        const res = await LlmService.createModelApiV1LlmModelsPost({
           requestBody: {
             id: modelId,
             name: values.name,
@@ -220,12 +263,14 @@ export default function ModelsTab() {
             params,
           },
         })
+        const createdModel = res.data
+        if (createdModel) setModels((prev) => [createdModel, ...prev.filter((item) => item.id !== createdModel.id)])
         message.success('模型已添加')
       }
       setModelModalOpen(false)
       setModelEditing(null)
       form.resetFields()
-      void load()
+      await load()
     } catch (e) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
       message.error('保存失败')
@@ -242,7 +287,8 @@ export default function ModelsTab() {
         await LlmService.deleteModelApiV1LlmModelsModelIdDelete({ modelId: m.id })
         message.success('已删除')
         if (selectedModel?.id === m.id) setSelectedModel(null)
-        void load()
+        setModels((prev) => prev.filter((item) => item.id !== m.id))
+        await load()
       },
     })
   }
@@ -355,8 +401,10 @@ export default function ModelsTab() {
               size="small"
               className={TABLE_ACTION_BTN_TEST_CLASS}
               icon={<ThunderboltOutlined />}
+              loading={testingModelId === record.id}
               onClick={(e) => {
                 e.stopPropagation()
+                void handleTestModel(record)
               }}
             />
           </Tooltip>
@@ -520,7 +568,7 @@ export default function ModelsTab() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {modelList.map((m) => (
+              {pagedModelList.map((m) => (
                 <Card
                   key={m.id}
                   hoverable
@@ -543,7 +591,17 @@ export default function ModelsTab() {
                     >
                       编辑
                     </Button>,
-                    <Button key="test" type="text" size="small" icon={<ThunderboltOutlined />}>
+                    <Button
+                      key="test"
+                      type="text"
+                      size="small"
+                      icon={<ThunderboltOutlined />}
+                      loading={testingModelId === m.id}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleTestModel(m)
+                      }}
+                    >
                       测试生成
                     </Button>,
                     <Dropdown
@@ -594,6 +652,18 @@ export default function ModelsTab() {
               ))}
             </div>
           )}
+          {viewMode === 'card' && modelList.length > 0 ? (
+            <div className="mt-4 flex justify-end">
+              <Pagination
+                current={displayPage}
+                pageSize={DISPLAY_PAGE_SIZE}
+                total={modelList.length}
+                showSizeChanger={false}
+                showTotal={(total) => `共 ${total} 个模型`}
+                onChange={setDisplayPage}
+              />
+            </div>
+          ) : null}
         </div>
 
         {selectedModel && isLargeScreen && (
@@ -641,7 +711,13 @@ export default function ModelsTab() {
                 >
                   编辑
                 </Button>
-                <Button icon={<ThunderboltOutlined />}>快速测试</Button>
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  loading={testingModelId === selectedModel.id}
+                  onClick={() => void handleTestModel(selectedModel)}
+                >
+                  快速测试
+                </Button>
               </Space>
             </div>
           </div>
@@ -674,7 +750,13 @@ export default function ModelsTab() {
                 >
                   编辑
                 </Button>
-                <Button icon={<ThunderboltOutlined />}>快速测试</Button>
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  loading={testingModelId === selectedModel.id}
+                  onClick={() => void handleTestModel(selectedModel)}
+                >
+                  快速测试
+                </Button>
               </Space>
             </div>
           </Drawer>

@@ -86,7 +86,7 @@ async def get_project_style_options(
     summary="项目列表（分页）",
 )
 async def list_projects(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     q: str | None = Query(None, description="关键字，过滤 name/description"),
     order: str | None = Query(None, description="排序字段"),
     is_desc: bool = Query(False, description="是否倒序"),
@@ -108,7 +108,7 @@ async def list_projects(
 )
 async def create_project(
     body: ProjectCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ProjectRead]:
     await ensure_not_exists(
         db,
@@ -131,7 +131,7 @@ async def create_project(
 )
 async def get_project(
     project_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ProjectRead]:
     obj = await get_or_404(db, Project, project_id, detail=entity_not_found("Project"))
     return success_response(ProjectRead.model_validate(obj))
@@ -145,7 +145,7 @@ async def get_project(
 async def update_project(
     project_id: str,
     body: ProjectUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ProjectRead]:
     obj = await get_or_404(db, Project, project_id, detail=entity_not_found("Project"))
     update_data = body.model_dump(exclude_unset=True)
@@ -168,7 +168,7 @@ async def update_project(
 )
 async def delete_project(
     project_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[None]:
     await delete_if_exists(db, Project, project_id)
     return empty_response()

@@ -39,6 +39,7 @@ import { useRelationTaskNotification } from '../components/taskNotificationHelpe
 import { useTaskPageContext } from '../components/taskPageContext'
 import { createTaskSettledReloader } from '../components/taskResultHelpers'
 import { TASK_COPY } from '../components/taskCopy'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 
 const { Header, Content } = Layout
 type ShotListFilter = 'all' | 'pending' | 'generating' | 'ready'
@@ -129,19 +130,21 @@ export function ChapterShotsPage() {
     if (!chapterId) return
     setLoading(true)
     try {
-      const [res, runtimeRes] = await Promise.all([
-        StudioShotsService.listShotsApiV1StudioShotsGet({
-          chapterId,
-          page: 1,
-          pageSize: 100,
-          order: 'index',
-          isDesc: false,
-        }),
+      const [allShots, runtimeRes] = await Promise.all([
+        loadAllPaginated<ShotRead>((page, pageSize) =>
+          StudioShotsService.listShotsApiV1StudioShotsGet({
+            chapterId,
+            page,
+            pageSize,
+            order: 'index',
+            isDesc: false,
+          }),
+        ),
         StudioShotsService.listShotRuntimeSummaryApiV1StudioShotsRuntimeSummaryGet({
           chapterId,
         }),
       ])
-      setShots(res.data?.items ?? [])
+      setShots(allShots)
       const runtimeItems: ShotRuntimeSummaryRead[] = runtimeRes.data ?? []
       setShotRuntimeMap(
         Object.fromEntries(

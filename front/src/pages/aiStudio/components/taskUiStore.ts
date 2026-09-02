@@ -6,6 +6,7 @@ import { resolveTaskSourceLabel, resolveTaskTitle } from './taskCopy'
 
 export type TaskUiItem = {
   taskId: string
+  taskKind?: string | null
   title?: string | null
   sourceLabel?: string | null
   status: TaskStatus
@@ -53,6 +54,7 @@ export function mergeTaskUiItems(
     const optimistic = optimisticItems[taskId]
     return {
       taskId,
+      taskKind: server?.task_kind ?? optimistic?.taskKind,
       title: optimistic?.title ?? resolveTaskTitle(server?.task_kind),
       sourceLabel:
         optimistic?.sourceLabel ??

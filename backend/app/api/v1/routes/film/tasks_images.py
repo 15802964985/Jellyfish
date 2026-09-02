@@ -30,7 +30,7 @@ router = APIRouter()
 )
 async def create_shot_frame_prompt_task(
     body: ShotFramePromptRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[TaskCreated]:
     frame_type = normalize_frame_type(body.frame_type)
     relation_type = relation_type_for_frame(frame_type)

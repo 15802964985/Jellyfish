@@ -20,6 +20,7 @@ from app.models.studio import (
 from app.services.common import entity_not_found
 from app.services.studio.generation.shared.types import GenerationBaseDraft
 from app.services.studio.image_task_references import (
+    pick_asset_attachment_ref_file_ids,
     pick_front_ref_file_id,
     pick_ordered_ref_file_ids,
 )
@@ -52,6 +53,17 @@ class AssetImageBaseDraft(GenerationBaseDraft):
 def _enum_value(value: Any) -> str:
     raw = getattr(value, "value", value)
     return str(raw or "")
+
+
+def _merge_reference_ids(*groups: list[str], limit: int = 4) -> list[str]:
+    """稳定去重并限制推荐数量，避免向模型无差别塞入全部素材。"""
+    result: list[str] = []
+    for file_id in (item for group in groups for item in group):
+        if file_id and file_id not in result:
+            result.append(file_id)
+        if len(result) >= limit:
+            break
+    return result
 
 
 async def _build_asset_prompt(
@@ -134,6 +146,10 @@ async def build_actor_image_base_draft(
             parent_id=actor_id,
             preferred_quality_level=image_row.quality_level,
         )
+    attachment_refs = await pick_asset_attachment_ref_file_ids(
+        db, entity_type="actor", entity_id=actor_id
+    )
+    refs = _merge_reference_ids(refs, attachment_refs)
     return AssetImageBaseDraft(
         entity_type="actor",
         entity_id=actor_id,
@@ -195,6 +211,10 @@ async def build_asset_image_base_draft(
             parent_id=asset_id,
             preferred_quality_level=image_row.quality_level,
         )
+    attachment_refs = await pick_asset_attachment_ref_file_ids(
+        db, entity_type=asset_type_norm, entity_id=asset_id
+    )
+    refs = _merge_reference_ids(refs, attachment_refs)
     return AssetImageBaseDraft(
         entity_type=asset_type.strip().lower(),
         entity_id=asset_id,
@@ -258,6 +278,24 @@ async def build_character_image_base_draft(
                 view_angles=default_view_angles,
             )
         )
+    character_refs = await pick_asset_attachment_ref_file_ids(
+        db, entity_type="character", entity_id=character_id
+    )
+    actor_refs = (
+        await pick_asset_attachment_ref_file_ids(
+            db, entity_type="actor", entity_id=character.actor_id
+        )
+        if character.actor_id
+        else []
+    )
+    costume_refs = (
+        await pick_asset_attachment_ref_file_ids(
+            db, entity_type="costume", entity_id=character.costume_id
+        )
+        if character.costume_id
+        else []
+    )
+    refs = _merge_reference_ids(character_refs, refs, actor_refs, costume_refs)
     return AssetImageBaseDraft(
         entity_type="character",
         entity_id=character_id,

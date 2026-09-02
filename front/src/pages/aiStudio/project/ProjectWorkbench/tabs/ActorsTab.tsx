@@ -10,6 +10,8 @@ import { resolveAssetUrl } from '../../../assets/utils'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { ActorEntityFormModal } from '../../../assets/components/ActorEntityFormModal'
 import { encodeWorkbenchAssetEditReturnTo } from '../utils/workbenchAssetReturnTo'
+import { notifyProjectDataChanged } from '../projectDataEvents'
+import { loadAllPaginated } from '../../../../../services/loadAllPaginated'
 
 type ActorLike = {
   id: string
@@ -53,18 +55,13 @@ export function ActorsTab() {
     if (!projectId) return
     setLinksLoading(true)
     try {
-      const res = await StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
-        entityType: 'actor',
-        projectId,
-        chapterId: null,
-        shotId: null,
-        assetId: null,
-        order: null,
-        isDesc: false,
-        page: 1,
-        pageSize: 100,
-      })
-      setLinks((res.data?.items ?? []) as ProjectActorLinkRead[])
+      const items = await loadAllPaginated((page, pageSize) =>
+        StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
+          entityType: 'actor', projectId, chapterId: null, shotId: null, assetId: null,
+          order: null, isDesc: false, page, pageSize,
+        }),
+      )
+      setLinks(items as ProjectActorLinkRead[])
     } catch {
       message.error('加载项目演员关联失败')
       setLinks([])
@@ -77,14 +74,10 @@ export function ActorsTab() {
     setActorsLoading(true)
     try {
       const q = searchQuery !== undefined ? searchQuery : search
-      const res = await StudioEntitiesApi.list('actor', {
-        page: 1,
-        pageSize: 100,
-        q: q?.trim() || undefined,
-        order: 'updated_at',
-        isDesc: true,
-      })
-      setActors((res.data?.items ?? []) as ActorLike[])
+      const items = await loadAllPaginated((page, pageSize) => StudioEntitiesApi.list('actor', {
+        page, pageSize, q: q?.trim() || undefined, order: 'updated_at', isDesc: true,
+      }))
+      setActors(items as ActorLike[])
     } catch {
       message.error('加载演员失败')
       setActors([])
@@ -118,6 +111,7 @@ export function ActorsTab() {
       message.success(`已关联演员「${actor.name}」到项目`)
       setLinkModalOpen(false)
       await loadLinks()
+      notifyProjectDataChanged({ projectId, resources: ['project', 'actors'] })
     } catch (e: unknown) {
       const msg =
         e && typeof e === 'object' && 'body' in e && typeof (e as { body?: { detail?: string } }).body?.detail === 'string'
@@ -135,6 +129,7 @@ export function ActorsTab() {
       await StudioShotLinksService.deleteProjectActorLinkApiV1StudioShotLinksActorLinkIdDelete({ linkId: link.id })
       message.success('已取消关联')
       await loadLinks()
+      if (projectId) notifyProjectDataChanged({ projectId, resources: ['project', 'actors'] })
     } catch {
       message.error('取消关联失败')
     } finally {
@@ -302,6 +297,7 @@ export function ActorsTab() {
         onCancel={() => setCreateModalOpen(false)}
         onSuccess={async () => {
           await loadLinks()
+          if (projectId) notifyProjectDataChanged({ projectId, resources: ['project', 'actors'] })
         }}
       />
 

@@ -1,6 +1,7 @@
 import { StudioImageTasksService } from '../../../services/generated'
 import { StudioEntitiesApi } from '../../../services/studioEntities'
 import type { AssetEditPageBaseProps, BaseAsset, BaseAssetImage } from './components/AssetEditPageBase'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 
 type AdapterConfig<TAsset extends BaseAsset, TImage extends BaseAssetImage> = Omit<
   AssetEditPageBaseProps<TAsset, TImage>,
@@ -36,8 +37,7 @@ export const assetAdapters = {
       return (res.data ?? null) as any | null
     },
     listImages: async (id: string) => {
-      const res = await StudioEntitiesApi.listImages('character', id, { page: 1, pageSize: 100 })
-      return (res.data?.items ?? []) as any[]
+      return loadAllPaginated<any>((page, pageSize) => StudioEntitiesApi.listImages('character', id, { page, pageSize }))
     },
     createImageSlot: async (id: string, angle) => {
       await StudioEntitiesApi.createImage('character', id, { view_angle: angle })
@@ -78,8 +78,7 @@ export const assetAdapters = {
       return (res.data ?? null) as any | null
     },
     listImages: async (id: string) => {
-      const res = await StudioEntitiesApi.listImages('actor', id, { page: 1, pageSize: 100 })
-      return (res.data?.items ?? []) as any[]
+      return loadAllPaginated<any>((page, pageSize) => StudioEntitiesApi.listImages('actor', id, { page, pageSize }))
     },
     createImageSlot: async (id: string, angle) => {
       await StudioEntitiesApi.createImage('actor', id, { view_angle: angle })
@@ -120,8 +119,7 @@ export const assetAdapters = {
       return (res.data ?? null) as any | null
     },
     listImages: async (id: string) => {
-      const res = await StudioEntitiesApi.listImages('scene', id, { page: 1, pageSize: 100 })
-      return (res.data?.items ?? []) as any[]
+      return loadAllPaginated<any>((page, pageSize) => StudioEntitiesApi.listImages('scene', id, { page, pageSize }))
     },
     createImageSlot: async (id: string, angle) => {
       await StudioEntitiesApi.createImage('scene', id, { view_angle: angle })
@@ -164,8 +162,7 @@ export const assetAdapters = {
       return (res.data ?? null) as any | null
     },
     listImages: async (id: string) => {
-      const res = await StudioEntitiesApi.listImages('prop', id, { page: 1, pageSize: 100 })
-      return (res.data?.items ?? []) as any[]
+      return loadAllPaginated<any>((page, pageSize) => StudioEntitiesApi.listImages('prop', id, { page, pageSize }))
     },
     createImageSlot: async (id: string, angle) => {
       await StudioEntitiesApi.createImage('prop', id, { view_angle: angle })
@@ -208,8 +205,7 @@ export const assetAdapters = {
       return (res.data ?? null) as any | null
     },
     listImages: async (id: string) => {
-      const res = await StudioEntitiesApi.listImages('costume', id, { page: 1, pageSize: 100 })
-      return (res.data?.items ?? []) as any[]
+      return loadAllPaginated<any>((page, pageSize) => StudioEntitiesApi.listImages('costume', id, { page, pageSize }))
     },
     createImageSlot: async (id: string, angle) => {
       await StudioEntitiesApi.createImage('costume', id, { view_angle: angle })

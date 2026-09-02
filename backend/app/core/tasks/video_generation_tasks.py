@@ -1,4 +1,4 @@
-"""视频生成任务（Task）：对接 OpenAI Videos API 与火山方舟内容生成。
+"""视频生成任务（Task）：对接 OpenAI、火山方舟与阿里云百炼视频生成。
 
 HTTP 细节在 `app.core.integrations`；本模块保留轮询节奏与 BaseTask 契约。
 """
@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 
 from app.core.integrations.openai.video import OpenAIVideoApiAdapter
 from app.core.integrations.volcengine.video import VolcengineVideoApiAdapter
+from app.core.integrations.aliyun.video import AliyunVideoApiAdapter
 from app.core.contracts.provider import ProviderConfig
 from app.core.tasks.registry import resolve_task_adapter
 from app.core.contracts.video_generation import VideoGenerationInput, VideoGenerationResult
@@ -22,6 +23,7 @@ __all__ = [
     "AbstractVideoGenerationTask",
     "OpenAIVideoGenerationTask",
     "VolcengineVideoGenerationTask",
+    "AliyunVideoGenerationTask",
     "VideoGenerationTask",
 ]
 
@@ -206,8 +208,67 @@ class VolcengineVideoGenerationTask(AbstractVideoGenerationTask):
         )
 
 
+class AliyunVideoGenerationTask(AbstractVideoGenerationTask):
+    """阿里百炼万相视频任务：创建后按 DashScope 状态轮询。"""
+
+    def __init__(
+        self,
+        *,
+        adapter: AliyunVideoApiAdapter | None = None,
+        provider_config: ProviderConfig,
+        input_: VideoGenerationInput,
+        poll_interval_s: float = 15.0,
+        timeout_s: float = 120.0,
+    ) -> None:
+        super().__init__(
+            provider_config=provider_config,
+            input_=input_,
+            poll_interval_s=poll_interval_s,
+            timeout_s=timeout_s,
+        )
+        self._adapter = adapter or AliyunVideoApiAdapter()
+
+    async def _create_task(self) -> None:
+        """创建万相视频异步任务。"""
+        self._provider_task_id = await self._adapter.create_video_task(
+            cfg=self._cfg,
+            input_=self._input,
+            timeout_s=self._timeout_s,
+        )
+
+    async def _poll_and_get_result(self) -> VideoGenerationResult:
+        """轮询万相任务，成功后返回临时视频下载地址。"""
+        task_id = self._provider_task_id or ""
+        if not task_id:
+            raise RuntimeError("Aliyun poll missing provider task id")
+
+        while True:
+            payload = await self._adapter.get_video_task(
+                cfg=self._cfg,
+                task_id=task_id,
+                timeout_s=self._timeout_s,
+            )
+            output = payload.get("output") or {}
+            status_value = str(output.get("task_status") or "").upper()
+            if status_value == "SUCCEEDED":
+                video_url = str(output.get("video_url") or "")
+                if not video_url:
+                    raise RuntimeError("Aliyun video task succeeded without video_url")
+                return VideoGenerationResult(
+                    url=video_url,
+                    file_id=None,
+                    provider_task_id=task_id,
+                    provider="aliyun_bailian",
+                    status=status_value,
+                )
+            if status_value in {"FAILED", "CANCELED", "UNKNOWN"}:
+                detail = output.get("message") or payload.get("message") or status_value
+                raise RuntimeError(f"Aliyun video task failed: {detail}")
+            await self._sleep_poll()
+
+
 class VideoGenerationTask(BaseTask):
-    """按 provider 分派到 OpenAI / 火山实现；对外构造函数签名保持不变。"""
+    """按 provider 分派到 OpenAI / 火山 / 阿里云实现；对外构造函数签名保持不变。"""
 
     def __init__(
         self,
@@ -252,6 +313,22 @@ class VideoGenerationTask(BaseTask):
         timeout_s: float = 120.0,
     ) -> AbstractVideoGenerationTask:
         return VolcengineVideoGenerationTask(
+            provider_config=provider_config,
+            input_=input_,
+            poll_interval_s=poll_interval_s,
+            timeout_s=timeout_s,
+        )
+
+    @staticmethod
+    def _build_aliyun_impl(
+        *,
+        provider_config: ProviderConfig,
+        input_: VideoGenerationInput,
+        poll_interval_s: float = 15.0,
+        timeout_s: float = 120.0,
+    ) -> AbstractVideoGenerationTask:
+        """构建阿里百炼万相视频任务实现。"""
+        return AliyunVideoGenerationTask(
             provider_config=provider_config,
             input_=input_,
             poll_interval_s=poll_interval_s,

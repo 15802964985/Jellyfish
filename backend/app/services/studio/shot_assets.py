@@ -34,7 +34,11 @@ from app.schemas.studio.shots import (
 from app.services.common import delete_if_exists, entity_not_found, invalid_choice, require_entity
 from app.services.studio.entity_specs import entity_spec, normalize_entity_type
 from app.services.studio.shot_extracted_candidates import mark_linked_by_name, mark_pending_by_name
-from app.services.studio.entity_thumbnails import resolve_thumbnail_infos, resolve_thumbnails
+from app.services.studio.entity_thumbnails import (
+    resolve_attachment_image_infos,
+    resolve_thumbnail_infos,
+    resolve_thumbnails,
+)
 from app.utils.project_links import upsert_project_link
 
 
@@ -209,6 +213,24 @@ async def list_shot_linked_assets(
         parent_field_name="costume_id",
         parent_ids=list(costume_name.keys()),
     )
+
+    # 专用形象图优先；没有时才推荐用户上传且启用的图片附件。附件缺失不会阻断生成。
+    # AsyncSession 不允许并发执行查询，因此按类型顺序读取四组轻量附件索引。
+    attachment_groups = (
+        await resolve_attachment_image_infos(
+            db, entity_type="character", entity_ids=list(character_name.keys())
+        ),
+        await resolve_attachment_image_infos(db, entity_type="prop", entity_ids=list(prop_name.keys())),
+        await resolve_attachment_image_infos(db, entity_type="scene", entity_ids=list(scene_name.keys())),
+        await resolve_attachment_image_infos(
+            db, entity_type="costume", entity_ids=list(costume_name.keys())
+        ),
+    )
+    for dedicated, fallback in zip(
+        (character_thumb, prop_thumb, scene_thumb, costume_thumb), attachment_groups, strict=True
+    ):
+        for entity_id, info in fallback.items():
+            dedicated.setdefault(entity_id, info)
 
     items: list[ShotLinkedAssetItem] = []
     for cid, name in character_name.items():

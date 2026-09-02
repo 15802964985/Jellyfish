@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import storage
-from app.models.studio import AssetViewAngle, FileItem
+from app.models.studio import AssetFileLink, AssetViewAngle, FileItem, FileType
 from app.schemas.studio.shots import ShotLinkedAssetItem
 
 
@@ -150,3 +150,26 @@ async def pick_ordered_ref_file_ids(
         if fid:
             out.append(str(fid))
     return out
+
+
+async def pick_asset_attachment_ref_file_ids(
+    db: AsyncSession,
+    *,
+    entity_type: str,
+    entity_id: str,
+    limit: int = 4,
+) -> list[str]:
+    """按主参考与用户排序选择启用的图片附件；无附件时返回空列表。"""
+    stmt = (
+        select(AssetFileLink.file_id)
+        .join(FileItem, FileItem.id == AssetFileLink.file_id)
+        .where(
+            AssetFileLink.entity_type == entity_type,
+            AssetFileLink.entity_id == entity_id,
+            AssetFileLink.enabled.is_(True),
+            FileItem.type == FileType.image,
+        )
+        .order_by(AssetFileLink.is_primary.desc(), AssetFileLink.sort_index, AssetFileLink.id)
+        .limit(max(1, min(limit, 8)))
+    )
+    return [str(file_id) for file_id in (await db.execute(stmt)).scalars().all() if file_id]

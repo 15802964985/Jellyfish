@@ -16,6 +16,8 @@ import {
   type ProjectVisualStyleChoice,
 } from '../../../project/ProjectVisualStyleAndStyleFields'
 import { useProjectStyleOptions } from '../../../project/useProjectStyleOptions'
+import { notifyProjectDataChanged } from '../projectDataEvents'
+import { loadAllPaginated } from '../../../../../services/loadAllPaginated'
 
 type ActorLike = {
   id: string
@@ -135,8 +137,8 @@ export function RolesTab() {
     if (!projectId) return
     setLoadingLinks(true)
     try {
-      const [actorRes, costumeRes] = await Promise.all([
-        StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
+      const [actorLinks, costumeLinks] = await Promise.all([
+        loadAllPaginated((page, pageSize) => StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
           entityType: 'actor',
           projectId,
           chapterId: null,
@@ -144,10 +146,10 @@ export function RolesTab() {
           assetId: null,
           order: null,
           isDesc: false,
-          page: 1,
-          pageSize: 100,
-        }),
-        StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
+          page,
+          pageSize,
+        })),
+        loadAllPaginated((page, pageSize) => StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
           entityType: 'costume',
           projectId,
           chapterId: null,
@@ -155,14 +157,12 @@ export function RolesTab() {
           assetId: null,
           order: null,
           isDesc: false,
-          page: 1,
-          pageSize: 100,
-        }),
+          page,
+          pageSize,
+        })),
       ])
-      const actorLinks = (actorRes.data?.items ?? []) as ProjectActorLinkRead[]
-      const costumeLinks = (costumeRes.data?.items ?? []) as ProjectCostumeLinkRead[]
-      setProjectActorLinks(actorLinks)
-      setProjectCostumeLinks(costumeLinks)
+      setProjectActorLinks(actorLinks as ProjectActorLinkRead[])
+      setProjectCostumeLinks(costumeLinks as ProjectCostumeLinkRead[])
 
       const actorIds = Array.from(new Set(actorLinks.map((l) => l.actor_id)))
       const costumeIds = Array.from(new Set(costumeLinks.map((l) => l.costume_id)))
@@ -271,6 +271,7 @@ export function RolesTab() {
       setPendingShotLinkShotId(null)
       setPendingShotLinkChapterId(null)
       await refresh()
+      notifyProjectDataChanged({ projectId, resources: ['project', 'characters'] })
     } catch {
       message.error('创建失败')
       setPendingShotLinkShotId(null)
@@ -393,6 +394,7 @@ export function RolesTab() {
                               await StudioEntitiesApi.remove('character', c.id)
                               message.success('已删除')
                               await refresh()
+                              notifyProjectDataChanged({ projectId, resources: ['project', 'characters'] })
                             } catch {
                               message.error('删除失败')
                             }

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -10,28 +12,61 @@ from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.utils import apply_keyword_filter, apply_order, paginate
 from app.core import storage
-from app.models.studio import FileItem, FileType
+from app.models.studio import AssetFileLink, AudioAsset, FileItem, FileType
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.studio import FileDetailRead, FileRead, FileUpdate, FileUsageRead, FileUsageWrite
 from app.services.common import create_and_refresh, entity_not_found, flush_and_refresh, get_or_404, patch_model
 from app.services.studio.file_usages import upsert_file_usage
 
 FILE_ORDER_FIELDS = {"name", "created_at", "updated_at"}
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+UPLOAD_HASH_CHUNK_BYTES = 1024 * 1024
+
+_EXTENSION_TYPES: dict[str, FileType] = {
+    ".jpg": FileType.image,
+    ".jpeg": FileType.image,
+    ".png": FileType.image,
+    ".webp": FileType.image,
+    ".gif": FileType.image,
+    ".mp4": FileType.video,
+    ".mov": FileType.video,
+    ".mkv": FileType.video,
+    ".avi": FileType.video,
+    ".webm": FileType.video,
+    ".mp3": FileType.audio,
+    ".wav": FileType.audio,
+    ".m4a": FileType.audio,
+    ".aac": FileType.audio,
+    ".ogg": FileType.audio,
+    ".flac": FileType.audio,
+    ".txt": FileType.document,
+    ".md": FileType.document,
+    ".markdown": FileType.document,
+    ".pdf": FileType.document,
+    ".docx": FileType.document,
+}
 
 
 def _detect_file_type(filename: str) -> FileType:
+    """按受控扩展名识别业务文件类型并拒绝其他内容。"""
     _, ext = os.path.splitext(filename.lower())
-    if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
-        return FileType.image
-    if ext in {".mp4", ".mov", ".mkv", ".avi", ".webm"}:
-        return FileType.video
+    detected = _EXTENSION_TYPES.get(ext)
+    if detected is not None:
+        return detected
     raise HTTPException(status_code=400, detail=f"不支持的文件类型: {ext or '未知后缀'}")
+
+
+def _safe_storage_filename(filename: str) -> str:
+    """生成不包含路径和危险字符的对象名，原文件名仍单独保存。"""
+    raw = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    stem = re.sub(r"[^0-9A-Za-z._-]+", "_", Path(raw).stem).strip("._") or "upload"
+    return f"{stem[:96]}{Path(raw).suffix.lower()}"
 
 
 def _build_display_name(filename: str, name: str | None) -> str:
@@ -51,6 +86,17 @@ def _resolve_download_media_type(filename: str) -> str:
         ".gif": "image/gif",
         ".mp4": "video/mp4",
         ".mov": "video/quicktime",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".aac": "audio/aac",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+        ".txt": "text/plain; charset=utf-8",
+        ".md": "text/markdown; charset=utf-8",
+        ".markdown": "text/markdown; charset=utf-8",
+        ".pdf": "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
     if ext in media_types:
         return media_types[ext]
@@ -67,9 +113,12 @@ async def list_files_paginated(
     is_desc: bool,
     page: int,
     page_size: int,
+    file_type: FileType | None = None,
 ) -> ApiResponse[PaginatedData[FileRead]]:
     """分页查询文件。"""
     stmt = select(FileItem)
+    if file_type is not None:
+        stmt = stmt.where(FileItem.type == file_type)
     stmt = apply_keyword_filter(stmt, q=q, fields=[FileItem.name])
     stmt = apply_order(
         stmt,
@@ -146,14 +195,28 @@ async def upload_file(
 
     file_type = _detect_file_type(file.filename)
     display_name = _build_display_name(file.filename, name)
-    content = await file.read()
+    checksum_builder = hashlib.sha256()
+    size_bytes = 0
+    while chunk := await file.read(UPLOAD_HASH_CHUNK_BYTES):
+        size_bytes += len(chunk)
+        if size_bytes > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="文件超过 500MB 上传限制")
+        checksum_builder.update(chunk)
+    if size_bytes == 0:
+        raise HTTPException(status_code=400, detail="上传文件为空")
+    await file.seek(0)
 
-    key = f"files/{file.filename}"
+    object_id = str(uuid.uuid4())
+    safe_name = _safe_storage_filename(file.filename)
+    key = f"files/{object_id}/{safe_name}"
+    mime_type = (file.content_type or _resolve_download_media_type(file.filename)).strip()
+    checksum = checksum_builder.hexdigest()
     info = await storage.upload_file(
         key=key,
-        data=content,
-        content_type=file.content_type,
-        extra_args={"ACL": "public-read"},
+        data=file.file,
+        content_type=mime_type,
+        # 剧本和设定文档可能包含敏感内容，只允许通过受控下载接口读取。
+        extra_args={"ACL": "public-read"} if file_type != FileType.document else None,
     )
 
     file_item = await create_and_refresh(
@@ -165,6 +228,10 @@ async def upload_file(
             thumbnail=info.url,
             tags=[],
             storage_key=key,
+            original_name=file.filename,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            checksum=checksum,
         ),
     )
 
@@ -191,7 +258,7 @@ async def build_download_response(
     file_item = await get_or_404(db, FileItem, file_id, detail=entity_not_found("File"))
     content = await storage.download_file(key=file_item.storage_key)
 
-    filename = Path(file_item.storage_key).name or "download"
+    filename = file_item.original_name or Path(file_item.storage_key).name or "download"
     media_type = _resolve_download_media_type(filename)
     content_disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
     return StreamingResponse(
@@ -227,6 +294,23 @@ async def delete_file(
     file_item = await db.get(FileItem, file_id)
     if file_item is None:
         return
+
+    asset_link_count = int(
+        (await db.execute(select(func.count(AssetFileLink.id)).where(AssetFileLink.file_id == file_id))).scalar()
+        or 0
+    )
+    audio_asset_count = int(
+        (await db.execute(select(func.count(AudioAsset.id)).where(AudioAsset.file_id == file_id))).scalar()
+        or 0
+    )
+    if asset_link_count or audio_asset_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"文件仍被 {asset_link_count} 个资产附件和 {audio_asset_count} 个音频资产使用，"
+                "请先解除业务关联"
+            ),
+        )
 
     try:
         await storage.delete_file(key=file_item.storage_key)

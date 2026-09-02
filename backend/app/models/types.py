@@ -137,6 +137,8 @@ class FileType(str, Enum):
 
     image = "image"
     video = "video"
+    audio = "audio"
+    document = "document"
 
 
 class FileUsageKind(str, Enum):
@@ -149,6 +151,31 @@ class FileUsageKind(str, Enum):
     task_link = "task_link"
     upload = "upload"
     api = "api"
+    asset_attachment = "asset_attachment"
+    audio_asset = "audio_asset"
+    audio_track = "audio_track"
+    generation_reference = "generation_reference"
+
+
+class AudioAssetCategory(str, Enum):
+    """音频资产分类：用于素材筛选和镜头音轨默认用途。"""
+
+    voice = "voice"
+    narration = "narration"
+    bgm = "bgm"
+    ambient = "ambient"
+    sfx = "sfx"
+    transition = "transition"
+
+
+class ShotAudioTrackType(str, Enum):
+    """镜头音轨类型。"""
+
+    dialogue = "dialogue"
+    narration = "narration"
+    bgm = "bgm"
+    ambient = "ambient"
+    sfx = "sfx"
 
 
 class TimelineClipType(str, Enum):

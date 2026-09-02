@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Card, Form, Select, InputNumber, Button, message } from 'antd'
 import { LlmService } from '../../../services/generated/services/LlmService'
 import type { ModelRead, ModelSettingsRead } from '../../../services/generated'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 
 export default function SettingsTab() {
   const [settings, setSettings] = useState<ModelSettingsRead | null>(null)
@@ -13,12 +14,12 @@ export default function SettingsTab() {
   const load = async () => {
     setLoading(true)
     try {
-      const [settRes, modelsRes] = await Promise.all([
+      const [settRes, modelItems] = await Promise.all([
         LlmService.getModelSettingsApiV1LlmModelSettingsGet(),
-        LlmService.listModelsApiV1LlmModelsGet({ page: 1, pageSize: 100 }),
+        loadAllPaginated((page, pageSize) => LlmService.listModelsApiV1LlmModelsGet({ page, pageSize })),
       ])
       setSettings(settRes.data ?? null)
-      setModels(modelsRes.data?.items ?? [])
+      setModels(modelItems)
     } catch {
       message.error('加载失败')
     } finally {
@@ -46,7 +47,7 @@ export default function SettingsTab() {
     try {
       const values = await form.validateFields()
       setSettingsSaving(true)
-      await LlmService.updateModelSettingsApiV1LlmModelSettingsPut({
+      const res = await LlmService.updateModelSettingsApiV1LlmModelSettingsPut({
         requestBody: {
           default_text_model_id: values.default_text_model_id,
           default_image_model_id: values.default_image_model_id,
@@ -55,8 +56,9 @@ export default function SettingsTab() {
           log_level: values.log_level,
         },
       })
+      if (res.data) setSettings(res.data)
       message.success('设置已保存')
-      void load()
+      await load()
     } catch {
       message.error('保存失败')
     } finally {

@@ -159,7 +159,9 @@ export const TASK_COPY = {
 export const TASK_KIND_TITLE_MAP: Record<string, string> = {
   script_divide: TASK_COPY.chapterDivision.title,
   script_extract: TASK_COPY.scriptExtract.title,
+  script_merge: '资产合并',
   script_consistency: TASK_COPY.consistencyCheck.title,
+  script_variant: '变体分析',
   script_simplify: TASK_COPY.scriptSimplify.title,
   script_optimize: TASK_COPY.scriptOptimize.title,
   script_character_portrait: '角色画像分析',

@@ -16,7 +16,7 @@ from app.models.studio import (
     ProjectSceneLink,
     Shot,
 )
-from app.models.types import FileUsageKind
+from app.models.types import FileType, FileUsageKind
 
 
 async def upsert_file_usage(
@@ -176,6 +176,7 @@ async def list_files_by_scope_paginated(
     is_desc: bool = False,
     page: int = 1,
     page_size: int = 10,
+    file_type: FileType | None = None,
     allow_order_fields: set[str] | None = None,
     default_order: str = "created_at",
 ) -> tuple[list[FileItem], int]:
@@ -201,6 +202,8 @@ async def list_files_by_scope_paginated(
         .join(FileUsage, FileUsage.file_id == FileItem.id)
     )
     grouped = _apply_scope_filters(grouped)
+    if file_type is not None:
+        grouped = grouped.where(FileItem.type == file_type)
     if qn:
         grouped = grouped.where(FileItem.name.ilike(f"%{qn}%"))
     grouped = grouped.group_by(FileItem.id)
