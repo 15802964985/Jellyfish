@@ -18,6 +18,7 @@ from app.models.studio import (
     SceneImage,
 )
 from app.services.common import entity_not_found
+from app.services.studio.asset_reference_context import load_assets_prompt_context
 from app.services.studio.generation.shared.types import GenerationBaseDraft
 from app.services.studio.image_task_references import (
     pick_asset_attachment_ref_file_ids,
@@ -67,6 +68,11 @@ def _merge_reference_ids(*groups: list[str], limit: int = 4) -> list[str]:
         if len(result) >= limit:
             break
     return result
+
+
+def _append_attachment_context(prompt: str, attachment_context: str) -> str:
+    """把用户启用的附件说明和文档追加为软约束，不替换原资产提示词。"""
+    return f"{prompt}\n\n{attachment_context}".strip() if attachment_context else prompt
 
 
 async def _build_asset_prompt(
@@ -170,6 +176,13 @@ async def build_actor_image_base_draft(
             ),
         },
     )
+    prompt = _append_attachment_context(
+        prompt,
+        await load_assets_prompt_context(
+            db,
+            entities=[("actor", actor_id, actor.name)],
+        ),
+    )
     return AssetImageBaseDraft(
         entity_type="actor",
         entity_id=actor_id,
@@ -244,6 +257,13 @@ async def build_asset_image_base_draft(
             **(getattr(image_row, "prompt_overrides", None) or {}),
             "reference_instruction": "Use the supplied front-view reference to preserve the same design and proportions." if refs else "",
         },
+    )
+    prompt = _append_attachment_context(
+        prompt,
+        await load_assets_prompt_context(
+            db,
+            entities=[(asset_type_norm, asset_id, asset.name)],
+        ),
     )
     return AssetImageBaseDraft(
         entity_type=asset_type.strip().lower(),
@@ -335,6 +355,15 @@ async def build_character_image_base_draft(
             **(getattr(image_row, "prompt_overrides", None) or {}),
             "reference_instruction": "Use the supplied actor and costume references to preserve identity and wardrobe." if refs else "",
         },
+    )
+    context_entities = [("character", character_id, character.name)]
+    if character.actor_id:
+        context_entities.append(("actor", character.actor_id, character.name))
+    if character.costume_id:
+        context_entities.append(("costume", character.costume_id, character.name))
+    prompt = _append_attachment_context(
+        prompt,
+        await load_assets_prompt_context(db, entities=context_entities),
     )
     return AssetImageBaseDraft(
         entity_type="character",

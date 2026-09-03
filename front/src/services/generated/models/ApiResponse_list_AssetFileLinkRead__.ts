@@ -21,3 +21,4 @@ export type ApiResponse_list_AssetFileLinkRead__ = {
      */
     meta?: (Record<string, any> | null);
 };
+

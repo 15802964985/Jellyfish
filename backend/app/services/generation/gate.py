@@ -14,12 +14,14 @@ from app.core.contracts.generation import (
     ResolvedGenerationSnapshot,
 )
 from app.core.contracts.media import ImageMediaInput, MediaReference, VideoMediaInput
+from app.core.integrations.video_capabilities import VideoModelCapability, resolve_video_capability
 from app.models.experiment_sessions import ExperimentSession
 from app.models.llm import Model, ModelCategoryKey, ModelConfigRevision, ModelSettings, Provider, ProviderStatus
 from app.models.studio import Shot, ShotDetail, ShotFrameImage
 from app.models.studio_asset_images import ActorImage, CharacterImage, CostumeImage, PropImage, SceneImage
 from app.models.studio_prompts_files_timeline import FileItem
 from app.models.types import FileType
+from app.services.studio.asset_reference_context import resolve_shot_reference_bundle
 
 
 @dataclass(frozen=True)
@@ -51,17 +53,70 @@ class GenerationEntityGate:
         """将可验证的提交命令冻结为不含 ORM/凭据的执行快照。"""
         await self._validate_target(db, command)
         model, revision = await self._resolve_model(db, command)
-        await self._validate_media(db, command.request.media)
+        media, execution_prompt = await self._resolve_asset_references(
+            db,
+            command=command,
+            revision=revision,
+        )
+        await self._validate_media(db, media)
         return ResolvedGenerationSnapshot(
             model_id=model.id,
             model_revision_id=revision.id,
             canonical_target=command.target,
             expected_version_id=await self._target_version(db, command),
-            media=command.request.media,
+            media=media,
             operation_input=command.request.operation_input,
-            execution_prompt=command.request.execution_prompt,
+            execution_prompt=execution_prompt,
             credential_ref=revision.credential_ref,
         )
+
+    async def _resolve_asset_references(
+        self,
+        db: AsyncSession,
+        *,
+        command: GenerationCommand,
+        revision: ModelConfigRevision,
+    ) -> tuple[ImageMediaInput | VideoMediaInput | None, str | None]:
+        """让镜头关联附件按模型能力参与生成，同时保留显式用户选择优先级。"""
+        target = command.target
+        if target.kind not in {
+            GenerationTargetKind.shot_video,
+            GenerationTargetKind.shot_frame_slot,
+        }:
+            return command.request.media, command.request.execution_prompt
+
+        media = command.request.media
+        capability = VideoModelCapability()
+        allow_subjects = False
+        if target.kind == GenerationTargetKind.shot_video:
+            capability = resolve_video_capability(
+                provider=revision.provider_key,  # type: ignore[arg-type]
+                model=revision.model_name,
+            )
+            video_media = media if isinstance(media, VideoMediaInput) else VideoMediaInput()
+            has_frame_reference = bool(
+                video_media.frames.first
+                or video_media.frames.last
+                or video_media.frames.keys
+            )
+            allow_subjects = not video_media.subjects and (
+                not has_frame_reference
+                or capability.supports_subject_reference_with_frame_reference
+            )
+
+        bundle = await resolve_shot_reference_bundle(
+            db,
+            shot_id=target.entity_id,
+            capability=capability,
+            allow_subjects=allow_subjects,
+        )
+        if target.kind == GenerationTargetKind.shot_video and bundle.subjects:
+            video_media = media if isinstance(media, VideoMediaInput) else VideoMediaInput()
+            media = video_media.model_copy(update={"subjects": bundle.subjects})
+        prompt = (command.request.execution_prompt or "").strip()
+        if bundle.prompt_context:
+            prompt = f"{prompt}\n\n{bundle.prompt_context}".strip()
+        return media, prompt or None
 
     async def _resolve_model(self, db: AsyncSession, command: GenerationCommand) -> tuple[Model, ModelConfigRevision]:
         """选择显式或默认模型，并固定当前 revision 而不是可变模型配置。"""
@@ -93,7 +148,11 @@ class GenerationEntityGate:
         """验证每个 file_id 存在且声明 media_kind 与 FileItem.type 一致。"""
         for reference in _iter_media(media):
             file_item = await db.get(FileItem, reference.file_id)
-            expected_type = FileType.image if reference.media_kind == "image" else FileType.video
+            expected_type = {
+                "image": FileType.image,
+                "video": FileType.video,
+                "audio": FileType.audio,
+            }[reference.media_kind]
             if file_item is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="file_not_found")
             if file_item.type != expected_type:

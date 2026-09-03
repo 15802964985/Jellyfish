@@ -182,6 +182,42 @@ async def download_file(*, key: str) -> bytes:
     return await to_thread.run_sync(_download)
 
 
+async def download_file_range(*, key: str, start: int, end: int) -> bytes:
+    """读取对象的闭区间字节片段，供浏览器音视频 Range 请求使用。"""
+    client = _build_s3_client()
+    bucket = settings.s3_bucket_name
+    if bucket is None:
+        raise RuntimeError("S3 未配置：缺少 s3_bucket_name")
+    s3_key = _normalize_key(key)
+
+    def _download() -> bytes:
+        obj = client.get_object(Bucket=bucket, Key=s3_key, Range=f"bytes={start}-{end}")
+        return obj["Body"].read()  # type: ignore[no-any-return]
+
+    return await to_thread.run_sync(_download)
+
+
+async def file_exists(*, key: str) -> bool:
+    """判断对象是否存在；只吞掉明确的未找到错误。"""
+    client = _build_s3_client()
+    bucket = settings.s3_bucket_name
+    if bucket is None:
+        raise RuntimeError("S3 未配置：缺少 s3_bucket_name")
+    s3_key = _normalize_key(key)
+
+    def _exists() -> bool:
+        try:
+            client.head_object(Bucket=bucket, Key=s3_key)
+            return True
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return False
+            raise
+
+    return await to_thread.run_sync(_exists)
+
+
 async def get_file_info(*, key: str) -> StoredFileInfo:
     """获取文件元信息（不下载内容）。"""
     client = _build_s3_client()

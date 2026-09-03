@@ -50,6 +50,10 @@ class _FakeExecuteResult:
     def scalars(self):
         return _FakeScalarResult(self._rows)
 
+    def all(self):
+        """模拟 SQLAlchemy 多列查询结果，供附件关联查询使用。"""
+        return self._rows
+
     def scalar_one_or_none(self):
         return self._single
 

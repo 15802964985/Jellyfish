@@ -12,3 +12,4 @@ export type AssetFileLinkUpdate = {
     enabled?: (boolean | null);
     note?: (string | null);
 };
+

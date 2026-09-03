@@ -3,7 +3,8 @@ import { Button, Card, Col, Form, Input, Modal, Pagination, Row, Select, Space, 
 import { AudioOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, FileImageOutlined, FileTextOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
 import { StudioFilesService } from '../../../services/generated'
 import type { FileRead, FileTypeEnum } from '../../../services/generated'
-import { buildFileDownloadUrl } from '../assets/utils'
+import { buildFileDownloadUrl, buildFilePreviewUrl } from '../assets/utils'
+import { FilePreviewModal } from './FilePreviewModal'
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96]
 
@@ -19,6 +20,7 @@ export default function FileManager() {
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [fileType, setFileType] = useState<FileTypeEnum | undefined>()
+  const [previewFile, setPreviewFile] = useState<FileRead | null>(null)
   const [form] = Form.useForm<{ name: string; tags: string[] }>()
 
   const load = async () => {
@@ -145,6 +147,7 @@ export default function FileManager() {
         <Row gutter={[16, 16]}>
           {files.map((file) => {
             const url = buildFileDownloadUrl(file.id)
+            const previewUrl = buildFilePreviewUrl(file.id)
             const typeMeta: Record<FileTypeEnum, { label: string; color: string }> = {
               image: { label: '图片', color: 'blue' },
               video: { label: '视频', color: 'purple' },
@@ -153,12 +156,12 @@ export default function FileManager() {
             }
             const meta = typeMeta[file.type]
             const cover = file.type === 'image'
-              ? <img src={url} alt={file.name} className="h-32 w-full object-cover bg-gray-100" />
+              ? <button type="button" className="block w-full" onClick={() => setPreviewFile(file)}><img src={previewUrl} alt={file.name} className="h-32 w-full bg-gray-100 object-contain p-1" /></button>
               : file.type === 'video'
-                ? <video src={url} controls preload="metadata" className="h-32 w-full bg-slate-950 object-contain" />
+                ? <video src={previewUrl} controls preload="metadata" className="h-32 w-full bg-slate-950 object-contain" onDoubleClick={() => setPreviewFile(file)} />
                 : file.type === 'audio'
-                  ? <div className="flex h-32 items-center bg-gradient-to-br from-blue-50 to-slate-100 px-3"><audio src={url} controls preload="metadata" className="w-full" /></div>
-                  : <div className="flex h-32 flex-col items-center justify-center gap-2 bg-slate-50 text-slate-500"><FileTextOutlined className="text-4xl" /><span className="max-w-[90%] truncate text-xs">{file.original_name || file.name}</span></div>
+                  ? <div className="flex h-32 items-center bg-gradient-to-br from-blue-50 to-slate-100 px-3"><audio src={previewUrl} controls preload="metadata" className="w-full" /></div>
+                  : <button type="button" className="flex h-32 w-full flex-col items-center justify-center gap-2 bg-slate-50 text-slate-500" onClick={() => setPreviewFile(file)}><FileTextOutlined className="text-4xl" /><span className="max-w-[90%] truncate text-xs">{file.original_name || file.name}</span><span className="text-blue-600">点击预览</span></button>
             return (
               <Col xs={24} sm={12} md={8} lg={6} key={file.id}>
                 <Card
@@ -202,6 +205,7 @@ export default function FileManager() {
           <Form.Item name="tags" label="标签"><Select mode="tags" tokenSeparators={[',', '，']} open={false} placeholder="输入标签后按回车" /></Form.Item>
         </Form>
       </Modal>
+      <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
     </div>
   )
 }

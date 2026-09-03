@@ -106,14 +106,45 @@ export class StudioFilesService {
      */
     public static downloadFileApiApiV1StudioFilesFileIdDownloadGet({
         fileId,
+        range,
     }: {
         fileId: string,
+        range?: (string | null),
     }): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/studio/files/{file_id}/download',
             path: {
                 'file_id': fileId,
+            },
+            headers: {
+                'Range': range,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 内联预览文件（支持音视频 Range 与视频兼容转码）
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static previewFileApiApiV1StudioFilesFileIdPreviewGet({
+        fileId,
+        range,
+    }: {
+        fileId: string,
+        range?: (string | null),
+    }): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/files/{file_id}/preview',
+            path: {
+                'file_id': fileId,
+            },
+            headers: {
+                'Range': range,
             },
             errors: {
                 422: `Validation Error`,

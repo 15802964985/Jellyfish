@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
+import subprocess
+import tempfile
 import uuid
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from xml.etree import ElementTree
 
+from anyio import to_thread
 from fastapi import HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -27,6 +34,7 @@ from app.services.studio.file_usages import upsert_file_usage
 FILE_ORDER_FIELDS = {"name", "created_at", "updated_at"}
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 UPLOAD_HASH_CHUNK_BYTES = 1024 * 1024
+RANGE_CHUNK_BYTES = 4 * 1024 * 1024
 
 _EXTENSION_TYPES: dict[str, FileType] = {
     ".jpg": FileType.image,
@@ -251,18 +259,249 @@ async def build_download_response(
     db: AsyncSession,
     *,
     file_id: str,
-) -> StreamingResponse:
-    """根据 file_id 构建下载响应。"""
+    range_header: str | None = None,
+) -> Response:
+    """根据 file_id 构建下载响应，并支持音视频分段读取。"""
     file_item = await get_or_404(db, FileItem, file_id, detail=entity_not_found("File"))
-    content = await storage.download_file(key=file_item.storage_key)
-
     filename = file_item.original_name or Path(file_item.storage_key).name or "download"
-    media_type = _resolve_download_media_type(filename)
-    content_disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
-    return StreamingResponse(
-        iter([content]),
+    return await _build_binary_response(
+        key=file_item.storage_key,
+        filename=filename,
+        media_type=file_item.mime_type or _resolve_download_media_type(filename),
+        range_header=range_header,
+        disposition="attachment",
+    )
+
+
+def _parse_range_header(value: str | None, *, size: int) -> tuple[int, int] | None:
+    """解析单段 HTTP bytes Range；多段请求保持拒绝，避免错误拼包。"""
+    if not value:
+        return None
+    match = re.fullmatch(r"bytes=(\d*)-(\d*)", value.strip())
+    if match is None or size <= 0:
+        raise HTTPException(status_code=416, detail="不支持的文件分段范围")
+    start_raw, end_raw = match.groups()
+    if not start_raw and not end_raw:
+        raise HTTPException(status_code=416, detail="不支持的文件分段范围")
+    if start_raw:
+        start = int(start_raw)
+        end = int(end_raw) if end_raw else min(size - 1, start + RANGE_CHUNK_BYTES - 1)
+    else:
+        suffix = min(int(end_raw), size)
+        start, end = size - suffix, size - 1
+    if start < 0 or start >= size or end < start:
+        raise HTTPException(
+            status_code=416,
+            detail="请求范围超出文件大小",
+            headers={"Content-Range": f"bytes */{size}"},
+        )
+    return start, min(end, size - 1)
+
+
+async def _build_binary_response(
+    *,
+    key: str,
+    filename: str,
+    media_type: str,
+    range_header: str | None,
+    disposition: str,
+) -> Response:
+    """从对象存储返回可缓存、支持 Range 的二进制响应。"""
+    info = await storage.get_file_info(key=key)
+    size = int(info.size or 0)
+    byte_range = _parse_range_header(range_header, size=size)
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(filename)}",
+        "Cache-Control": "private, max-age=3600",
+    }
+    if byte_range is None:
+        content = await storage.download_file(key=key)
+        headers["Content-Length"] = str(len(content))
+        return Response(content=content, media_type=media_type, headers=headers)
+    start, end = byte_range
+    content = await storage.download_file_range(key=key, start=start, end=end)
+    headers.update(
+        {
+            "Content-Length": str(len(content)),
+            "Content-Range": f"bytes {start}-{end}/{size}",
+        }
+    )
+    return Response(content=content, status_code=206, media_type=media_type, headers=headers)
+
+
+def _video_preview_key(file_id: str) -> str:
+    """返回不依赖数据库迁移的浏览器兼容视频派生对象键。"""
+    return f"previews/{file_id}/browser.mp4"
+
+
+def _probe_video_codec(path: Path) -> str:
+    """读取第一路视频编码；无法识别时交给 ffmpeg 转码以获得稳定预览。"""
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    streams = json.loads(result.stdout or "{}").get("streams") or []
+    return str(streams[0].get("codec_name") or "") if streams else ""
+
+
+def _transcode_browser_video(source: Path, target: Path) -> None:
+    """将 HEVC 等浏览器兼容性较差的上传视频转为 H.264/AAC 快速预览副本。"""
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "24",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+async def _resolve_video_preview_key(file_item: FileItem) -> str:
+    """按需生成并缓存浏览器兼容视频；原始下载文件始终保持不变。"""
+    preview_key = _video_preview_key(file_item.id)
+    if await storage.file_exists(key=preview_key):
+        return preview_key
+    content = await storage.download_file(key=file_item.storage_key)
+    with tempfile.TemporaryDirectory(prefix="jellyfish-preview-") as temp_dir:
+        source = Path(temp_dir) / (file_item.original_name or "source.mp4")
+        target = Path(temp_dir) / "browser.mp4"
+        await to_thread.run_sync(source.write_bytes, content)
+        codec = await to_thread.run_sync(_probe_video_codec, source)
+        suffix = source.suffix.lower()
+        browser_compatible = (
+            suffix == ".mp4" and codec in {"h264", "av1"}
+        ) or (
+            suffix == ".webm" and codec in {"vp8", "vp9", "av1"}
+        )
+        if browser_compatible:
+            return file_item.storage_key
+        await to_thread.run_sync(_transcode_browser_video, source, target)
+        preview_content = await to_thread.run_sync(target.read_bytes)
+        await storage.upload_file(
+            key=preview_key,
+            data=preview_content,
+            content_type="video/mp4",
+        )
+    return preview_key
+
+
+def _extract_docx_text(content: bytes) -> str:
+    """使用标准库提取 DOCX 主文档文本，供网页安全只读预览。"""
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            xml = archive.read("word/document.xml")
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=422, detail="DOCX 文件结构无效，无法预览") from exc
+    root = ElementTree.fromstring(xml)
+    paragraphs: list[str] = []
+    for paragraph in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p"):
+        text = "".join(
+            node.text or ""
+            for node in paragraph.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")
+        ).strip()
+        if text:
+            paragraphs.append(text)
+    return "\n\n".join(paragraphs)
+
+
+def _extract_pdf_text(content: bytes) -> str:
+    """提取 PDF 文本层；扫描件无文字层时返回空串而不是臆测内容。"""
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(content))
+        return "\n\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="PDF 无法解析或已加密") from exc
+
+
+async def extract_document_text(file_item: FileItem, *, max_chars: int = 8000) -> str:
+    """从受控文档文件中提取有限文本，供关联资产提示词上下文使用。"""
+    if file_item.type != FileType.document:
+        return ""
+    if file_item.size_bytes and file_item.size_bytes > 25 * 1024 * 1024:
+        return "[文档超过 25MB，未自动提取正文]"
+    content = await storage.download_file(key=file_item.storage_key)
+    suffix = Path(file_item.original_name or file_item.storage_key).suffix.lower()
+    if suffix in {".txt", ".md", ".markdown"}:
+        text = content.decode("utf-8-sig", errors="replace")
+    elif suffix == ".docx":
+        text = await to_thread.run_sync(_extract_docx_text, content)
+    elif suffix == ".pdf":
+        text = await to_thread.run_sync(_extract_pdf_text, content)
+    else:
+        return ""
+    normalized = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return normalized[:max_chars]
+
+
+async def build_preview_response(
+    db: AsyncSession,
+    *,
+    file_id: str,
+    range_header: str | None = None,
+) -> Response:
+    """构建内联预览；视频按需兼容转码，文本和 DOCX 返回只读文本。"""
+    file_item = await get_or_404(db, FileItem, file_id, detail=entity_not_found("File"))
+    filename = file_item.original_name or Path(file_item.storage_key).name or "preview"
+    suffix = Path(filename).suffix.lower()
+    if suffix in {".txt", ".md", ".markdown", ".docx"}:
+        content = await storage.download_file(key=file_item.storage_key)
+        text = _extract_docx_text(content) if suffix == ".docx" else content.decode("utf-8-sig", errors="replace")
+        return Response(
+            content=text,
+            media_type="text/plain",
+            headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"},
+        )
+    preview_key = (
+        await _resolve_video_preview_key(file_item)
+        if file_item.type == FileType.video
+        else file_item.storage_key
+    )
+    media_type = "video/mp4" if preview_key != file_item.storage_key else (
+        file_item.mime_type or _resolve_download_media_type(filename)
+    )
+    return await _build_binary_response(
+        key=preview_key,
+        filename=filename,
         media_type=media_type,
-        headers={"Content-Disposition": content_disposition},
+        range_header=range_header,
+        disposition="inline",
     )
 
 
@@ -314,6 +553,10 @@ async def delete_file(
         await storage.delete_file(key=file_item.storage_key)
     except Exception:
         # 存储删除失败不阻塞记录删除，保持当前接口语义。
+        pass
+    try:
+        await storage.delete_file(key=_video_preview_key(file_id))
+    except Exception:
         pass
 
     await db.delete(file_item)

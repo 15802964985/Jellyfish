@@ -6,10 +6,13 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.studio import ShotAudioTrack
+from app.models.studio import FileItem
 from app.models.types import FileType
+from app.core.integrations.video_capabilities import VideoModelCapability
 from app.schemas.studio.media_assets import ShotAudioTrackCreate
-from app.services.studio.files import _detect_file_type, _safe_storage_filename
-from app.services.studio.generation.asset_image.build_base import _merge_reference_ids
+from app.services.studio.asset_reference_context import AssetAttachment, _select_subjects
+from app.services.studio.files import _detect_file_type, _parse_range_header, _safe_storage_filename
+from app.services.studio.generation.asset_image.build_base import _append_attachment_context, _merge_reference_ids
 from app.services.studio.media_composition import _audio_filter
 
 
@@ -17,8 +20,16 @@ from app.services.studio.media_composition import _audio_filter
     ("filename", "expected"),
     [
         ("voice.mp3", FileType.audio),
+        ("voice.wav", FileType.audio),
+        ("voice.m4a", FileType.audio),
         ("scene.MD", FileType.document),
+        ("scene.txt", FileType.document),
+        ("scene.pdf", FileType.document),
+        ("scene.docx", FileType.document),
         ("reference.webp", FileType.image),
+        ("reference.jpg", FileType.image),
+        ("motion.mp4", FileType.video),
+        ("motion.mov", FileType.video),
         ("motion.webm", FileType.video),
     ],
 )
@@ -36,6 +47,54 @@ def test_storage_filename_strips_paths_and_unsafe_characters() -> None:
 def test_reference_merge_is_stable_optional_and_limited() -> None:
     assert _merge_reference_ids([], []) == []
     assert _merge_reference_ids(["a", "b"], ["b", "c", "d", "e"], limit=4) == ["a", "b", "c", "d"]
+
+
+def test_attachment_context_is_a_soft_prompt_suffix() -> None:
+    assert _append_attachment_context("主体提示词", "附件说明") == "主体提示词\n\n附件说明"
+    assert _append_attachment_context("主体提示词", "") == "主体提示词"
+
+
+def test_media_range_parser_supports_browser_request_forms() -> None:
+    assert _parse_range_header("bytes=0-99", size=1000) == (0, 99)
+    assert _parse_range_header("bytes=900-", size=1000) == (900, 999)
+    assert _parse_range_header("bytes=-100", size=1000) == (900, 999)
+
+
+def test_linked_subject_media_only_uses_model_supported_types() -> None:
+    """关联素材按模型能力转成主体引用，音频必须与视觉素材绑定。"""
+    attachments = [
+        AssetAttachment(
+            entity_type="character",
+            entity_id="character-1",
+            entity_name="角色A",
+            file=FileItem(id=file_id, type=file_type, name=file_id, thumbnail="", tags=[], storage_key=f"files/{file_id}"),
+            resource_role="reference",
+            note="",
+            is_primary=index == 0,
+            sort_index=index,
+        )
+        for index, (file_id, file_type) in enumerate(
+            [("image-1", FileType.image), ("video-1", FileType.video), ("audio-1", FileType.audio)]
+        )
+    ]
+    subjects = _select_subjects(
+        attachments=attachments,
+        subject_sources={"角色A": [("character", "character-1")]},
+        capability=VideoModelCapability(
+            supports_subject_image_reference=True,
+            supports_subject_video_reference=False,
+            supports_subject_audio_reference=True,
+            max_subjects=1,
+            max_images_per_subject=1,
+            max_audios_per_subject=1,
+        ),
+    )
+
+    assert len(subjects) == 1
+    assert [(item.file_id, item.media_kind) for item in subjects[0].media] == [
+        ("image-1", "image"),
+        ("audio-1", "audio"),
+    ]
 
 
 def test_audio_track_range_must_be_forward() -> None:

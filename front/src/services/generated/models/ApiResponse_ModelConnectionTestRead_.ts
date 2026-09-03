@@ -21,3 +21,4 @@ export type ApiResponse_ModelConnectionTestRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
+

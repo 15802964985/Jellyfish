@@ -6,7 +6,7 @@ import { StudioFilesService, StudioShotsService } from '../../../../../services/
 import type { FileRead } from '../../../../../services/generated'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { useChapters } from '../hooks/useProjectData'
-import { buildFileDownloadUrl } from '../../../assets/utils'
+import { buildFileDownloadUrl, buildFilePreviewUrl } from '../../../assets/utils'
 
 const PAGE_SIZE = 10
 
@@ -265,7 +265,7 @@ export function FilesTab() {
         {previewVideo ? (
           <video
             className="w-full max-h-[70vh] bg-black rounded"
-            src={buildFileDownloadUrl(previewVideo.id)}
+            src={buildFilePreviewUrl(previewVideo.id)}
             controls
             playsInline
           >

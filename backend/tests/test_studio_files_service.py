@@ -20,7 +20,7 @@ from app.models.studio import (
     Shot,
 )
 from app.services.studio import files as files_service
-from app.services.studio.files import get_file_detail, list_files_paginated, update_file_meta
+from app.services.studio.files import build_preview_response, get_file_detail, list_files_paginated, update_file_meta
 from app.schemas.studio.files import FileUpdate
 
 
@@ -198,4 +198,42 @@ async def test_upload_file_does_not_force_public_acl(monkeypatch) -> None:
         assert str(captured["key"]).endswith("/reference.png")
         assert captured["content_type"] == "image/png"
         assert "extra_args" not in captured
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_preview_response_returns_partial_video_content(monkeypatch) -> None:
+    """浏览器视频预览必须响应 206 与 Content-Range，避免黑屏或无法拖动。"""
+    async def _fake_info(**kwargs):
+        return StoredFileInfo(key=str(kwargs["key"]), url="", size=1000, content_type="video/mp4")
+
+    async def _fake_range(**kwargs):
+        return b"x" * (int(kwargs["end"]) - int(kwargs["start"]) + 1)
+
+    async def _source_preview(file_item):
+        return file_item.storage_key
+
+    monkeypatch.setattr(files_service.storage, "get_file_info", _fake_info)
+    monkeypatch.setattr(files_service.storage, "download_file_range", _fake_range)
+    monkeypatch.setattr(files_service, "_resolve_video_preview_key", _source_preview)
+    db, engine = await _build_session()
+    async with db:
+        db.add(
+            FileItem(
+                id="video-1",
+                type=FileType.video,
+                name="视频",
+                thumbnail="",
+                tags=[],
+                storage_key="files/video.mp4",
+                original_name="video.mp4",
+                mime_type="video/mp4",
+            )
+        )
+        await db.commit()
+        response = await build_preview_response(db, file_id="video-1", range_header="bytes=0-99")
+        assert response.status_code == 206
+        assert response.headers["content-range"] == "bytes 0-99/1000"
+        assert response.headers["accept-ranges"] == "bytes"
+        assert len(response.body) == 100
     await engine.dispose()

@@ -43,3 +43,8 @@ export function buildFileDownloadUrl(fileId?: string | null): string | undefined
   if (!fileId) return undefined
   return resolveAssetUrl(`/api/v1/studio/files/${encodeURIComponent(fileId)}/download`)
 }
+
+export function buildFilePreviewUrl(fileId?: string | null): string | undefined {
+  if (!fileId) return undefined
+  return resolveAssetUrl(`/api/v1/studio/files/${encodeURIComponent(fileId)}/preview`)
+}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -11,6 +11,7 @@ from app.schemas.studio import FileDetailRead, FileRead, FileTypeEnum, FileUpdat
 from app.services.studio.file_usages import list_files_by_scope_paginated
 from app.services.studio.files import (
     build_download_response,
+    build_preview_response,
     delete_file,
     get_file_detail as get_file_detail_service,
     get_storage_info,
@@ -110,9 +111,22 @@ async def upload_file_api(
 )
 async def download_file_api(
     file_id: str,
+    range_header: str | None = Header(None, alias="Range"),
     db: AsyncSession = Depends(get_db, scope="function"),
 ):
-    return await build_download_response(db, file_id=file_id)
+    return await build_download_response(db, file_id=file_id, range_header=range_header)
+
+
+@router.get(
+    "/{file_id}/preview",
+    summary="内联预览文件（支持音视频 Range 与视频兼容转码）",
+)
+async def preview_file_api(
+    file_id: str,
+    range_header: str | None = Header(None, alias="Range"),
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    return await build_preview_response(db, file_id=file_id, range_header=range_header)
 
 
 @router.get(
