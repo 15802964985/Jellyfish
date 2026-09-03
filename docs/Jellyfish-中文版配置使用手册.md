@@ -43,6 +43,8 @@ Jellyfish 自己负责编排、数据管理和任务调度，不自带免费的�
 
 本机使用的是部署时随机生成的密钥，不是示例文件中的 `rustfsadmin`。为避免密钥随源码、截图或文档泄漏，本手册不记录具体值。不要把 `deploy\compose\.env` 提交到 Git，也不要在控制台截图中暴露密钥。
 
+后端启动时会幂等检查并创建 `.env` 中 `S3_BUCKET_NAME` 指定的 bucket。Docker 内网端点 `http://rustfs:9000` 会自动使用 path-style 寻址。若上传日志出现 `NoSuchBucket` 或尝试访问 `桶名.rustfs`，先确认正在运行的是本手册对应版本，再重启 `backend` 并检查启动日志；不要通过修改 hosts 文件绕过。
+
 ## 3. 日常启动与关闭
 
 ### 3.1 启动前检查

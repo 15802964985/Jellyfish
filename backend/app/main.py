@@ -1,5 +1,6 @@
 """FastAPI 应用入口。"""
 
+from asyncio import to_thread
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -57,6 +58,11 @@ async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化，关闭时清理。"""
     # 启动时：供应商注册 + 任务执行器注册（幂等）
     bootstrap_all_registries()
+    if settings.s3_bucket_name:
+        from app.core.storage import init_storage
+
+        # boto3 是同步客户端，在线程中完成幂等 bucket 初始化，避免阻塞事件循环。
+        await to_thread(init_storage)
     yield
     # 关闭时：清理资源
     pass

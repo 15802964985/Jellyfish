@@ -40,7 +40,7 @@ def _resolve_s3_addressing_style() -> str:
 
     endpoint = settings.s3_endpoint_url or ""
     hostname = urlparse(endpoint).hostname
-    if hostname in {"localhost", "127.0.0.1", "::1"}:
+    if hostname in {"localhost", "127.0.0.1", "::1"} or (hostname and "." not in hostname):
         return "path"
     return "virtual"
 

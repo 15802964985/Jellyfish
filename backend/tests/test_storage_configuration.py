@@ -12,6 +12,14 @@ def test_local_s3_endpoint_uses_path_addressing(monkeypatch) -> None:
     assert _resolve_s3_addressing_style() == "path"
 
 
+def test_docker_service_s3_endpoint_uses_path_addressing(monkeypatch) -> None:
+    """Docker 内网服务名不能被拼接为 bucket 子域名。"""
+    monkeypatch.setattr(settings, "s3_addressing_style", "auto")
+    monkeypatch.setattr(settings, "s3_endpoint_url", "http://rustfs:9000")
+
+    assert _resolve_s3_addressing_style() == "path"
+
+
 def test_explicit_s3_addressing_style_overrides_auto_detection(monkeypatch) -> None:
     """供应商已知寻址要求时，显式配置必须优先于 endpoint 推断。"""
     monkeypatch.setattr(settings, "s3_addressing_style", "virtual")

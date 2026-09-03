@@ -59,6 +59,9 @@ def test_unified_generation_expand_migration_upgrades_and_downgrades_sqlite(tmp_
     with engine.begin() as connection:
         migration.op = Operations(MigrationContext.configure(connection))
         migration.upgrade()
+        # MySQL DDL is non-transactional; a failed deployment must be able to
+        # resume after some columns, tables, or indexes were already created.
+        migration.upgrade()
 
         inspector = sa.inspect(connection)
         task_columns = {column["name"] for column in inspector.get_columns("generation_tasks")}
