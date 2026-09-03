@@ -15,6 +15,62 @@ from app.core.db import Base
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 INITIAL_SCHEMA_REVISION = "05e1c5a7a117"
+INITIAL_SCHEMA_TABLES = frozenset(
+    {
+        "files",
+        "generation_tasks",
+        "projects",
+        "prompt_templates",
+        "providers",
+        "timeline_clips",
+        "actors",
+        "chapters",
+        "costumes",
+        "generation_task_links",
+        "models",
+        "props",
+        "scenes",
+        "actor_images",
+        "characters",
+        "costume_images",
+        "model_settings",
+        "prop_images",
+        "scene_images",
+        "shots",
+        "character_images",
+        "character_prop_links",
+        "file_usages",
+        "project_actor_links",
+        "project_costume_links",
+        "project_prop_links",
+        "project_scene_links",
+        "shot_character_links",
+        "shot_details",
+        "shot_extracted_candidates",
+        "shot_dialog_lines",
+        "shot_frame_images",
+        "shot_extracted_dialogue_candidates",
+    }
+)
+
+
+def _classify_database_tables(table_names: set[str], application_tables: set[str]) -> str:
+    """Classify table names without mistaking later migrations for baseline tables."""
+    if "alembic_version" in table_names:
+        return "versioned"
+
+    existing_application_tables = table_names & application_tables
+    if not existing_application_tables:
+        return "empty"
+
+    missing_baseline_tables = INITIAL_SCHEMA_TABLES - table_names
+    if missing_baseline_tables:
+        missing = ", ".join(sorted(missing_baseline_tables))
+        raise RuntimeError(
+            "Database has a partial Jellyfish baseline schema and cannot be safely baselined. "
+            f"Missing tables: {missing}"
+        )
+    return "legacy"
 
 
 async def _database_state() -> str:
@@ -22,8 +78,9 @@ async def _database_state() -> str:
 
     Returns:
         ``empty`` for a database without application tables, ``versioned`` when
-        Alembic already owns the schema, and ``legacy`` when all current ORM
-        tables exist but no Alembic version table is present.
+        Alembic already owns the schema, and ``legacy`` when all tables from the
+        initial Alembic revision exist but no version table is present. Tables
+        introduced by later migrations may legitimately be absent.
 
     Raises:
         RuntimeError: If the database contains only part of the application
@@ -36,19 +93,7 @@ async def _database_state() -> str:
     finally:
         await engine.dispose()
 
-    application_tables = set(Base.metadata.tables)
-    existing_application_tables = table_names & application_tables
-    if "alembic_version" in table_names:
-        return "versioned"
-    if not existing_application_tables:
-        return "empty"
-    if existing_application_tables == application_tables:
-        return "legacy"
-    missing = ", ".join(sorted(application_tables - existing_application_tables))
-    raise RuntimeError(
-        "Database has a partial Jellyfish schema and cannot be safely baselined. "
-        f"Missing tables: {missing}"
-    )
+    return _classify_database_tables(table_names, set(Base.metadata.tables))
 
 
 def _alembic_config() -> Config:
