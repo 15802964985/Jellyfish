@@ -465,51 +465,265 @@ Windows 原有 Redis 使用 `127.0.0.1:6379`。Jellyfish 专用 Redis 在容器�
 
 启动和升级必须同时加载 `docker-compose.secure-local.yml`，否则可能绕过本地镜像和安全端口配置。
 
-## 9. 更新 Jellyfish
+## 9. GitHub Fork、本地二开与上游更新
 
-更新前先确认没有正在生成的任务，并做好重要素材备份。
+本节适用于当前二开仓库。不要直接在 `main` 上执行 `git pull`，不要用 ZIP 覆盖 `E:\Jellyfish`。
 
-### 9.1 检查代码状态
+```text
+作者 Forget-C/Jellyfish main
+          └── 本地 main
+                └── local/stable-2026-09-02-media-assets
+                    稳定提交 80cde5108a1ac835dd5d53adbbbbd5a1455a778c
+```
+
+约定：`upstream` 指向作者仓库；`origin` 指向自己的 Fork。
+
+### 9.1 一次性安装和登录 GitHub CLI
+
+本机目前没有 `gh`，打开普通 PowerShell：
+
+```powershell
+winget install --id GitHub.cli --source winget
+```
+
+关闭整个终端窗口，重新打开后执行：
+
+```powershell
+gh --version
+gh auth login --hostname github.com --git-protocol https --web
+gh auth setup-git
+gh auth status --hostname github.com
+```
+
+浏览器已登录不代表命令行已登录。不要使用 `--show-token`，不要在命令、聊天或截图中保存 Token。
+
+### 9.2 自动 Fork、配置远程并首次推送
+
+以下远程配置只执行一次：
 
 ```powershell
 Set-Location "E:\Jellyfish"
+gh repo fork Forget-C/Jellyfish --clone=false
+$GitHubUser = gh api user --jq .login
+git remote rename origin upstream
+git remote add origin "https://github.com/$GitHubUser/Jellyfish.git"
+git remote -v
+```
+
+预期 `origin` 是自己的 Fork，`upstream` 是 `https://github.com/Forget-C/Jellyfish.git`。如果提示远程已存在，停止重复执行，先用 `git remote -v` 检查。
+
+确认环境文件不会上传，然后推送：
+
+```powershell
+git check-ignore deploy/compose/.env
 git status --short
 git branch --show-current
+git push -u origin local/stable-2026-09-02-media-assets
+git tag -a local-stable-2026-09-02 -m "Jellyfish 中文版与富媒体素材第一阶段稳定版"
+git push origin local-stable-2026-09-02
 ```
 
-正常情况下应位于 `main` 分支。本机安全覆盖文件是未纳入 Git 的本地文件，不要删除：
+`git check-ignore` 应输出 `deploy/compose/.env`，`git status --short` 应为空。Fork 只备份代码，不包含 MySQL、RustFS 和 `.env`。
 
-- `deploy/compose/docker-compose.secure-local.yml`
-- `deploy/docker/backend.local.Dockerfile`
-- `deploy/docker/front.local.Dockerfile`
+### 9.3 每次更新前检查和备份
 
-### 9.2 拉取更新
+先确认任务中心没有执行中或排队任务：
 
 ```powershell
-git pull --ff-only origin main
-```
-
-如果 Git 报告未跟踪文件会被覆盖，应立即停止，不要强制覆盖。先备份冲突文件，再人工合并上游变化。
-
-### 9.3 更新并重建容器
-
-```powershell
+Set-Location "E:\Jellyfish"
+git switch local/stable-2026-09-02-media-assets
+git status --short
 $env:Path = "E:\Docker\Desktop\resources\bin;$env:Path"
-docker compose `
-  --env-file "E:\Jellyfish\deploy\compose\.env" `
-  -f "E:\Jellyfish\deploy\compose\docker-compose.yml" `
-  -f "E:\Jellyfish\deploy\compose\docker-compose.secure-local.yml" `
-  up --build -d
+$ComposeFiles = @(
+  "--env-file", "E:\Jellyfish\deploy\compose\.env",
+  "-f", "E:\Jellyfish\deploy\compose\docker-compose.yml",
+  "-f", "E:\Jellyfish\deploy\compose\docker-compose.secure-local.yml"
+)
 ```
 
-更新后检查：
+工作区必须为空。9.3 至 9.8 建议在同一个 PowerShell 窗口连续执行；如果中途重新打开终端，应重新执行上面的 `$ComposeFiles` 定义。记录更新前数据数量：
 
-1. `ps -a` 中服务状态正常。
-2. 前端和后端 HTTP 可以访问。
-3. 数据库初始化任务退出码为 0。
-4. 原有项目、模型设置和素材仍然存在。
+```powershell
+docker compose @ComposeFiles exec -T mysql sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -N -e "SELECT ''projects'',COUNT(*) FROM projects; SELECT ''chapters'',COUNT(*) FROM chapters; SELECT ''models'',COUNT(*) FROM models; SELECT ''providers'',COUNT(*) FROM providers; SELECT ''generation_tasks'',COUNT(*) FROM generation_tasks; SELECT ''files'',COUNT(*) FROM files;"'
+```
 
-不要执行 `git reset --hard`、不要删除 Docker volumes，也不要用 ZIP 文件直接覆盖当前目录。
+创建备份目录并备份 MySQL：
+
+```powershell
+$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$BackupRoot = "E:\JellyfishBackups\$Stamp"
+New-Item -ItemType Directory -Path $BackupRoot -Force
+docker compose @ComposeFiles exec -T mysql sh -lc 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers "$MYSQL_DATABASE" | gzip -c > /tmp/jellyfish-before-update.sql.gz'
+docker compose @ComposeFiles cp mysql:/tmp/jellyfish-before-update.sql.gz "$BackupRoot\jellyfish-before-update.sql.gz"
+```
+
+备份 RustFS 和配置：
+
+```powershell
+docker run --rm `
+  -v jellyfish_rustfs_data:/source:ro `
+  --mount "type=bind,source=$BackupRoot,target=/backup" `
+  alpine sh -lc "tar -czf /backup/rustfs-data.tar.gz -C /source ."
+Copy-Item "E:\Jellyfish\deploy\compose\.env" "$BackupRoot\compose.env.backup"
+Copy-Item "E:\Jellyfish\deploy\compose\docker-compose.secure-local.yml" "$BackupRoot\docker-compose.secure-local.yml"
+Get-ChildItem $BackupRoot
+```
+
+至少应看到数据库、RustFS 和两份配置备份。备份含密码，不要上传 GitHub。
+
+### 9.4 获取作者代码并同步 Fork main
+
+```powershell
+git fetch --all --prune
+git rev-list --left-right --count local/stable-2026-09-02-media-assets...upstream/main
+git log --oneline --decorate --graph --max-count=20 --all
+```
+
+`rev-list` 左侧是本地独有提交数，右侧是作者新增提交数；右侧为 `0` 时无需更新。
+
+```powershell
+$GitHubUser = gh api user --jq .login
+gh repo sync "$GitHubUser/Jellyfish" --source Forget-C/Jellyfish --branch main
+```
+
+如果同步冲突，不要添加 `--force`。本地二开只保存在稳定分支，Fork 的 `main` 应跟随作者。
+
+### 9.5 临时分支合并和冲突处理
+
+禁止直接合并到稳定分支：
+
+```powershell
+$UpdateId = Get-Date -Format "yyyyMMdd-HHmm"
+$IntegrationBranch = "integration/upstream-$UpdateId"
+git switch local/stable-2026-09-02-media-assets
+git switch -c $IntegrationBranch
+git merge --no-ff upstream/main
+```
+
+有冲突时：
+
+```powershell
+git status
+git diff --name-only --diff-filter=U
+```
+
+解决原则：
+
+1. 手写前后端以作者新架构为基础，重新嵌入本地功能，不能简单全部选择本地。
+2. `front/openapi.json` 和 `front/src/services/generated/` 不手工拼接；先解决后端接口，再重新生成。
+3. 先正确合并 `package.json`，再用 `pnpm install` 生成锁文件。
+4. 保留 E 盘、本机监听及 `docker-compose.secure-local.yml`，同时吸收作者新增参数。
+5. `.env` 不参与合并，不能被示例配置覆盖。
+6. 作者若使用相同 SQL 迁移编号，将本地迁移改为下一个空闲编号并保持幂等，不能覆盖作者迁移。
+7. 作者删除或重构的接口，应按其替代链路迁移本地能力，不恢复整套旧接口。
+
+每解决一个文件执行 `git add 文件路径`。全部解决后运行 `git status` 和 `git commit`。无法判断时：
+
+```powershell
+git merge --abort
+git switch local/stable-2026-09-02-media-assets
+```
+
+不要使用 `git reset --hard`。
+
+### 9.6 重新生成客户端并测试
+
+先用集成分支构建独立后端测试镜像并运行完整测试：
+
+```powershell
+Set-Location "E:\Jellyfish"
+docker build -f deploy/docker/backend.local.Dockerfile -t jellyfish-backend-update-test .
+docker run --rm jellyfish-backend-update-test uv run --group dev pytest -q
+```
+
+如果后端 API、路由或 Schema 有变化，从刚构建的测试镜像直接导出 OpenAPI。不要运行会从当前 8000 端口读取旧服务的 `pnpm run openapi:update`：
+
+```powershell
+docker run --rm `
+  --mount "type=bind,source=E:\Jellyfish\front,target=/front" `
+  jellyfish-backend-update-test `
+  uv run python -c "import json; from pathlib import Path; from app.main import app; Path('/front/openapi.json').write_text(json.dumps(app.openapi(), ensure_ascii=False), encoding='utf-8')"
+Set-Location "E:\Jellyfish\front"
+pnpm install --frozen-lockfile
+pnpm run openapi:gen
+pnpm run build
+```
+
+这样生成的是集成分支的新接口，而不是当前仍在运行的旧容器接口。如果冻结安装失败，先检查 `package.json` 冲突，再运行 `pnpm install` 并核对锁文件。
+
+任何测试或构建失败都不要迁移数据库。若重新生成产生合理修改：
+
+```powershell
+git add -A
+git status
+git commit -m "chore: resolve upstream integration and regenerate clients"
+```
+
+没有修改时跳过提交；提交前确认 `.env` 未出现。
+
+### 9.7 构建、迁移、重启及自动验证
+
+测试通过且备份存在后：
+
+```powershell
+Set-Location "E:\Jellyfish"
+docker compose @ComposeFiles up -d --build
+docker compose @ComposeFiles ps -a
+docker compose @ComposeFiles logs --tail 200 backend-init-db mysql-init-sql backend celery-worker front
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/health
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/openapi.json
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7788/
+```
+
+必须满足：
+
+- 两个初始化任务均为 `Exited (0)`。
+- MySQL、Redis 为 `healthy`。
+- 后端、Worker、前端均为 `Up`。
+- 三个 HTTP 请求均返回 `200`。
+- 日志无迁移失败、表不存在、Traceback 或前端启动失败。
+
+重新执行 9.3 的数量 SQL，确认项目、章节、模型、供应商、任务和文件没有异常减少。浏览器按 `Ctrl + F5`，人工验证：
+
+1. 项目、章节、分页及增删改刷新。
+2. 模型默认设置、连接测试和文本调用。
+3. 任务中心全部状态、类型筛选、分页、收起和展开。
+4. 剧本上传和智能拆解。
+5. 资产附件上传、停用、排序和解除关联。
+6. 配音音效上传、试听及镜头音轨。
+7. 图片生成使用或全部取消推荐图。
+8. 先用单个低成本镜头验证视频和音轨合成，再批量生成。
+
+不要执行带 `-v` 的 `docker compose down`。
+
+### 9.8 验证通过后固化并推送
+
+```powershell
+git status --short
+$IntegrationBranch = git branch --show-current
+git switch local/stable-2026-09-02-media-assets
+git merge --ff-only $IntegrationBranch
+git push origin local/stable-2026-09-02-media-assets
+$ReleaseTag = "local-stable-$(Get-Date -Format 'yyyyMMdd-HHmm')"
+git tag -a $ReleaseTag -m "Jellyfish 上游更新合并验证版"
+git push origin $ReleaseTag
+```
+
+确认 Fork 能看到稳定分支和标签后才算完成。
+
+### 9.9 更新失败和回退
+
+尚未迁移数据库时，执行 `git merge --abort` 并切回稳定分支即可。已经迁移数据库时，不要自行恢复 SQL、删表或删卷；保留日志和备份，再判断只回退代码还是停服恢复 MySQL、RustFS。恢复数据库会覆盖现有数据，必须再次人工确认。
+
+### 9.10 官方参考
+
+- GitHub CLI Windows 安装：<https://github.com/cli/cli/blob/trunk/docs/install_windows.md>
+- GitHub CLI 登录：<https://cli.github.com/manual/gh_auth_login>
+- 自动 Fork：<https://cli.github.com/manual/gh_repo_fork>
+- 同步 Fork：<https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork>
+- 合并冲突：<https://docs.github.com/en/get-started/using-git/resolving-merge-conflicts-after-a-git-merge>
+
+任何情况下都不要把 API Key、数据库密码、`.env`、SQL 备份或 RustFS 备份推送到 GitHub。
 
 ## 10. 备份与恢复原则
 
