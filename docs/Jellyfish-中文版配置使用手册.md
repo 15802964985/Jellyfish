@@ -503,15 +503,18 @@ Windows 原有 Redis 使用 `127.0.0.1:6379`。Jellyfish 专用 Redis 在容器�
 
 ## 9. GitHub Fork、本地二开与上游更新
 
-本节适用于当前二开仓库。作者默认分支 `main` 较旧，当前开发基线是 `codex/0718`；不要把二开提交直接写入 `main` 或作者跟踪分支，也不要用 ZIP 覆盖 `E:\JellyfishNew`。
+本节适用于当前二开仓库。历史迁移基线是作者 `codex/0718`，但下次更新时必须重新检查作者真正的最新活跃分支和精确提交，不能永久假设 `main` 或 `codex/0718` 最新。不要把二开提交直接写入作者跟踪分支，不要用 ZIP 覆盖 `E:\JellyfishNew`，也不要在当前正式目录直接 merge 上游。
 
 ```text
-作者 Forget-C/Jellyfish codex/0718（upstream/codex/0718）
-          └── integration/codex-0718-local-port（迁移验证分支）
-                └── local/stable-codex-0718（验证通过后的本地稳定分支）
+作者最新活跃分支 + 精确 SHA
+          └── E:\JellyfishCandidate-时间戳（全新候选目录）
+                └── integration/upstream-时间戳（逐项智能迁移）
+                      └── E:\JellyfishNew / local/stable-*（验证后的唯一正式版本）
 ```
 
 约定：`upstream` 指向作者仓库；`origin` 指向自己的 Fork。
+
+二开全量主台账为 `docs/Jellyfish-二次开发变更清单.md`，当前能力摘要为 `site/content/docs/architecture/local-customization-inventory.md`。以后每次二开修改都必须同步这两份文档；收到“检查 GitHub 最新代码并同步更新”指令后，必须按 `site/content/docs/guide/upstream-upgrade-sop.md` 执行。
 
 ### 9.1 一次性安装和登录 GitHub CLI
 
@@ -589,6 +592,8 @@ docker compose @ComposeFiles exec -T mysql sh -lc 'mysql -uroot -p"$MYSQL_ROOT_P
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $BackupRoot = "E:\JellyfishBackups\$Stamp"
 New-Item -ItemType Directory -Path $BackupRoot -Force
+git bundle create "$BackupRoot\jellyfish-current.bundle" --all
+git bundle verify "$BackupRoot\jellyfish-current.bundle"
 docker compose @ComposeFiles exec -T mysql sh -lc 'mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --triggers "$MYSQL_DATABASE" | gzip -c > /tmp/jellyfish-before-update.sql.gz'
 docker compose @ComposeFiles cp mysql:/tmp/jellyfish-before-update.sql.gz "$BackupRoot\jellyfish-before-update.sql.gz"
 ```
@@ -605,70 +610,63 @@ Copy-Item "E:\JellyfishNew\deploy\compose\docker-compose.secure-local.yml" "$Bac
 Get-ChildItem $BackupRoot
 ```
 
-至少应看到数据库、RustFS 和两份配置备份。备份含密码，不要上传 GitHub。
+至少应看到 Git bundle、数据库、RustFS 和两份配置备份。为大文件生成校验和，并把 SQL 恢复到临时数据库做最小还原验证；仅看到文件存在不算可恢复。备份含密码，不要上传 GitHub。
 
-### 9.4 获取作者代码并同步 Fork codex/0718
+### 9.4 检查作者最新分支并创建全新候选目录
 
 ```powershell
-git fetch --all --prune
-git rev-parse upstream/codex/0718
-git rev-list --left-right --count local/stable-codex-0718...upstream/codex/0718
+git fetch --all --prune --tags
+git for-each-ref refs/remotes/upstream --sort=-committerdate --format="%(committerdate:iso8601) %(objectname:short) %(refname:short)"
 git log --oneline --decorate --graph --max-count=20 --all
 ```
 
-`rev-list` 左侧是本地独有提交数，右侧是作者新增提交数；右侧为 `0` 时无需更新。
+结合分支提交时间、共同祖先、发布标签、变更日志和作者 CI 确认最新活跃分支。历史上是 `codex/0718`，但如果作者已合回 `main` 或建立更新分支，应以证据选择新基线。记录 `$UpstreamBranch` 和不可变的 `$UpstreamSha`：
 
 ```powershell
-$GitHubUser = gh api user --jq .login
-gh repo sync "$GitHubUser/Jellyfish" --source Forget-C/Jellyfish --branch codex/0718
+$UpstreamBranch = "codex/0718" # 示例，必须替换为本次核对结果
+$UpstreamSha = git rev-parse "upstream/$UpstreamBranch"
+git rev-list --left-right --count "local/stable-codex-0718...$UpstreamSha"
+$Candidate = "E:\JellyfishCandidate-$Stamp"
+git clone --origin upstream https://github.com/Forget-C/Jellyfish.git $Candidate
+Set-Location $Candidate
+git fetch upstream --prune --tags
+git switch --detach $UpstreamSha
+git switch -c "integration/upstream-$Stamp"
 ```
 
-如果同步冲突，不要添加 `--force`。本地二开只保存在 `local/*` 分支，Fork 的 `codex/0718` 只跟随作者。每次更新前在 GitHub 分支页核对作者最新活跃分支；若作者已把开发线合回 `main` 或建立更新分支，应先评估分支关系再改变基线。
+`E:\JellyfishNew` 此时继续运行当前稳定版。候选目录必须由作者精确 SHA 全新创建，不能复制旧目录冒充新基线。比较新版 `.env.example` 和 Compose 后只逐项迁移本机配置，不能用旧 `.env` 整文件覆盖新版。
 
-### 9.5 临时分支合并和冲突处理
+### 9.5 建立台账并逐项智能迁移
 
-禁止直接合并到稳定分支：
+先把 `docs/Jellyfish-二次开发变更清单.md` 的全部 LC 条目复制成当次迁移决策台账。每一项必须记录上游证据、本地证据、最终决定、代码/迁移/API、测试和文档，决定分为：采用上游、保留本地、兼容合并、重新实现、淘汰。
+
+候选仓库可以把自己的 Fork 加为 `origin` 并 fetch，用于审计本地稳定分支，但不能直接把全部 commit 合并进去：
 
 ```powershell
-$UpdateId = Get-Date -Format "yyyyMMdd-HHmm"
-$IntegrationBranch = "integration/upstream-$UpdateId"
-git switch local/stable-codex-0718
-git switch -c $IntegrationBranch
-git merge --no-ff upstream/codex/0718
+git remote add origin https://github.com/15802964985/Jellyfish.git
+git fetch origin local/stable-codex-0718
+git log --reverse --oneline 508f2c7..origin/local/stable-codex-0718
+git diff --name-status 508f2c7..origin/local/stable-codex-0718
 ```
 
-有冲突时：
+迁移原则：
 
-```powershell
-git status
-git diff --name-only --diff-filter=U
-```
+1. 先比较业务结果、数据契约和测试，再比较文件 diff；不能批量选择本地或作者版本。
+2. 作者已完整且更好实现的能力直接采用作者版本，删除本地临时补丁；作者只覆盖一部分时，以其新架构为底座补齐本地缺口。
+3. 本地旧实现与新架构冲突时只迁移业务意图和数据，使用新版扩展点重新实现；不能为减少改动恢复作者已废弃接口。
+4. `front/openapi.json` 和 `front/src/services/generated/` 不手工拼接；先确定后端接口，再重新生成。
+5. 先正确合并依赖声明，再生成锁文件；保留 E 盘和本机监听，同时吸收作者新增参数；`.env` 不参与代码合并。
+6. 数据库变更统一使用 Alembic revision；作者和本地 revision 都保留，产生多头时创建 merge revision，不能覆盖已执行迁移。
+7. 对安全、密钥、权限、文件删除和付费调用采用双方实现中更严格的边界。
 
-解决原则：
+每完成一个独立 LC 领域就补测试、更新台账并提交，避免一次提交混入全部迁移。无法判断时保留正式目录不动，在候选分支撤销该项或重新实现；不要使用 `git reset --hard`。
 
-1. 手写前后端以作者新架构为基础，重新嵌入本地功能，不能简单全部选择本地。
-2. `front/openapi.json` 和 `front/src/services/generated/` 不手工拼接；先解决后端接口，再重新生成。
-3. 先正确合并 `package.json`，再用 `pnpm install` 生成锁文件。
-4. 保留 E 盘、本机监听及 `docker-compose.secure-local.yml`，同时吸收作者新增参数。
-5. `.env` 不参与合并，不能被示例配置覆盖。
-6. 数据库变更统一使用 Alembic revision；合并时先检查 `down_revision` 与迁移头，若作者新增迁移造成分叉，应创建 merge revision，不能覆盖作者迁移。
-7. 作者删除或重构的接口，应按其替代链路迁移本地能力，不恢复整套旧接口。
-
-每解决一个文件执行 `git add 文件路径`。全部解决后运行 `git status` 和 `git commit`。无法判断时：
-
-```powershell
-git merge --abort
-git switch local/stable-codex-0718
-```
-
-不要使用 `git reset --hard`。如果作者重构了接口，必须把本地功能迁移到新架构并补测试；不要为了减少冲突恢复作者已经删除的旧路由。
-
-### 9.6 重新生成客户端并测试
+### 9.6 在候选目录重新生成客户端并隔离测试
 
 先用集成分支构建独立后端测试镜像并运行完整测试：
 
 ```powershell
-Set-Location "E:\JellyfishNew"
+Set-Location $Candidate
 docker build -f deploy/docker/backend.local.Dockerfile -t jellyfish-backend-update-test .
 docker run --rm jellyfish-backend-update-test uv run --group dev pytest -q
 ```
@@ -677,10 +675,10 @@ docker run --rm jellyfish-backend-update-test uv run --group dev pytest -q
 
 ```powershell
 docker run --rm `
-  --mount "type=bind,source=E:\JellyfishNew\front,target=/front" `
+  --mount "type=bind,source=$Candidate\front,target=/front" `
   jellyfish-backend-update-test `
   uv run python -c "import json; from pathlib import Path; from app.main import app; Path('/front/openapi.json').write_text(json.dumps(app.openapi(), ensure_ascii=False), encoding='utf-8')"
-Set-Location "E:\JellyfishNew\front"
+Set-Location "$Candidate\front"
 pnpm install --frozen-lockfile
 pnpm run openapi:gen
 pnpm run build
@@ -688,7 +686,9 @@ pnpm run build
 
 这样生成的是集成分支的新接口，而不是当前仍在运行的旧容器接口。新后端正式运行到 8000 端口后还必须执行一次 `pnpm run openapi:update`，并用 `git diff --exit-code front/openapi.json front/src/services/generated` 确认服务契约与已生成客户端一致。如果冻结安装失败，先检查 `package.json` 冲突，再运行 `pnpm install` 并核对锁文件；pnpm 要求放行依赖安装脚本时，只批准项目锁定的必要包，不要启用全局无限制脚本。
 
-任何测试或构建失败都不要迁移数据库。若重新生成产生合理修改：
+任何测试或构建失败都不要迁移当前业务数据库。静态测试通过后，把 9.3 的 SQL 备份恢复到临时数据库，并使用独立 Compose project、临时端口和隔离对象存储执行 Alembic、seed、后端/前端/Worker/Beat 健康检查及核心烟测。候选配置不得指向当前业务库和当前 RustFS 写入路径。
+
+若重新生成产生合理修改：
 
 ```powershell
 git add -A
@@ -698,12 +698,28 @@ git commit -m "chore: resolve upstream integration and regenerate clients"
 
 没有修改时跳过提交；提交前确认 `.env` 未出现。
 
-### 9.7 构建、迁移、重启及自动验证
+### 9.7 隔离验证通过后的正式切换
 
-测试通过且备份存在后：
+只有完整自动测试、临时数据库迁移和候选烟测均通过，才安排停机窗口。先确认任务中心没有运行任务，再做最终增量备份；停止应用服务时不得删除卷：
 
 ```powershell
 Set-Location "E:\JellyfishNew"
+docker compose @ComposeFiles stop front backend celery-worker celery-beat
+Set-Location "E:\"
+$Previous = "E:\JellyfishPrevious-$Stamp"
+Move-Item -LiteralPath "E:\JellyfishNew" -Destination $Previous
+Move-Item -LiteralPath $Candidate -Destination "E:\JellyfishNew"
+```
+
+切换前必须确认 `$Previous`、`$Candidate` 和目标目录都是预期的绝对路径。新目录就位后重新定义 `$ComposeFiles`，在正式数据库执行候选 Alembic 和幂等 seed，然后构建启动：
+
+```powershell
+Set-Location "E:\JellyfishNew"
+$ComposeFiles = @(
+  "--env-file", "E:\JellyfishNew\deploy\compose\.env",
+  "-f", "E:\JellyfishNew\deploy\compose\docker-compose.yml",
+  "-f", "E:\JellyfishNew\deploy\compose\docker-compose.secure-local.yml"
+)
 docker compose @ComposeFiles up -d --build
 docker compose @ComposeFiles ps -a
 docker compose @ComposeFiles logs --tail 200 backend-migrate backend-seed-system-data backend celery-worker front
@@ -735,24 +751,33 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7788/
 
 不要执行带 `-v` 的 `docker compose down`。
 
-### 9.8 验证通过后固化并推送
+### 9.8 验证通过后固化、更新文档并推送
 
 ```powershell
+Set-Location "E:\JellyfishNew"
 git status --short
-$IntegrationBranch = git branch --show-current
-git switch local/stable-codex-0718
-git merge --ff-only $IntegrationBranch
-git push origin local/stable-codex-0718
-$ReleaseTag = "local-stable-codex-0718-$(Get-Date -Format 'yyyyMMdd-HHmm')"
-git tag -a $ReleaseTag -m "Jellyfish 上游更新合并验证版"
+$StableBranch = "local/stable-$(Get-Date -Format 'yyyyMMdd')"
+git branch -M $StableBranch
+git push -u origin $StableBranch
+$ReleaseTag = "local-stable-$(Get-Date -Format 'yyyyMMdd-HHmm')"
+git tag -a $ReleaseTag -m "Jellyfish 上游更新智能迁移验证版"
 git push origin $ReleaseTag
 ```
 
-确认 Fork 能看到稳定分支和标签后才算完成。
+推送前必须把当次迁移决定同步到：
+
+1. `docs/Jellyfish-二次开发变更清单.md`：更新基线 SHA、HEAD、统计、提交映射和全部 LC 条目。
+2. `site/content/docs/architecture/local-customization-inventory.md`：更新当前真实能力。
+3. `site/content/docs/guide/upstream-upgrade-sop.md`：流程有改进时同步修订。
+4. 本手册：同步用户可见的功能、配置、部署和验证方法。
+
+确认 Fork 能看到稳定分支和标签后，升级代码才算完成。
+
+旧代码、候选失败目录和 9.3 备份不会自动删除。先观察新版本并列出拟删除的精确绝对路径；只有用户人工确认后才逐项删除。不得使用模糊通配符，不得删除 Docker 业务卷。清理完成后复核只保留 `E:\JellyfishNew` 这一份正式代码和当前业务数据。若尚未获准清理，应明确记录“升级已完成，清理待人工确认”。
 
 ### 9.9 更新失败和回退
 
-尚未迁移数据库时，执行 `git merge --abort` 并切回稳定分支即可。已经迁移数据库时，不要自行恢复 SQL、删表或删卷；保留日志和备份，再判断只回退代码还是停服恢复 MySQL、RustFS。恢复数据库会覆盖现有数据，必须再次人工确认。
+尚未切换时直接保留 `E:\JellyfishNew`，在候选目录修复或放弃候选即可。已完成目录切换但尚未迁移正式数据库时，可以停服并把 `$Previous` 恢复为 `E:\JellyfishNew`。已经迁移数据库时，不要自行恢复 SQL、删表或删卷；保留日志和备份，再判断只回退代码还是停服恢复 MySQL、RustFS。恢复数据库会覆盖现有数据，必须再次人工确认。
 
 ### 9.10 官方参考
 

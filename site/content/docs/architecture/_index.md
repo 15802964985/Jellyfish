@@ -17,5 +17,6 @@ description: "记录当前真实生效的系统结构、状态流转、页面边
 - [LLM 默认模型解析](/docs/architecture/llm-default-model-resolution/)
 - [数据库迁移与系统种子](/docs/architecture/database-migrations/)
 - [富媒体素材库与生成引用](/docs/architecture/media-asset-library/)
+- [本地二开能力清单](/docs/architecture/local-customization-inventory/)
 - [分镜状态流转说明](/docs/architecture/shot-status-flow/)
 - [分镜页面职责边界](/docs/architecture/shot-page-boundary/)
