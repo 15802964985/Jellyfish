@@ -50,12 +50,21 @@ class VideoModelCapability:
     max_seconds: int | None = None
     supports_subject_image_reference: bool = False
     supports_subject_video_reference: bool = False
+    supports_subject_audio_reference: bool = False
     supports_subject_reference_with_frame_reference: bool = False
     max_subjects: int | None = None
     max_images_per_subject: int | None = None
     max_videos_per_subject: int | None = None
+    max_audios_per_subject: int | None = None
     max_media_per_subject: int | None = None
     max_total_subject_videos: int | None = None
+    supports_text_to_video: bool = True
+    supports_first_frame: bool = True
+    supports_last_frame: bool = True
+    max_key_frames: int | None = None
+    requires_first_frame: bool = False
+    requires_subject_reference: bool = False
+    allowed_seconds: set[int] | None = None
 
 
 def register_video_model_capability(
@@ -179,6 +188,8 @@ def validate_video_options(
             f"Allowed: {sorted(cap.allowed_ratios)}"
         )
     if input_.seconds is not None:
+        if cap.allowed_seconds is not None and input_.seconds not in cap.allowed_seconds:
+            raise ValueError(f"seconds must be one of {sorted(cap.allowed_seconds)}")
         if cap.min_seconds is not None and input_.seconds < cap.min_seconds:
             raise ValueError(f"seconds must be >= {cap.min_seconds}")
         if cap.max_seconds is not None and input_.seconds > cap.max_seconds:
@@ -188,6 +199,22 @@ def validate_video_options(
     if input_.watermark is not None and not cap.supports_watermark:
         raise ValueError(f"watermark is not supported by provider={provider} model={model or '<default>'}")
     subjects = input_.subject_references
+    frames = input_.frame_references
+    has_first = bool(frames.first_frame)
+    has_last = bool(frames.last_frame)
+    key_frame_count = len(frames.key_frames)
+    if cap.requires_first_frame and not has_first:
+        raise ValueError(f"first frame is required by provider={provider} model={model or '<default>'}")
+    if cap.requires_subject_reference and not subjects:
+        raise ValueError(f"reference media is required by provider={provider} model={model or '<default>'}")
+    if not (has_first or has_last or key_frame_count or subjects) and not cap.supports_text_to_video:
+        raise ValueError(f"text-to-video is not supported by provider={provider} model={model or '<default>'}")
+    if has_first and not cap.supports_first_frame:
+        raise ValueError(f"first frame is not supported by provider={provider} model={model or '<default>'}")
+    if has_last and not cap.supports_last_frame:
+        raise ValueError(f"last frame is not supported by provider={provider} model={model or '<default>'}")
+    if cap.max_key_frames is not None and key_frame_count > cap.max_key_frames:
+        raise ValueError(f"key frames must contain at most {cap.max_key_frames} items")
     if not subjects:
         return
     has_frame_reference = any(
@@ -213,13 +240,20 @@ def validate_video_options(
     for subject in subjects:
         images = [reference for reference in subject.media if reference.media_kind == "image"]
         videos = [reference for reference in subject.media if reference.media_kind == "video"]
+        audios = [reference for reference in subject.media if reference.media_kind == "audio"]
         if images and not cap.supports_subject_image_reference:
             raise ValueError(f"subject image references are not supported by provider={provider} model={model or '<default>'}")
         if videos and not cap.supports_subject_video_reference:
             raise ValueError(f"subject video references are not supported by provider={provider} model={model or '<default>'}")
+        if audios and not cap.supports_subject_audio_reference:
+            raise ValueError(f"subject audio references are not supported by provider={provider} model={model or '<default>'}")
+        if audios and not (images or videos):
+            raise ValueError("subject audio reference requires an image or video to bind its voice")
         if cap.max_images_per_subject is not None and len(images) > cap.max_images_per_subject:
             raise ValueError(f"a subject supports at most {cap.max_images_per_subject} reference images")
         if cap.max_videos_per_subject is not None and len(videos) > cap.max_videos_per_subject:
             raise ValueError(f"a subject supports at most {cap.max_videos_per_subject} reference videos")
+        if cap.max_audios_per_subject is not None and len(audios) > cap.max_audios_per_subject:
+            raise ValueError(f"a subject supports at most {cap.max_audios_per_subject} reference audios")
         if cap.max_media_per_subject is not None and len(subject.media) > cap.max_media_per_subject:
             raise ValueError(f"a subject supports at most {cap.max_media_per_subject} reference media items")

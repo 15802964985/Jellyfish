@@ -27,6 +27,42 @@ export type VideoGenerationOptionsRead = {
      */
     default_ratio: string;
     /**
+     * 是否支持纯文本生成视频
+     */
+    supports_text_to_video?: boolean;
+    /**
+     * 是否支持首帧参考
+     */
+    supports_first_frame?: boolean;
+    /**
+     * 是否支持尾帧参考
+     */
+    supports_last_frame?: boolean;
+    /**
+     * 关键帧数量上限
+     */
+    max_key_frames?: (number | null);
+    /**
+     * 是否必须提供首帧
+     */
+    requires_first_frame?: boolean;
+    /**
+     * 是否必须提供主体参考素材
+     */
+    requires_subject_reference?: boolean;
+    /**
+     * 离散时长选项；空表示连续范围
+     */
+    allowed_seconds?: Array<number>;
+    /**
+     * 连续时长下限
+     */
+    min_seconds?: (number | null);
+    /**
+     * 连续时长上限
+     */
+    max_seconds?: (number | null);
+    /**
      * 是否支持参考主体图片
      */
     supports_subject_image_reference?: boolean;
@@ -34,6 +70,10 @@ export type VideoGenerationOptionsRead = {
      * 是否支持参考主体视频
      */
     supports_subject_video_reference?: boolean;
+    /**
+     * 是否支持主体参考音频/音色
+     */
+    supports_subject_audio_reference?: boolean;
     /**
      * 是否允许主体参考与首帧/尾帧/关键帧同时提交
      */
@@ -50,6 +90,10 @@ export type VideoGenerationOptionsRead = {
      * 单主体视频上限
      */
     max_videos_per_subject?: (number | null);
+    /**
+     * 单主体参考音频上限
+     */
+    max_audios_per_subject?: (number | null);
     /**
      * 单主体图片与视频共享槽位上限
      */

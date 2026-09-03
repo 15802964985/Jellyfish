@@ -8,7 +8,7 @@ export type ExperimentInputSnapshot = {
   video?: {
     ratio?: string
     frame_references?: { first_frame_file_id?: string | null; last_frame_file_id?: string | null; key_frame_file_ids?: string[] }
-    subject_references?: Array<{ name?: string; image_file_ids?: string[]; video_file_ids?: string[] }>
+    subject_references?: Array<{ name?: string; image_file_ids?: string[]; video_file_ids?: string[]; audio_file_ids?: string[] }>
   }
 }
 

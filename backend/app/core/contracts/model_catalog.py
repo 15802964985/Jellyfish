@@ -8,7 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.llm import ModelCategoryKey
 
-ModelCatalogSource = Literal["provider_api", "provider_catalog"]
+ModelCatalogItemSource = Literal["provider_api", "provider_catalog"]
+ModelCatalogSource = Literal["provider_api", "provider_catalog", "hybrid"]
+ModelOperation = Literal[
+    "text_generation",
+    "text_to_image",
+    "image_to_image",
+    "text_to_video",
+    "image_to_video",
+    "reference_to_video",
+]
 
 
 class ProviderModelCandidate(BaseModel):
@@ -20,6 +29,14 @@ class ProviderModelCandidate(BaseModel):
     category: ModelCategoryKey = Field(..., description="模型类别")
     description: str = Field("", description="供应商能力说明")
     params: dict[str, object] = Field(default_factory=dict, description="建议写入模型配置的默认参数")
+    source: ModelCatalogItemSource = Field(
+        "provider_catalog",
+        description="候选来自供应商实时 API 或 Jellyfish 维护的官方目录",
+    )
+    capabilities: list[ModelOperation] = Field(
+        default_factory=list,
+        description="Jellyfish 已映射并允许该模型执行的操作",
+    )
 
 
 class ProviderModelCatalog(BaseModel):

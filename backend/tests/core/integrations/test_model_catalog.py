@@ -37,6 +37,45 @@ async def test_openai_compatible_catalog_reads_models_endpoint(monkeypatch: pyte
         ("gpt-4o-mini", "text"),
         ("gpt-image-1", "image"),
     ]
+    assert all(item.source == "provider_api" for item in result.models)
+
+
+@pytest.mark.asyncio
+async def test_aliyun_catalog_merges_official_video_and_filters_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Token Plan 实时列表应补足 HappyHorse 视频，同时排除未接入的音频模型。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/api/v1/models"):
+            return httpx.Response(404, request=request)
+        assert request.url.path.endswith("/compatible-mode/v1/models")
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "qwen3.8-max"},
+                    {"id": "qwen-image-3.0-pro"},
+                    {"id": "qwen-audio-3.0-tts-plus"},
+                ]
+            },
+        )
+
+    _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
+    result = await discover_provider_models(
+        cfg=ProviderConfig(
+            provider="aliyun_bailian",
+            api_key="secret",
+            base_url="https://token-plan.example/compatible-mode/v1",
+        )
+    )
+    assert result.source == "hybrid"
+    names = {item.name for item in result.models}
+    assert {"happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"} <= names
+    assert "qwen-audio-3.0-tts-plus" not in names
+    video = next(item for item in result.models if item.name == "happyhorse-1.1-r2v")
+    assert video.source == "provider_catalog"
+    assert video.capabilities == ["reference_to_video"]
 
 
 @pytest.mark.asyncio

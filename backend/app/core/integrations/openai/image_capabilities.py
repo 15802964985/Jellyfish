@@ -10,8 +10,11 @@ if TYPE_CHECKING:
     from app.core.contracts.image_generation import ImageGenerationInput
 
 _OPENAI_DEFAULT = ImageModelCapability(
-    supports_seed=True,
-    supports_watermark=True,
+    supports_seed=False,
+    supports_watermark=False,
+    allowed_sizes={"1024x1024", "1024x1536", "1536x1024", "auto"},
+    min_n=1,
+    max_n=1,
 )
 
 # key: 模型前缀（小写）

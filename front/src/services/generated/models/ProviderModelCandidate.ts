@@ -23,5 +23,13 @@ export type ProviderModelCandidate = {
      * 建议写入模型配置的默认参数
      */
     params?: Record<string, any>;
+    /**
+     * 候选来自供应商实时 API 或 Jellyfish 维护的官方目录
+     */
+    source?: 'provider_api' | 'provider_catalog';
+    /**
+     * Jellyfish 已映射并允许该模型执行的操作
+     */
+    capabilities?: Array<'text_generation' | 'text_to_image' | 'image_to_image' | 'text_to_video' | 'image_to_video' | 'reference_to_video'>;
 };
 

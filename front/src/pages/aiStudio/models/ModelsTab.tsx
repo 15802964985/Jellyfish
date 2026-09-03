@@ -931,7 +931,13 @@ export default function ModelsTab() {
                   .filter((candidate) => candidate.category === selectedFormCategory)
                   .map((candidate) => ({
                     value: candidate.name,
-                    label: candidate.description ? `${candidate.name} · ${candidate.description}` : candidate.name,
+                    label: [
+                      candidate.name,
+                      candidate.source === 'provider_api' ? '实时目录' : '官方目录',
+                      models.some((model) => model.provider_id === selectedFormProviderId
+                        && model.category === candidate.category && model.name === candidate.name) ? '已添加' : '',
+                      candidate.description,
+                    ].filter(Boolean).join(' · '),
                   }))}
               />
             </Form.Item>
@@ -941,7 +947,11 @@ export default function ModelsTab() {
               type="info"
               showIcon
               className="mb-4"
-              message={formCatalog.source === 'provider_api' ? '模型名称来自供应商 API，也可手动输入。' : '供应商未提供模型列表 API，已加载官方目录；仍可手动输入。'}
+              message={formCatalog.source === 'provider_api'
+                ? '模型名称来自供应商实时 API，也可手动输入。'
+                : formCatalog.source === 'hybrid'
+                  ? '已合并供应商实时 API 与 Jellyfish 官方维护目录；仍可手动输入。'
+                  : '供应商未提供可用的模型列表 API，已加载官方维护目录；仍可手动输入。'}
             />
           )}
           {unsupportedProviderWarning && (

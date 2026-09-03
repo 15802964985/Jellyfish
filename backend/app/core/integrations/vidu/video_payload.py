@@ -24,6 +24,13 @@ def build_create_video_request(input_: VideoGenerationInput) -> tuple[str, dict[
         body["seed"] = int(input_.seed)
 
     if input_.subject_references:
+        if model in {"viduq3-mix", "viduq3-drama", "viduq3-ad"}:
+            images = [image for subject in input_.subject_references for image in subject.images]
+            videos = [video for subject in input_.subject_references for video in subject.videos]
+            if videos:
+                raise ValueError(f"{model} does not support reference videos")
+            body["images"] = images
+            return "/ent/v2/reference2video", body
         for subject in input_.subject_references:
             _validate_subject_media(subject.images, media_kind="image")
             _validate_subject_media(subject.videos, media_kind="video")

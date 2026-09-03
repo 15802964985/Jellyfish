@@ -17,8 +17,98 @@ _ALIYUN_DEFAULT = VideoModelCapability(
     default_ratio="16:9",
     min_seconds=2,
     max_seconds=30,
+    supports_subject_image_reference=True,
+    supports_subject_video_reference=True,
+    max_subjects=5,
+    max_media_per_subject=5,
+    max_key_frames=0,
 )
-_ALIYUN_MODEL_OVERRIDES: dict[str, VideoModelCapability] = {}
+_HAPPYHORSE_T2V = VideoModelCapability(
+    supports_seed=True,
+    supports_watermark=True,
+    allowed_ratios={"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"},
+    default_ratio="16:9",
+    min_seconds=3,
+    max_seconds=15,
+    supports_first_frame=False,
+    supports_last_frame=False,
+    max_key_frames=0,
+)
+_HAPPYHORSE_I2V = VideoModelCapability(
+    supports_seed=True,
+    supports_watermark=True,
+    allowed_ratios=set(ALLOWED_RATIOS),
+    default_ratio="16:9",
+    min_seconds=3,
+    max_seconds=15,
+    supports_text_to_video=False,
+    supports_last_frame=False,
+    max_key_frames=0,
+    requires_first_frame=True,
+)
+_HAPPYHORSE_R2V = VideoModelCapability(
+    supports_seed=True,
+    supports_watermark=True,
+    allowed_ratios={"16:9", "9:16", "1:1"},
+    default_ratio="16:9",
+    min_seconds=2,
+    max_seconds=10,
+    supports_text_to_video=False,
+    supports_first_frame=False,
+    supports_last_frame=False,
+    max_key_frames=0,
+    supports_subject_image_reference=True,
+    supports_subject_video_reference=True,
+    supports_subject_audio_reference=True,
+    max_subjects=5,
+    max_images_per_subject=5,
+    max_videos_per_subject=5,
+    max_audios_per_subject=1,
+    max_media_per_subject=5,
+    requires_subject_reference=True,
+)
+_WAN27 = VideoModelCapability(
+    supports_seed=True,
+    supports_watermark=True,
+    allowed_ratios=set(ALLOWED_RATIOS),
+    default_ratio="16:9",
+    min_seconds=2,
+    max_seconds=15,
+    supports_last_frame=False,
+    max_key_frames=0,
+    supports_subject_image_reference=True,
+    supports_subject_video_reference=True,
+    supports_subject_audio_reference=True,
+    supports_subject_reference_with_frame_reference=True,
+    max_subjects=5,
+    max_images_per_subject=5,
+    max_videos_per_subject=5,
+    max_audios_per_subject=1,
+    max_media_per_subject=5,
+)
+_WAN26 = VideoModelCapability(
+    supports_seed=True,
+    supports_watermark=True,
+    allowed_ratios=set(ALLOWED_RATIOS),
+    default_ratio="16:9",
+    min_seconds=2,
+    max_seconds=10,
+    supports_last_frame=False,
+    max_key_frames=0,
+    supports_subject_image_reference=True,
+    supports_subject_video_reference=True,
+    max_subjects=5,
+    max_media_per_subject=5,
+)
+_ALIYUN_BUILTIN_OVERRIDES: dict[str, VideoModelCapability] = {
+    "happyhorse-1.1-t2v": _HAPPYHORSE_T2V,
+    "happyhorse-1.1-i2v": _HAPPYHORSE_I2V,
+    "happyhorse-1.1-r2v": _HAPPYHORSE_R2V,
+    "wan3.0-video": _ALIYUN_DEFAULT,
+    "wan2.7": _WAN27,
+    "wan2.6": _WAN26,
+}
+_ALIYUN_MODEL_OVERRIDES: dict[str, VideoModelCapability] = dict(_ALIYUN_BUILTIN_OVERRIDES)
 
 
 def register_aliyun_video_capability(*, model_prefix: str, capability: VideoModelCapability) -> None:
@@ -30,8 +120,9 @@ def register_aliyun_video_capability(*, model_prefix: str, capability: VideoMode
 
 
 def clear_aliyun_video_capability_overrides() -> None:
-    """清空运行期能力覆盖，主要用于测试隔离。"""
+    """清空运行期覆盖并恢复阿里内置模型家族规则。"""
     _ALIYUN_MODEL_OVERRIDES.clear()
+    _ALIYUN_MODEL_OVERRIDES.update(_ALIYUN_BUILTIN_OVERRIDES)
 
 
 def resolve_aliyun_video_capability(model: str | None) -> VideoModelCapability:

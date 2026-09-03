@@ -4,16 +4,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.core.integrations.video_capabilities import ALLOWED_RATIOS, VideoModelCapability
+from app.core.integrations.video_capabilities import VideoModelCapability
 
 if TYPE_CHECKING:
     from app.core.contracts.video_generation import VideoGenerationInput
 
 _OPENAI_DEFAULT = VideoModelCapability(
-    supports_seed=True,
-    supports_watermark=True,
-    allowed_ratios=set(ALLOWED_RATIOS),
+    supports_seed=False,
+    supports_watermark=False,
+    allowed_ratios={"16:9", "9:16"},
     default_ratio="16:9",
+    ratio_to_size_mapping={"16:9": "1280x720", "9:16": "720x1280"},
+    min_seconds=4,
+    max_seconds=12,
+    allowed_seconds={4, 8, 12},
+    supports_last_frame=False,
+    max_key_frames=0,
 )
 
 # key: 模型前缀（小写）
@@ -54,4 +60,7 @@ def validate_openai_video_options(input_: VideoGenerationInput) -> None:
     from app.core.integrations.video_capabilities import validate_video_options
 
     assert isinstance(input_, VideoGenerationInput)
+    model = (input_.model or "sora-2").strip().lower()
+    if model not in {"sora-2", "sora-2-pro"}:
+        raise ValueError("OpenAI video model must be sora-2 or sora-2-pro")
     validate_video_options(provider="openai", model=input_.model, input_=input_)

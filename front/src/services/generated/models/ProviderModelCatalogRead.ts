@@ -18,7 +18,7 @@ export type ProviderModelCatalogRead = {
     /**
      * 模型列表来源
      */
-    source: 'provider_api' | 'provider_catalog';
+    source: 'provider_api' | 'provider_catalog' | 'hybrid';
     /**
      * 可选择导入的模型
      */

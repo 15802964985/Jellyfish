@@ -79,16 +79,18 @@ async def test_openai_video_create_returns_id(monkeypatch: pytest.MonkeyPatch) -
         assert request.method == "POST"
         assert str(request.url).rstrip("/").endswith("/videos")
         payload = json.loads(request.content.decode())
-        assert payload["ratio"] == "16:9"
-        assert payload["seed"] == 42
-        assert payload["watermark"] is False
-        assert payload["seconds"] == "6"
+        assert payload["model"] == "sora-2"
+        assert payload["size"] == "1280x720"
+        assert payload["seconds"] == "8"
+        assert "ratio" not in payload
+        assert "seed" not in payload
+        assert "watermark" not in payload
         return httpx.Response(200, json={"id": "video-1"})
 
     _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
     cfg = ProviderConfig(provider="openai", api_key="sk-test")
     inp = VideoGenerationInput.model_validate(
-        {"prompt": "a cat", "ratio": "16:9", "seed": 42, "watermark": False, "seconds": 6}
+        {"prompt": "a cat", "model": "sora-2", "ratio": "16:9", "seconds": 8}
     )
     vid = await OpenAIVideoApiAdapter().create_video(cfg=cfg, input_=inp, timeout_s=30.0)
     assert vid == "video-1"

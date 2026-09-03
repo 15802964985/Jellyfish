@@ -47,7 +47,15 @@ description: "当前生效的 LLM 默认模型来源与解析顺序。"
 - 模型管理页的“添加模型”采用供应商优先流程：先选择 Provider，再选择该 Provider 支持的模型类别，最后从目录多选模型名称或手动输入名称；编辑模型仍为单条编辑。
 - 目录模型和手动输入模型都通过 `POST /api/v1/llm/providers/{provider_id}/models/import` 批量导入，重复的 Provider + 类别 + 名称组合由后端幂等跳过。
 - 页面通过 `GET /api/v1/llm/providers/{provider_id}/models/catalog` 获取已配置 Provider 的可导入模型目录；浏览器不会读取或传递 API Key。
-- OpenAI 兼容供应商（当前 OpenAI、火山引擎）从其配置 Base URL 的 `/models` 接口实时读取模型名，并按名称规则归类为 text、image 或 video。
+- OpenAI 与火山引擎优先从配置 Base URL 的 `/models` 读取实时目录；火山 Token Plan 明确返回 404/405 时回退到维护目录，鉴权错误不会被回退掩盖。
+- 阿里百炼先尝试业务空间 `/api/v1/models`，不可用时读取 compatible-mode `/models`，再与 Jellyfish 维护的官方目录合并。Token Plan 因此仍会显示 `happyhorse-1.1-t2v`、`happyhorse-1.1-i2v` 和 `happyhorse-1.1-r2v`。ASR、TTS、Realtime Audio 不属于当前三类生成业务，不会误入文本模型。
+- 每个目录候选带有 `source` 和 `capabilities`；页面区分“实时目录 / 官方目录 / 已添加”。目录来源只表示发现方式，真正可提交的参数仍由模型 capability resolver 决定。
 - Vidu 当前未提供模型枚举 API，因此该入口返回项目维护的 Vidu 官方 Model Map 目录，并在页面明确标注为“官方模型目录”。
 - 可灵同样返回项目维护的固定模型目录，避免将其非标准模型接口暴露到模型管理流程。
 - 用户选择后调用 `POST /api/v1/llm/providers/{provider_id}/models/import` 批量写入；同一 Provider、模型名称和类别的已有记录会跳过，不会被覆盖或重复创建。
+
+## 声明与执行器一致性
+
+- 应用启动会核对 Provider 声明、image/video task adapter 与 capability resolver。声明能力却缺少执行器，或注册了未声明类别的执行器，都会直接阻止错误配置启动。
+- 每次新增或修改模型会把当时的能力矩阵冻结到 `model_config_revisions.capability_snapshot`。集合会转为稳定数组，任务快照不包含 API Key。
+- text 仅允许 OpenAI-compatible 执行链已明确接入的 OpenAI、火山引擎和阿里百炼；Vidu、可灵不对页面声明文本能力。

@@ -64,12 +64,12 @@ async def test_openai_image_adapter_generations(monkeypatch: pytest.MonkeyPatch)
 
     _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
     cfg = ProviderConfig(provider="openai", api_key="sk-test", base_url="https://api.openai.com/v1")
-    inp = ImageGenerationInput(prompt="hello", n=1, watermark=False)
+    inp = ImageGenerationInput(prompt="hello", n=1)
     result = await OpenAIImageApiAdapter().generate(cfg=cfg, inp=inp, timeout_s=30.0)
     assert captured["path"].endswith("/images/generations")
     body = json.loads(captured["body"])
     assert body["prompt"] == "hello"
-    assert body["watermark"] is False
+    assert "watermark" not in body
     assert result.provider == "openai"
     assert result.images[0].url == "https://cdn.example.com/1.png"
 
@@ -88,12 +88,11 @@ async def test_openai_image_adapter_edits_when_references(monkeypatch: pytest.Mo
     inp = ImageGenerationInput(
         prompt="edit me",
         n=1,
-        watermark=True,
     )
     inp = _with_projected_images(inp, [_projected_image_reference("https://example.com/ref.png")])
     result = await OpenAIImageApiAdapter().generate(cfg=cfg, inp=inp, timeout_s=30.0)
     body = json.loads(captured["body"])
-    assert body["watermark"] is True
+    assert "watermark" not in body
     assert result.images[0].b64_json == "abc"
 
 

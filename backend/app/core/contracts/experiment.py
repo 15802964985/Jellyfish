@@ -34,11 +34,12 @@ class ExperimentFrameReferences(BaseModel):
 
 
 class ExperimentSubjectReference(BaseModel):
-    """视频实验室命名主体及其图片、视频参考。"""
+    """视频实验室命名主体及其图片、视频、音色参考。"""
 
     name: str
     image_file_ids: list[str] = Field(default_factory=list)
     video_file_ids: list[str] = Field(default_factory=list)
+    audio_file_ids: list[str] = Field(default_factory=list)
 
 
 class ExperimentVideoInputSnapshot(BaseModel):

@@ -59,6 +59,81 @@ def test_validate_video_options_rejects_capability_mismatch() -> None:
         clear_video_model_capability_overrides(provider="volcengine")
 
 
+def test_openai_sora_capability_rejects_unsupported_duration_and_tail_frame() -> None:
+    """Sora 只允许 4/8/12 秒和单首帧参考。"""
+    with pytest.raises(ValueError, match="one of"):
+        validate_video_options(
+            provider="openai",
+            model="sora-2",
+            input_=VideoGenerationInput(prompt="city", model="sora-2", ratio="16:9", seconds=6),
+        )
+    with pytest.raises(ValueError, match="last frame"):
+        validate_video_options(
+            provider="openai",
+            model="sora-2",
+            input_=VideoGenerationInput.model_construct(
+                prompt="city",
+                model="sora-2",
+                ratio="16:9",
+                seconds=8,
+                seed=None,
+                watermark=None,
+                frame_references=type("Frames", (), {"first_frame": None, "last_frame": "tail", "key_frames": []})(),
+                subject_references=[],
+            ),
+        )
+
+
+def test_aliyun_happyhorse_modes_require_matching_reference_shape() -> None:
+    """HappyHorse t2v/i2v/r2v 的素材边界必须在提交供应商前生效。"""
+    with pytest.raises(ValueError, match="first frame is required"):
+        validate_video_options(
+            provider="aliyun_bailian",
+            model="happyhorse-1.1-i2v",
+            input_=VideoGenerationInput(
+                prompt="person", model="happyhorse-1.1-i2v", ratio="16:9", seconds=5
+            ),
+        )
+    with pytest.raises(ValueError, match="reference media is required"):
+        validate_video_options(
+            provider="aliyun_bailian",
+            model="happyhorse-1.1-r2v",
+            input_=VideoGenerationInput(
+                prompt="person", model="happyhorse-1.1-r2v", ratio="16:9", seconds=5
+            ),
+        )
+
+
+def test_aliyun_reference_audio_requires_visual_and_is_model_scoped() -> None:
+    """参考音色必须绑定视觉素材，且只允许声明支持的阿里模型。"""
+    audio_only = VideoSubjectReference(
+        name="hero",
+        media=[MediaReference(file_id="voice", media_kind="audio")],
+    )
+    with pytest.raises(ValueError, match="requires an image or video"):
+        validate_video_options(
+            provider="aliyun_bailian",
+            model="happyhorse-1.1-r2v",
+            input_=VideoGenerationInput(
+                prompt="hero", model="happyhorse-1.1-r2v", ratio="16:9", subject_references=[audio_only]
+            ),
+        )
+    visual_voice = VideoSubjectReference(
+        name="hero",
+        media=[
+            MediaReference(file_id="image", media_kind="image"),
+            MediaReference(file_id="voice", media_kind="audio", ordinal=1),
+        ],
+    )
+    validate_video_options(
+        provider="aliyun_bailian",
+        model="happyhorse-1.1-r2v",
+        input_=VideoGenerationInput(
+            prompt="hero", model="happyhorse-1.1-r2v", ratio="16:9", subject_references=[visual_voice]
+        ),
+    )
+
+
 def test_vidu_subject_video_is_limited_to_q2_pro_and_conflicts_with_frames() -> None:
     """Vidu 主体视频仅 q2-pro 支持，且主体与构图帧不可混用。"""
     subject = VideoSubjectReference(

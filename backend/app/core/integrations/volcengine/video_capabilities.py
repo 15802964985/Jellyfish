@@ -14,10 +14,25 @@ _VOLCENGINE_DEFAULT = VideoModelCapability(
     supports_watermark=True,
     allowed_ratios=set(ALLOWED_RATIOS),
     default_ratio="16:9",
+    min_seconds=2,
+    max_seconds=12,
+    max_key_frames=0,
 )
 
 # key: 模型前缀（小写）
-_VOLCENGINE_MODEL_OVERRIDES: dict[str, VideoModelCapability] = {}
+_SEEDANCE_15 = VideoModelCapability(
+    supports_seed=True,
+    supports_watermark=True,
+    allowed_ratios=set(ALLOWED_RATIOS),
+    default_ratio="16:9",
+    min_seconds=4,
+    max_seconds=12,
+    max_key_frames=0,
+)
+_VOLCENGINE_BUILTIN_OVERRIDES: dict[str, VideoModelCapability] = {
+    "doubao-seedance-1.5": _SEEDANCE_15,
+}
+_VOLCENGINE_MODEL_OVERRIDES: dict[str, VideoModelCapability] = dict(_VOLCENGINE_BUILTIN_OVERRIDES)
 
 
 def register_volcengine_video_capability(*, model_prefix: str, capability: VideoModelCapability) -> None:
@@ -29,6 +44,7 @@ def register_volcengine_video_capability(*, model_prefix: str, capability: Video
 
 def clear_volcengine_video_capability_overrides() -> None:
     _VOLCENGINE_MODEL_OVERRIDES.clear()
+    _VOLCENGINE_MODEL_OVERRIDES.update(_VOLCENGINE_BUILTIN_OVERRIDES)
 
 
 def _pick_override(model: str | None) -> VideoModelCapability | None:

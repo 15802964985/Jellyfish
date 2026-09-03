@@ -79,7 +79,12 @@ async def _resolve_snapshot_video_input(
 
     async def to_data_url(reference) -> str:  # noqa: ANN001
         resolved = await resolver.resolve_task_reference(task_id=task_id, reference=reference)
-        content_type = resolved.content_type or f"{reference.media_kind}/png"
+        default_content_types = {
+            "image": "image/png",
+            "video": "video/mp4",
+            "audio": "audio/mpeg",
+        }
+        content_type = resolved.content_type or default_content_types[reference.media_kind]
         if not content_type.startswith(f"{reference.media_kind}/"):
             raise RuntimeError(f"resolved media type mismatch for file_id={reference.file_id}")
         encoded = base64.b64encode(resolved.content).decode("ascii")
@@ -99,6 +104,7 @@ async def _resolve_snapshot_video_input(
                     name=subject.name,
                     images=[value for reference, value in zip(subject.media, values) if reference.media_kind == "image"],
                     videos=[value for reference, value in zip(subject.media, values) if reference.media_kind == "video"],
+                    audios=[value for reference, value in zip(subject.media, values) if reference.media_kind == "audio"],
                 )
             )
     revision = await session.get(ModelConfigRevision, snapshot.model_revision_id)

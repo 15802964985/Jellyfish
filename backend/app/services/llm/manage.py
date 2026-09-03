@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from uuid import uuid4
+from dataclasses import asdict
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -134,6 +135,15 @@ async def _create_model_revision(
         )
     ).scalar_one_or_none()
     provider_key = resolve_provider_key_from_name(provider.name)
+    capability_snapshot: dict[str, object] = {}
+    if model.category == ModelCategoryKey.image:
+        capability_snapshot = _json_safe_capability(
+            asdict(resolve_image_capability(provider=provider_key, model=model.name))
+        )
+    elif model.category == ModelCategoryKey.video:
+        capability_snapshot = _json_safe_capability(
+            asdict(resolve_video_capability(provider=provider_key, model=model.name))
+        )
     revision = ModelConfigRevision(
         id=uuid4().hex,
         model_id=model.id,
@@ -147,7 +157,7 @@ async def _create_model_revision(
             "image_base_url": provider.image_base_url,
             "video_base_url": provider.video_base_url,
         },
-        capability_snapshot={},
+        capability_snapshot=capability_snapshot,
         credential_ref=f"provider:{provider.id}",
     )
     db.add(revision)
@@ -155,6 +165,14 @@ async def _create_model_revision(
     model.current_revision_id = revision.id
     await db.flush()
     return revision
+
+
+def _json_safe_capability(value: dict[str, object]) -> dict[str, object]:
+    """把 dataclass 能力中的集合转换为稳定列表，供 JSON revision 安全持久化。"""
+    return {
+        key: sorted(item) if isinstance(item, set) else item
+        for key, item in value.items()
+    }
 
 
 async def get_provider(
@@ -429,8 +447,12 @@ async def get_video_generation_options(
             model_name="",
             allowed_ratios=["16:9"],
             default_ratio="16:9",
+            supports_text_to_video=True,
+            supports_first_frame=True,
+            supports_last_frame=True,
             supports_subject_image_reference=False,
             supports_subject_video_reference=False,
+            supports_subject_audio_reference=False,
             supports_subject_reference_with_frame_reference=False,
         )
 
@@ -449,12 +471,23 @@ async def get_video_generation_options(
         model_name=model.name,
         allowed_ratios=allowed_ratios,
         default_ratio=default_ratio,
+        supports_text_to_video=capability.supports_text_to_video,
+        supports_first_frame=capability.supports_first_frame,
+        supports_last_frame=capability.supports_last_frame,
+        max_key_frames=capability.max_key_frames,
+        requires_first_frame=capability.requires_first_frame,
+        requires_subject_reference=capability.requires_subject_reference,
+        allowed_seconds=sorted(capability.allowed_seconds or []),
+        min_seconds=capability.min_seconds,
+        max_seconds=capability.max_seconds,
         supports_subject_image_reference=capability.supports_subject_image_reference,
         supports_subject_video_reference=capability.supports_subject_video_reference,
+        supports_subject_audio_reference=capability.supports_subject_audio_reference,
         supports_subject_reference_with_frame_reference=capability.supports_subject_reference_with_frame_reference,
         max_subjects=capability.max_subjects,
         max_images_per_subject=capability.max_images_per_subject,
         max_videos_per_subject=capability.max_videos_per_subject,
+        max_audios_per_subject=capability.max_audios_per_subject,
         max_media_per_subject=capability.max_media_per_subject,
         max_total_subject_videos=capability.max_total_subject_videos,
     )

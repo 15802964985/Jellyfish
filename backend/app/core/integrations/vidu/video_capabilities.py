@@ -44,6 +44,23 @@ _VIDU_Q3 = VideoModelCapability(
     max_images_per_subject=3,
     max_media_per_subject=3,
 )
+_VIDU_Q3_REFERENCE = VideoModelCapability(
+    supports_seed=True,
+    supports_watermark=False,
+    allowed_ratios=_VIDU_Q2_Q3_RATIOS,
+    default_ratio="16:9",
+    min_seconds=1,
+    max_seconds=16,
+    supports_text_to_video=False,
+    supports_first_frame=False,
+    supports_last_frame=False,
+    max_key_frames=0,
+    supports_subject_image_reference=True,
+    max_subjects=7,
+    max_images_per_subject=3,
+    max_media_per_subject=3,
+    requires_subject_reference=True,
+)
 _VIDU_Q2 = VideoModelCapability(
     supports_seed=True,
     supports_watermark=False,
@@ -87,10 +104,10 @@ _VIDU_MODEL_OVERRIDES: dict[str, VideoModelCapability] = {
     "viduq2": _VIDU_Q2,
     "viduq1": _VIDU_Q1,
     "vidu2.0": _VIDU_2,
-    "viduq3-mix": _VIDU_DEFAULT,
-    "viduq3-pro": _VIDU_DEFAULT,
-    "viduq3-drama": _VIDU_DEFAULT,
-    "viduq3-ad": _VIDU_DEFAULT,
+    "viduq3-mix": _VIDU_Q3_REFERENCE,
+    "viduq3-pro": _VIDU_Q3,
+    "viduq3-drama": _VIDU_Q3_REFERENCE,
+    "viduq3-ad": _VIDU_Q3_REFERENCE,
     "viduq3": _VIDU_Q3,
 }
 
@@ -108,10 +125,10 @@ def clear_vidu_video_capability_overrides() -> None:
     _VIDU_MODEL_OVERRIDES.clear()
     _VIDU_MODEL_OVERRIDES.update(
         {
-            "viduq3-mix": _VIDU_DEFAULT,
-            "viduq3-pro": _VIDU_DEFAULT,
-            "viduq3-drama": _VIDU_DEFAULT,
-            "viduq3-ad": _VIDU_DEFAULT,
+            "viduq3-mix": _VIDU_Q3_REFERENCE,
+            "viduq3-pro": _VIDU_Q3,
+            "viduq3-drama": _VIDU_Q3_REFERENCE,
+            "viduq3-ad": _VIDU_Q3_REFERENCE,
             "viduq2-pro": _VIDU_Q2_PRO,
             "viduq2": _VIDU_Q2,
             "viduq1": _VIDU_Q1,

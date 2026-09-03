@@ -20,6 +20,9 @@ _KLING_TURBO = VideoModelCapability(
     default_ratio="16:9",
     min_seconds=3,
     max_seconds=15,
+    supports_first_frame=False,
+    supports_last_frame=False,
+    max_key_frames=0,
 )
 _KLING_OMNI = VideoModelCapability(
     supports_seed=False,
@@ -28,6 +31,7 @@ _KLING_OMNI = VideoModelCapability(
     default_ratio="16:9",
     min_seconds=3,
     max_seconds=15,
+    max_key_frames=0,
 )
 
 _KLING_MODEL_OVERRIDES: dict[str, VideoModelCapability] = {

@@ -12,7 +12,24 @@ from app.core.contracts.image_generation import ImageGenerationInput
 from app.core.contracts.provider import ProviderConfig
 from app.core.contracts.video_generation import VideoGenerationInput
 from app.core.integrations.aliyun.images import AliyunImageApiAdapter
-from app.core.integrations.aliyun.video import AliyunVideoApiAdapter
+from app.core.contracts.media import MediaReference
+from app.core.integrations.aliyun.video import AliyunVideoApiAdapter, _build_video_body
+
+
+def _projected_video_input(
+    *, model: str, first_frame: str | None = None, subjects: list[SimpleNamespace] | None = None
+) -> VideoGenerationInput:
+    """构造包含执行期 URL 的阿里视频输入，不把 URL 写回持久化契约。"""
+    return VideoGenerationInput.model_construct(
+        prompt="人物走入雨夜",
+        model=model,
+        ratio="16:9",
+        seconds=5,
+        seed=7,
+        watermark=False,
+        frame_references=SimpleNamespace(first_frame=first_frame, last_frame=None, key_frames=[]),
+        subject_references=subjects or [],
+    )
 
 
 def _patch_httpx_client(monkeypatch: pytest.MonkeyPatch, transport: httpx.MockTransport) -> None:
@@ -112,3 +129,72 @@ async def test_aliyun_video_create_and_poll(monkeypatch: pytest.MonkeyPatch) -> 
     assert requests[0][2]["input"]["media"][0]["type"] == "first_frame"  # type: ignore[index]
     assert requests[1][1].endswith("/api/v1/tasks/task-1")
     assert payload["output"]["video_url"] == "https://result.example/video.mp4"
+
+
+def test_aliyun_happyhorse_payloads_follow_model_family_contracts() -> None:
+    """t2v 不带素材、i2v 只带首帧、r2v 使用参考图片/视频。"""
+    t2v = _build_video_body(_projected_video_input(model="happyhorse-1.1-t2v"))
+    assert "media" not in t2v["input"]
+    assert t2v["parameters"]["ratio"] == "16:9"
+
+    i2v = _build_video_body(
+        _projected_video_input(model="happyhorse-1.1-i2v", first_frame="https://example/first.png")
+    )
+    assert i2v["input"]["media"] == [
+        {"type": "first_frame", "url": "https://example/first.png"}
+    ]
+    assert "ratio" not in i2v["parameters"]
+
+    subject = SimpleNamespace(
+        images=["https://example/actor.png"],
+        videos=["https://example/action.mp4"],
+        audios=["https://example/voice.wav"],
+        media=[
+            MediaReference(file_id="actor", media_kind="image"),
+            MediaReference(file_id="action", media_kind="video", ordinal=1),
+            MediaReference(file_id="voice", media_kind="audio", ordinal=2),
+        ],
+    )
+    r2v = _build_video_body(_projected_video_input(model="happyhorse-1.1-r2v", subjects=[subject]))
+    assert r2v["input"]["media"] == [
+        {"type": "reference_image", "url": "https://example/actor.png", "reference_voice": "https://example/voice.wav"},
+        {"type": "reference_video", "url": "https://example/action.mp4"},
+    ]
+
+
+def test_aliyun_wan26_uses_legacy_reference_urls_and_size() -> None:
+    """Wan 2.6 不应误用 Wan 2.7 的 media/ratio 字段。"""
+    subject = SimpleNamespace(
+        images=["https://example/actor.png"],
+        videos=[],
+        media=[MediaReference(file_id="actor", media_kind="image")],
+    )
+    body = _build_video_body(_projected_video_input(model="wan2.6-r2v", subjects=[subject]))
+    assert body["input"]["reference_urls"] == ["https://example/actor.png"]
+    assert "media" not in body["input"]
+    assert body["parameters"]["size"] == "1280*720"
+    assert body["parameters"]["audio"] is False
+
+
+@pytest.mark.asyncio
+async def test_aliyun_video_cancel_uses_common_task_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """取消请求必须命中百炼通用异步任务端点。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path.endswith("/api/v1/tasks/task-9/cancel")
+        return httpx.Response(200, json="request-9")
+
+    _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
+    result = await AliyunVideoApiAdapter().cancel_video_task(
+        cfg=ProviderConfig(
+            provider="aliyun_bailian",
+            api_key="test-key",
+            base_url="https://workspace.cn-beijing.maas.aliyuncs.com/api/v1",
+        ),
+        task_id="task-9",
+        timeout_s=30,
+    )
+    assert result == "request-9"

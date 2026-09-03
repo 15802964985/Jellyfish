@@ -11,7 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-MediaKind = Literal["image", "video"]
+MediaKind = Literal["image", "video", "audio"]
 
 
 class MediaReference(BaseModel):

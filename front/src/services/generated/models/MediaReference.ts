@@ -7,7 +7,7 @@
  */
 export type MediaReference = {
     file_id: string;
-    media_kind: 'image' | 'video';
+    media_kind: 'image' | 'video' | 'audio';
     ordinal?: number;
 };
 
