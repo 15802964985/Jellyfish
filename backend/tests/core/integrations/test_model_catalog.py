@@ -58,3 +58,50 @@ async def test_kling_catalog_uses_static_model_map_without_network() -> None:
         ("kling-3.0", "video"),
         ("kling-v3", "image"),
     }
+
+
+@pytest.mark.asyncio
+async def test_volcengine_plan_falls_back_when_models_endpoint_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Token Plan 未实现 `/models` 时应返回内置目录，不阻断手动建模。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/api/plan/v3/models")
+        return httpx.Response(404, request=request)
+
+    _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
+    result = await discover_provider_models(
+        cfg=ProviderConfig(
+            provider="volcengine",
+            api_key="secret",
+            base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+        )
+    )
+    assert result.source == "provider_catalog"
+    assert {(item.name, item.category.value) for item in result.models} == {
+        ("doubao-seed-2.0-lite", "text"),
+        ("doubao-seedream-5.0-lite", "image"),
+        ("doubao-seedance-1.5-pro", "video"),
+    }
+
+
+@pytest.mark.asyncio
+async def test_volcengine_catalog_does_not_hide_authentication_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """火山目录鉴权失败必须显式报错，不能使用静态目录掩盖错误密钥。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, request=request)
+
+    _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        await discover_provider_models(
+            cfg=ProviderConfig(
+                provider="volcengine",
+                api_key="invalid",
+                base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
+            )
+        )
+    assert exc_info.value.response.status_code == 401

@@ -86,8 +86,8 @@ def upgrade() -> None:
         sa.Column("endpoint_config", sa.JSON(), nullable=False, server_default=_json_object_default()),
         sa.Column("capability_snapshot", sa.JSON(), nullable=False, server_default=_json_object_default()),
         sa.Column("credential_ref", sa.String(255), nullable=False, server_default=""),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("model_id", "version_id", name="uq_model_config_revisions_model_version"),
     )
     _create_index_if_missing(
@@ -114,8 +114,8 @@ def upgrade() -> None:
         sa.Column("provider_result", sa.JSON(), nullable=False, server_default=_json_object_default()),
         sa.Column("publish_status", sa.String(16), nullable=False),
         sa.Column("publish_error", sa.String(128), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("task_id", "ordinal", name="uq_generation_artifacts_task_ordinal"),
         *_artifact_content_constraints(),
         sa.CheckConstraint("(publish_status = 'published' AND publish_error IS NULL) OR (publish_status = 'conflicted' AND publish_error = 'target_version_conflict') OR (publish_status = 'skipped' AND publish_error IS NOT NULL)", name="ck_generation_artifact_publish_status"),
@@ -137,8 +137,8 @@ def upgrade() -> None:
         sa.Column("media_kind", sa.String(16), nullable=False),
         sa.Column("file_content_version", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("file_content_hash", sa.String(128), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("task_id", "group_path", "ordinal", name="uq_generation_task_media_group_ordinal"),
     )
     _create_index_if_missing(
@@ -155,8 +155,8 @@ def upgrade() -> None:
         sa.Column("dispatched_at", sa.String(64), nullable=True),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("last_error", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
     )
     _create_index_if_missing(
         "ix_generation_dispatch_outbox_dispatched",

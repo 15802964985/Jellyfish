@@ -25,7 +25,28 @@ async def discover_provider_models(*, cfg: ProviderConfig) -> ProviderModelCatal
             source="provider_catalog",
             models=_KLING_MODELS,
         )
-    return await _discover_openai_compatible_models(cfg=cfg)
+    try:
+        return await _discover_openai_compatible_models(cfg=cfg)
+    except Exception as exc:
+        # 火山方舟 Token Plan 使用独立的 OpenAI-compatible 地址，但该地址不提供
+        # `/models`。仅在“接口不存在”时回退到维护的模型目录；鉴权、限流和网络
+        # 错误仍交给调用方展示，避免把错误配置伪装成刷新成功。
+        if cfg.provider == "volcengine" and _is_missing_models_endpoint(exc):
+            return ProviderModelCatalog(
+                provider_key="volcengine",
+                source="provider_catalog",
+                models=_VOLCENGINE_MODELS,
+            )
+        raise
+
+
+def _is_missing_models_endpoint(exc: Exception) -> bool:
+    """判断目录发现失败是否仅由供应商未实现 `/models` 导致。"""
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover
+        return False
+    return isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {404, 405}
 
 
 async def _discover_openai_compatible_models(*, cfg: ProviderConfig) -> ProviderModelCatalog:
@@ -104,5 +125,25 @@ _KLING_MODELS = [
         name="kling-v3",
         category="image",
         description="Kling Image 3.0 Omni 图片生成",
+    ),
+]
+
+# 火山方舟 Token Plan 不暴露 `/models`，这里维护 Jellyfish 已接入并验证过的
+# 文本、图片和视频模型。标准 Ark v3 若能返回实时列表，仍优先使用实时结果。
+_VOLCENGINE_MODELS = [
+    ProviderModelCandidate(
+        name="doubao-seed-2.0-lite",
+        category="text",
+        description="豆包 Seed 2.0 Lite 文本生成",
+    ),
+    ProviderModelCandidate(
+        name="doubao-seedream-5.0-lite",
+        category="image",
+        description="豆包 Seedream 5.0 Lite 图片生成",
+    ),
+    ProviderModelCandidate(
+        name="doubao-seedance-1.5-pro",
+        category="video",
+        description="豆包 Seedance 1.5 Pro 视频生成",
     ),
 ]

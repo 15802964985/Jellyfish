@@ -205,6 +205,8 @@ Base URL 和 API Key 必须来自同一套服务。不要把标准 DashScope Key
 
 不要因为同属“豆包”就复用类别：Seedream 用于图片，Seedance 用于视频。不同版本模型的 ID、尺寸、时长和比例能力可能不同，应以供应商控制台为准。
 
+点击“添加模型”并选择火山引擎时，标准 Ark v3 会优先读取实时模型列表；本机 Token Plan 地址不提供 `/models`，遇到 404/405 时系统会自动显示内置的 `doubao-seed-2.0-lite`、`doubao-seedream-5.0-lite` 和 `doubao-seedance-1.5-pro`。这不会修改已保存的 Base URL、API Key 或计费通道；401/403 仍会直接提示，需检查密钥和模型权限。
+
 ### 4.4 配置默认模型
 
 进入“模型管理 → 设置”：
@@ -689,6 +691,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7788/
 - 后端、Worker、前端均为 `Up`。
 - 三个 HTTP 请求均返回 `200`。
 - 日志无迁移失败、表不存在、Traceback 或前端启动失败。
+- `generation_dispatch_outbox` 等统一生成表的 `created_at`、`updated_at` 默认值为 `CURRENT_TIMESTAMP`；否则章节智能操作会在创建任务时回滚，任务中心也不会产生记录。
 
 重新执行 9.3 的数量 SQL，确认项目、章节、模型、供应商、任务和文件没有异常减少。浏览器按 `Ctrl + F5`，人工验证：
 

@@ -87,6 +87,7 @@ description: "如何在代码中注册内置供应商能力，并与异步任务
 在“模型管理 → 模型”点击“更新模型列表”，选择已配置的 Provider 并刷新。勾选要使用的模型后点击“添加所选模型”：系统会一次创建选中模型，已存在的同名同类别模型会显示为已添加并跳过。
 
 - OpenAI 兼容 Provider 使用其 `/models` API 实时读取目录，需确保 Provider 的 Base URL 与 API Key 有列举模型的权限。
+- 火山标准 Ark v3 优先读取实时 `/models`；Token Plan 地址未提供该接口并返回 404/405 时，页面自动回退到 Jellyfish 已验证的豆包文本、Seedream 图片和 Seedance 视频目录。401/403 不会回退，便于发现无效密钥或权限问题。
 - Vidu 当前没有公开模型列表 API，页面会显示从其官方 Model Map 维护的目录，并明确标记为官方目录；更新 Vidu 支持模型时应同步更新 `app/core/integrations/model_catalog.py` 与本说明。
 - 可灵同样使用后端维护的固定目录；更新其支持范围时应同步调整 `app/core/integrations/model_catalog.py`、可灵能力矩阵与本说明。
 

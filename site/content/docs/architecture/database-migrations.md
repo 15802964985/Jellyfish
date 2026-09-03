@@ -26,6 +26,8 @@ MySQL healthy
 
 结构变更只通过 `backend/alembic/versions/` 下的 Alembic revision 发布。`Base.metadata.create_all()` 不再作为 Compose 的部署建表机制。
 
+统一生成表的 `created_at`、`updated_at` 由数据库提供 `CURRENT_TIMESTAMP` 默认值。任务提交只需写入业务字段；若旧版 expand 迁移已经建表，后续修复 revision 会前向补齐默认值，避免任务与 `generation_dispatch_outbox` 在同一事务中因时间字段缺失而整体回滚。
+
 ## Alembic 配置
 
 - `backend/alembic.ini` 定义 backend 本地脚本位置；
