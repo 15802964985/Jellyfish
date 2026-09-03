@@ -30,6 +30,7 @@ import { useRelationTaskNotification } from '../../components/taskNotificationHe
 import { useTaskPageContext } from '../../components/taskPageContext'
 import { TASK_COPY } from '../../components/taskCopy'
 import { useLocation } from 'react-router-dom'
+import { AssetAttachmentsPanel } from './AssetAttachmentsPanel'
 import { useGenerationDraft } from '../../hooks/useGenerationDraft'
 import {
   CHARACTER_PORTRAIT_ANALYSIS_RELATION_TYPE,
@@ -200,12 +201,12 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   const [promptPreviewImage, setPromptPreviewImage] = useState<TImage | null>(null)
   const promptDraft = useGenerationDraft<
     { prompt: string },
-    { imageId: number | null; images: string[] },
+    { imageId: number | null; images: string[]; useSuggestedImages: boolean },
     { prompt: string; images: string[] },
     { taskId: string | null }
   >({
     initialBase: { prompt: '' },
-    initialContext: { imageId: null, images: [] },
+    initialContext: { imageId: null, images: [], useSuggestedImages: true },
     derive: async ({ base, context }) => {
       if (!assetId || !context.imageId) {
         throw new Error('asset image slot is required')
@@ -213,7 +214,9 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       const result = await renderPrompt(assetId, context.imageId)
       return {
         prompt: (base.prompt || '').trim() || (result.prompt ?? ''),
-        images: Array.isArray(result.images) ? result.images.filter(Boolean) : [],
+        images: context.useSuggestedImages
+          ? (Array.isArray(result.images) ? result.images.filter(Boolean) : [])
+          : context.images,
       }
     },
     submit: async ({ context, derived }) => {
@@ -565,7 +568,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       setPromptPreviewOpen(true)
       setPromptPreviewLoading(true)
       setPromptPreviewImage(image)
-      const nextContext = { imageId: image.id, images: [] }
+      const nextContext = { imageId: image.id, images: [], useSuggestedImages: true }
       promptDraft.hydrate({
         base: { prompt: '' },
         context: nextContext,
@@ -577,7 +580,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       if (derived) {
         promptDraft.hydrate({
           base: { prompt: derived.prompt },
-          context: { imageId: image.id, images: derived.images },
+          context: { imageId: image.id, images: derived.images, useSuggestedImages: true },
           derived,
         })
       }
@@ -887,6 +890,13 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
               </Row>
             ),
           },
+          ...(assetNavigateRelationType && assetId
+            ? [{
+                key: 'attachments',
+                label: '参考素材（照片 / 视频 / 文档 / 音频）',
+                children: <AssetAttachmentsPanel entityType={assetNavigateRelationType} entityId={assetId} />,
+              }]
+            : []),
         ]}
       />
 
@@ -958,20 +968,63 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
         ) : (
           <div className="space-y-3">
             <div>
-              <div className="text-xs text-gray-500 mb-2">关联图片（参考图）</div>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs text-gray-500">关联图片（智能推荐，可选）</div>
+                <Space size={4}>
+                  <Button
+                    size="small"
+                    type="text"
+                    disabled={promptDraft.context.useSuggestedImages}
+                    onClick={async () => {
+                      const context = { ...promptDraft.context, useSuggestedImages: true }
+                      promptDraft.setContext(context)
+                      const derived = await promptDraft.deriveNow({ context })
+                      if (derived) promptDraft.replaceContext({ ...context, images: derived.images })
+                    }}
+                  >
+                    恢复智能推荐
+                  </Button>
+                  <Button
+                    size="small"
+                    type="text"
+                    danger
+                    disabled={promptPreviewRefFileIds.length === 0}
+                    onClick={() => {
+                      promptDraft.setContext((current) => ({ ...current, images: [], useSuggestedImages: false }))
+                      promptDraft.setDerived(promptDraft.derived ? { ...promptDraft.derived, images: [] } : null)
+                    }}
+                  >
+                    全部不使用
+                  </Button>
+                </Space>
+              </div>
               {promptPreviewRefFileIds.length === 0 ? (
                 <div className="text-xs text-gray-400">暂无关联图片</div>
               ) : (
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   <Image.PreviewGroup>
                     {promptPreviewRefFileIds.map((fid) => (
-                      <Image
-                        key={fid}
-                        width={72}
-                        height={72}
-                        style={{ objectFit: 'cover', borderRadius: 8 }}
-                        src={buildFileDownloadUrl(fid)}
-                      />
+                      <div key={fid} className="relative shrink-0">
+                        <Image
+                          width={72}
+                          height={72}
+                          style={{ objectFit: 'cover', borderRadius: 8 }}
+                          src={buildFileDownloadUrl(fid)}
+                        />
+                        <Button
+                          danger
+                          type="primary"
+                          size="small"
+                          shape="circle"
+                          icon={<CloseCircleOutlined />}
+                          className="absolute -right-2 -top-2 z-10"
+                          onClick={() => {
+                            const images = promptPreviewRefFileIds.filter((item) => item !== fid)
+                            promptDraft.setContext((current) => ({ ...current, images, useSuggestedImages: false }))
+                            promptDraft.setDerived(promptDraft.derived ? { ...promptDraft.derived, images } : null)
+                          }}
+                        />
+                      </div>
                     ))}
                   </Image.PreviewGroup>
                 </div>

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
+from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from starlette.datastructures import Headers
 
 from app.core.db import Base
 from app.core.storage import StoredFileInfo
@@ -172,12 +176,11 @@ async def test_update_file_meta_updates_fields_and_upserts_usage() -> None:
 @pytest.mark.asyncio
 async def test_upload_file_does_not_force_public_acl(monkeypatch) -> None:
     """上传应兼容禁用对象 ACL 的 S3 bucket，访问控制由 bucket 策略或下载接口处理。"""
-    class _Upload:
-        filename = "reference.png"
-        content_type = "image/png"
-
-        async def read(self) -> bytes:
-            return b"png-content"
+    upload = UploadFile(
+        filename="reference.png",
+        file=BytesIO(b"png-content"),
+        headers=Headers({"content-type": "image/png"}),
+    )
 
     captured: dict[str, object] = {}
 
@@ -188,10 +191,11 @@ async def test_upload_file_does_not_force_public_acl(monkeypatch) -> None:
     monkeypatch.setattr(files_service.storage, "upload_file", _fake_upload_file)
     db, engine = await _build_session()
     async with db:
-        uploaded = await files_service.upload_file(db, file=_Upload())
+        uploaded = await files_service.upload_file(db, file=upload)
 
         assert uploaded.type == FileType.image
-        assert captured["key"] == "files/reference.png"
+        assert str(captured["key"]).startswith("files/")
+        assert str(captured["key"]).endswith("/reference.png")
         assert captured["content_type"] == "image/png"
         assert "extra_args" not in captured
     await engine.dispose()

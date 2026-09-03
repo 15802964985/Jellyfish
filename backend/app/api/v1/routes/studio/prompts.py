@@ -79,7 +79,7 @@ async def _clear_category_default(
     summary="提示词模板列表（分页）",
 )
 async def list_prompt_templates(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     category: PromptCategory | None = Query(None, description="按类别过滤"),
     q: str | None = Query(None, description="关键字，过滤 name"),
     is_default: bool | None = Query(None, description="过滤是否为默认"),
@@ -136,7 +136,7 @@ async def list_prompt_categories() -> ApiResponse[list[PromptCategoryOptionRead]
 )
 async def get_prompt_template(
     template_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[PromptTemplateRead]:
     obj = await db.get(PromptTemplate, template_id)
     if obj is None:
@@ -154,7 +154,7 @@ async def get_prompt_template(
 )
 async def create_prompt_template(
     body: PromptTemplateCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[PromptTemplateRead]:
     # 若设为默认，先清除同类别其他默认
     if body.is_default:
@@ -188,7 +188,7 @@ async def create_prompt_template(
 async def update_prompt_template(
     template_id: str,
     body: PromptTemplateUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[PromptTemplateRead]:
     obj = await db.get(PromptTemplate, template_id)
     if obj is None:
@@ -221,7 +221,7 @@ async def update_prompt_template(
 )
 async def delete_prompt_template(
     template_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[None]:
     obj = await db.get(PromptTemplate, template_id)
     if obj is None:

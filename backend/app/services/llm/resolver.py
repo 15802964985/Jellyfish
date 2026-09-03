@@ -167,6 +167,28 @@ async def build_text_chat_model(
     )
 
 
+async def build_text_llm_by_model(
+    db: AsyncSession,
+    model_or_id: Model | str,
+    *,
+    thinking: bool = False,
+) -> BaseChatModel:
+    """基于指定文本模型及其供应商配置构造 ChatOpenAI。"""
+    model = await _resolve_model(db, model_or_id)
+    if model.category != ModelCategoryKey.text:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only text models support the lightweight connection test",
+        )
+    provider = await get_provider_by_model_or_id(db, model)
+    return _build_chat_openai_model(
+        provider=provider,
+        model=model,
+        thinking=thinking,
+        import_error_detail="Install langchain-openai to test text model connectivity",
+    )
+
+
 def _build_chat_openai_model(
     *,
     provider: Provider,

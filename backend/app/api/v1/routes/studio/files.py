@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
-from app.schemas.studio import FileDetailRead, FileRead, FileUpdate
+from app.schemas.studio import FileDetailRead, FileRead, FileTypeEnum, FileUpdate
 from app.services.studio.file_usages import list_files_by_scope_paginated
 from app.services.studio.files import (
     build_download_response,
@@ -27,12 +27,13 @@ router = APIRouter()
     summary="文件列表（分页）",
 )
 async def list_files_api(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     q: str | None = Query(None, description="关键字，过滤 name"),
     order: str | None = Query(None),
     is_desc: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
+    file_type: FileTypeEnum | None = Query(None, description="按文件类型过滤"),
     project_id: str | None = Query(None, description="按 file_usages 限定项目；提供后仅返回该项目下有关联记录的文件"),
     chapter_title: str | None = Query(None, description="章节标题（精确匹配，与 project_id 联用）"),
     shot_title: str | None = Query(None, description="镜头标题（精确匹配，与 project_id 联用）"),
@@ -55,6 +56,7 @@ async def list_files_api(
             is_desc=is_desc,
             page=page,
             page_size=page_size,
+            file_type=file_type,
         )
         return paginated_response(
             [FileRead.model_validate(x) for x in items],
@@ -69,6 +71,7 @@ async def list_files_api(
         is_desc=is_desc,
         page=page,
         page_size=page_size,
+        file_type=file_type,
     )
 
 
@@ -81,7 +84,7 @@ async def list_files_api(
 async def upload_file_api(
     file: UploadFile = File(..., description="要上传的二进制文件"),
     name: str | None = None,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     project_id: str | None = Form(None, description="可选：写入 file_usages 的项目 ID"),
     chapter_id: str | None = Form(None),
     shot_id: str | None = Form(None),
@@ -107,7 +110,7 @@ async def upload_file_api(
 )
 async def download_file_api(
     file_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ):
     return await build_download_response(db, file_id=file_id)
 
@@ -119,7 +122,7 @@ async def download_file_api(
 )
 async def get_file_storage_info_api(
     file_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[dict]:
     return success_response(await get_storage_info(db, file_id=file_id))
 
@@ -131,7 +134,7 @@ async def get_file_storage_info_api(
 )
 async def get_file_detail(
     file_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[FileDetailRead]:
     return success_response(await get_file_detail_service(db, file_id=file_id))
 
@@ -144,7 +147,7 @@ async def get_file_detail(
 async def update_file_meta(
     file_id: str,
     body: FileUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[FileRead]:
     obj = await update_file_meta_service(db, file_id=file_id, body=body)
     return success_response(FileRead.model_validate(obj))
@@ -157,7 +160,7 @@ async def update_file_meta(
 )
 async def delete_file_api(
     file_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[None]:
     await delete_file(db, file_id=file_id)
     return empty_response()

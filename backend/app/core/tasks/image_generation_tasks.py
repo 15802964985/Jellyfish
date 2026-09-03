@@ -13,6 +13,7 @@ from app.core.integrations.kling.images import KlingImageApiAdapter, parse_kling
 from app.core.integrations.kling.task_api import normalize_image_state
 from app.core.integrations.vidu.images import ViduImageApiAdapter, parse_vidu_image_creation
 from app.core.integrations.volcengine.images import VolcengineImageApiAdapter
+from app.core.integrations.aliyun.images import AliyunImageApiAdapter
 from app.core.contracts.image_generation import (
     ImageGenerationInput,
     ImageGenerationResult,
@@ -37,6 +38,7 @@ __all__ = [
     "VolcengineImageGenerationTask",
     "ViduImageGenerationTask",
     "ImageGenerationTask",
+    "AliyunImageGenerationTask",
 ]
 
 
@@ -134,6 +136,33 @@ class VolcengineImageGenerationTask(AbstractImageGenerationTask):
     ) -> None:
         super().__init__(provider_config=provider_config, input_=input_, timeout_s=timeout_s)
         self._adapter = adapter or VolcengineImageApiAdapter()
+        self._deferred: ImageGenerationResult | None = None
+
+    async def _create_task(self) -> None:
+        self._deferred = await self._adapter.generate(
+            cfg=self._cfg,
+            inp=self._input,
+            timeout_s=self._timeout_s,
+        )
+
+    async def _poll_and_get_result(self) -> ImageGenerationResult:
+        assert self._deferred is not None
+        return self._deferred
+
+
+class AliyunImageGenerationTask(AbstractImageGenerationTask):
+    """阿里百炼图片生成：适配器内部兼容同步与异步万相模型。"""
+
+    def __init__(
+        self,
+        *,
+        adapter: AliyunImageApiAdapter | None = None,
+        provider_config: ProviderConfig,
+        input_: ImageGenerationInput,
+        timeout_s: float = 60.0,
+    ) -> None:
+        super().__init__(provider_config=provider_config, input_=input_, timeout_s=timeout_s)
+        self._adapter = adapter or AliyunImageApiAdapter()
         self._deferred: ImageGenerationResult | None = None
 
     async def _create_task(self) -> None:
@@ -310,6 +339,20 @@ class ImageGenerationTask(BaseTask):
     ) -> AbstractImageGenerationTask:
         """构造可灵图片任务实现，供任务注册表按 provider 分派。"""
         return KlingImageGenerationTask(
+            provider_config=provider_config,
+            input_=input_,
+            timeout_s=timeout_s,
+        )
+
+    @staticmethod
+    def _build_aliyun_impl(
+        *,
+        provider_config: ProviderConfig,
+        input_: ImageGenerationInput,
+        timeout_s: float = 60.0,
+    ) -> AbstractImageGenerationTask:
+        """构造阿里百炼图片任务实现。"""
+        return AliyunImageGenerationTask(
             provider_config=provider_config,
             input_=input_,
             timeout_s=timeout_s,

@@ -77,7 +77,7 @@ class GenerationTaskLinkRead(GenerationTaskLinkBase):
     summary="全局任务列表（任务中心）",
 )
 async def list_tasks(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     statuses: list[TaskStatus] | None = Query(None, description="按任务状态过滤，可多选"),
     task_kind: str | None = Query(None, description="按 task_kind 过滤"),
     relation_type: str | None = Query(None, description="按 relation_type 过滤"),
@@ -133,7 +133,7 @@ async def list_tasks(
 )
 async def get_task_status(
     task_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[TaskStatusRead]:
     store = SqlAlchemyTaskStore(db)
     view = await store.get_status_view(task_id)
@@ -160,7 +160,7 @@ async def get_task_status(
 )
 async def get_task_result(
     task_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[TaskResultRead]:
     store = SqlAlchemyTaskStore(db)
     rec = await store.get(task_id)
@@ -190,7 +190,7 @@ async def get_task_result(
 async def cancel_task(
     task_id: str,
     body: TaskCancelRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[TaskCancelRead]:
     store = SqlAlchemyTaskStore(db)
     rec = await store.request_cancel(task_id, body.reason)
@@ -227,7 +227,7 @@ async def cancel_task(
 )
 async def adopt_task_link(
     body: TaskLinkAdoptRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[TaskLinkAdoptRead]:
     target_type, entity_id = ensure_single_bind_target(body)
 
@@ -269,7 +269,7 @@ async def adopt_task_link(
     summary="生成任务关联列表（分页，支持多条件过滤）",
 )
 async def list_task_links(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     resource_type: str | None = Query(None, description="按 resource_type 过滤"),
     relation_type: str | None = Query(None, description="按 relation_type 过滤"),
     relation_entity_id: str | None = Query(None, description="按 relation_entity_id 过滤"),
@@ -316,7 +316,7 @@ async def list_task_links(
 )
 async def create_task_link(
     body: GenerationTaskLinkCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[GenerationTaskLinkRead]:
     link = GenerationTaskLink(
         task_id=body.task_id,
@@ -339,7 +339,7 @@ async def create_task_link(
 )
 async def get_task_link(
     link_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[GenerationTaskLinkRead]:
     link = await db.get(GenerationTaskLink, link_id)
     if link is None:
@@ -355,7 +355,7 @@ async def get_task_link(
 async def update_task_link(
     link_id: int,
     body: GenerationTaskLinkUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[GenerationTaskLinkRead]:
     link = await db.get(GenerationTaskLink, link_id)
     if link is None:
@@ -374,7 +374,7 @@ async def update_task_link(
 )
 async def delete_task_link(
     link_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[None]:
     link = await db.get(GenerationTaskLink, link_id)
     if link is None:

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FileTypeEnum(str, Enum):
     image = "image"
     video = "video"
+    audio = "audio"
+    document = "document"
 
 
 class FileBase(BaseModel):
@@ -18,6 +20,25 @@ class FileBase(BaseModel):
     name: str = Field(..., description="文件名/标题")
     thumbnail: str = Field("", description="缩略图 URL/路径")
     tags: list[str] = Field(default_factory=list, description="标签")
+    original_name: str = Field("", description="上传时原始文件名")
+    mime_type: str = Field("", description="MIME 类型")
+    size_bytes: int = Field(0, description="文件大小（字节）")
+    duration_ms: int | None = Field(None, description="音视频时长（毫秒）")
+    width: int | None = Field(None, description="图片/视频宽度")
+    height: int | None = Field(None, description="图片/视频高度")
+    checksum: str = Field("", description="SHA-256 校验值")
+
+    @field_validator("original_name", "mime_type", "checksum", mode="before")
+    @classmethod
+    def normalize_legacy_text_metadata(cls, value: object) -> str:
+        """兼容迁移前或未落库 ORM 对象中的空元数据。"""
+        return str(value or "")
+
+    @field_validator("size_bytes", mode="before")
+    @classmethod
+    def normalize_legacy_size_metadata(cls, value: object) -> int:
+        """兼容迁移前或未落库 ORM 对象中的空文件大小。"""
+        return int(value or 0)
 
 
 class FileCreate(BaseModel):

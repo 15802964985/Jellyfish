@@ -83,6 +83,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def disable_api_response_cache(request: Request, call_next):
+    """业务接口始终返回最新状态，避免浏览器复用 CRUD 列表响应。"""
+    response = await call_next(request)
+    if request.url.path.startswith(settings.api_v1_prefix):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
 app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
 # 影视技能路由同时挂到主应用，保证 /api/v1/film 一定可访问
 

@@ -94,7 +94,7 @@ class ScriptDividerRequest(BaseModel):
 )
 async def divide_script_async(
     request: ScriptDividerRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     if not request.chapter_id:
         raise HTTPException(status_code=400, detail=required_field("chapter_id", when="divide-async"))
@@ -131,7 +131,7 @@ async def divide_script_async(
 async def divide_script(
     request: ScriptDividerRequest,
     llm: BaseChatModel = Depends(get_nothinking_llm),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ScriptDivisionResult]:
     """
     将完整剧本文本自动分割为多个镜头。
@@ -206,7 +206,7 @@ class EntityMergerRequest(BaseModel):
 )
 async def merge_entities_async(
     request: EntityMergerRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_merge_relation_entity_id(
         chapter_id=request.chapter_id,
@@ -313,7 +313,7 @@ class VariantAnalysisRequest(BaseModel):
 )
 async def analyze_variants_async(
     request: VariantAnalysisRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_variant_relation_entity_id(
         chapter_id=request.chapter_id,
@@ -397,7 +397,7 @@ class ScriptConsistencyCheckRequest(BaseModel):
 )
 async def check_consistency_async(
     request: ScriptConsistencyCheckRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_consistency_relation_entity_id(
         chapter_id=request.chapter_id,
@@ -477,7 +477,7 @@ class CharacterPortraitAnalysisRequest(BaseModel):
 )
 async def analyze_character_portrait_async(
     request: CharacterPortraitAnalysisRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
@@ -552,7 +552,7 @@ class PropInfoAnalysisRequest(BaseModel):
 )
 async def analyze_prop_info_async(
     request: PropInfoAnalysisRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
@@ -627,7 +627,7 @@ class SceneInfoAnalysisRequest(BaseModel):
 )
 async def analyze_scene_info_async(
     request: SceneInfoAnalysisRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
@@ -702,7 +702,7 @@ class CostumeInfoAnalysisRequest(BaseModel):
 )
 async def analyze_costume_info_async(
     request: CostumeInfoAnalysisRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
@@ -781,7 +781,7 @@ class ScriptSimplifyRequest(BaseModel):
 )
 async def optimize_script_async(
     request: ScriptOptimizeRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_analysis_relation_entity_id(
         chapter_id=request.chapter_id,
@@ -814,7 +814,7 @@ async def optimize_script_async(
 )
 async def simplify_script_async(
     request: ScriptSimplifyRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     relation_entity_id = pick_analysis_relation_entity_id(
         chapter_id=request.chapter_id,
@@ -859,7 +859,7 @@ class ScriptExtractRequest(BaseModel):
 )
 async def extract_script_async(
     request: ScriptExtractRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[AsyncTaskCreateRead]:
     task_info = await create_extract_task(
         db,
@@ -890,7 +890,7 @@ async def extract_script_async(
 async def extract_script(
     request: ScriptExtractRequest,
     llm: BaseChatModel = Depends(get_nothinking_llm),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[StudioScriptExtractionDraft]:
     try:
         cache_key = build_script_extract_cache_key(

@@ -9,6 +9,17 @@ from app.schemas.studio.files import (
     FileUsageRead,
     FileUsageWrite,
 )
+from app.schemas.studio.media_assets import (
+    AssetFileLinkCreate,
+    AssetFileLinkRead,
+    AssetFileLinkUpdate,
+    AudioAssetCreate,
+    AudioAssetRead,
+    AudioAssetUpdate,
+    ShotAudioTrackCreate,
+    ShotAudioTrackRead,
+    ShotAudioTrackUpdate,
+)
 from app.schemas.studio.prompts import (
     PromptCategoryOptionRead,
     PromptTemplateCreate,

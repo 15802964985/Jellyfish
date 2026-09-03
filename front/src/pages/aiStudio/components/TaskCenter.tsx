@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Empty, Progress, Segmented, Select, Tag } from 'antd'
+import { Badge, Button, Card, Empty, Progress, Segmented, Select, Spin, Tag } from 'antd'
 import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
@@ -8,6 +8,8 @@ import {
 } from '@ant-design/icons'
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { TaskListItemRead, TaskStatus } from '../../../services/generated'
+import { FilmService } from '../../../services/generated'
 import type { TaskUiItem } from './taskUiStore'
 import {
   flattenPageContexts,
@@ -16,16 +18,19 @@ import {
   useTaskUiStore,
 } from './taskUiStore'
 import { useResolvedTaskCenterTasks } from './taskCenterMeta'
+import { TASK_KIND_TITLE_MAP } from './taskCopy'
 
 const TASK_CENTER_OPEN_STORAGE_KEY = 'jellyfish_task_center_open_v1'
 const TASK_CENTER_POSITION_STORAGE_KEY = 'jellyfish_task_center_position_v1'
-const TASK_CENTER_EDGE_PADDING = 24
+const TASK_CENTER_EDGE_PADDING = 20
 const TASK_CENTER_BUTTON_WIDTH = 132
 const TASK_CENTER_BUTTON_HEIGHT = 40
-const TASK_CENTER_PANEL_WIDTH = 360
-const TASK_CENTER_PANEL_HEIGHT = 420
+const TASK_CENTER_PANEL_WIDTH = 520
+const TASK_CENTER_PANEL_HEIGHT = 640
 const TASK_CENTER_PANEL_GAP = 12
-const TASK_CENTER_PAGE_SIZE = 3
+const TASK_CENTER_PAGE_SIZE = 4
+const TERMINAL_TASK_STATUSES: TaskStatus[] = ['succeeded', 'failed', 'cancelled']
+const ALL_TASK_STATUSES: TaskStatus[] = ['pending', 'running', 'streaming', ...TERMINAL_TASK_STATUSES]
 
 function getDefaultButtonPosition() {
   if (typeof window === 'undefined') {
@@ -116,9 +121,12 @@ function taskTone(task: TaskUiItem): { color: string; label: string } {
 
 export function TaskCenter() {
   const navigate = useNavigate()
-  const [scopeFilter, setScopeFilter] = useState<'auto' | 'all' | 'current' | 'active' | 'settled'>('auto')
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'current' | 'active' | 'settled'>('active')
   const [taskKindFilter, setTaskKindFilter] = useState<string | undefined>(undefined)
   const [page, setPage] = useState(1)
+  const [historyItems, setHistoryItems] = useState<TaskListItemRead[]>([])
+  const [historyTotal, setHistoryTotal] = useState(0)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [buttonPosition, setButtonPosition] = useState(getDefaultButtonPosition)
   const [dragging, setDragging] = useState(false)
   const open = useTaskUiStore((state) => state.open)
@@ -161,6 +169,13 @@ export function TaskCenter() {
   }, [open])
 
   useEffect(() => {
+    if (!open) return
+    setScopeFilter('active')
+    setTaskKindFilter(undefined)
+    setPage(1)
+  }, [open])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
     window.localStorage.setItem(TASK_CENTER_POSITION_STORAGE_KEY, JSON.stringify(buttonPosition))
   }, [buttonPosition])
@@ -199,14 +214,8 @@ export function TaskCenter() {
   const activeContexts = useMemo(() => flattenPageContexts(contextScopes), [contextScopes])
   const resolvedTasks = useResolvedTaskCenterTasks(tasks, navigate)
   const taskKindOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(resolvedTasks.map((task) => task.title).filter((value): value is string => !!value)),
-      ).map((title) => ({
-        label: title,
-        value: title,
-      })),
-    [resolvedTasks],
+    () => Object.entries(TASK_KIND_TITLE_MAP).map(([taskKind, title]) => ({ label: title, value: taskKind })),
+    [],
   )
   const summaryCounts = useMemo(
     () => ({
@@ -216,29 +225,67 @@ export function TaskCenter() {
     }),
     [activeContexts, resolvedTasks],
   )
-  const effectiveScopeFilter = useMemo<'all' | 'current' | 'active' | 'settled'>(() => {
-    if (scopeFilter !== 'auto') return scopeFilter
-    if (summaryCounts.current > 0) return 'current'
-    if (summaryCounts.active > 0) return 'active'
-    if (summaryCounts.settled > 0) return 'settled'
-    return 'all'
-  }, [scopeFilter, summaryCounts.active, summaryCounts.current, summaryCounts.settled])
+  const effectiveScopeFilter = scopeFilter
+  const usesServerHistory = open && (effectiveScopeFilter === 'all' || effectiveScopeFilter === 'settled')
+
+  useEffect(() => {
+    if (!usesServerHistory) {
+      setHistoryLoading(false)
+      return
+    }
+    let cancelled = false
+    setHistoryLoading(true)
+    const statuses = effectiveScopeFilter === 'settled' ? TERMINAL_TASK_STATUSES : ALL_TASK_STATUSES
+    void FilmService.listTasksApiV1FilmTasksGet({
+      statuses,
+      taskKind: taskKindFilter,
+      page,
+      pageSize: TASK_CENTER_PAGE_SIZE,
+    })
+      .then((res) => {
+        if (cancelled) return
+        setHistoryItems(res.data?.items ?? [])
+        setHistoryTotal(res.data?.pagination.total ?? 0)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setHistoryItems([])
+        setHistoryTotal(0)
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [effectiveScopeFilter, page, taskKindFilter, usesServerHistory])
+
+  const historyTasks = useMemo(
+    () => mergeTaskUiItems(Object.fromEntries(historyItems.map((task) => [task.task_id, task])), {}),
+    [historyItems],
+  )
+  const resolvedHistoryTasks = useResolvedTaskCenterTasks(historyTasks, navigate)
   const filteredTasks = useMemo(
     () =>
       resolvedTasks.filter((task) => {
         if (effectiveScopeFilter === 'current' && !isTaskHighlighted(task, activeContexts)) return false
         if (effectiveScopeFilter === 'active' && !['pending', 'running', 'streaming'].includes(task.status)) return false
         if (effectiveScopeFilter === 'settled' && !['succeeded', 'failed', 'cancelled'].includes(task.status)) return false
-        if (taskKindFilter && task.title !== taskKindFilter) return false
+        if (taskKindFilter && task.taskKind !== taskKindFilter) return false
         return true
       }),
     [activeContexts, effectiveScopeFilter, resolvedTasks, taskKindFilter],
   )
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / TASK_CENTER_PAGE_SIZE))
+  const displayedTasks = usesServerHistory ? resolvedHistoryTasks : filteredTasks
+  const displayedTotal = usesServerHistory ? historyTotal : filteredTasks.length
+  const totalPages = Math.max(1, Math.ceil(displayedTotal / TASK_CENTER_PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const pagedTasks = useMemo(
-    () => filteredTasks.slice((currentPage - 1) * TASK_CENTER_PAGE_SIZE, currentPage * TASK_CENTER_PAGE_SIZE),
-    [currentPage, filteredTasks],
+    () =>
+      usesServerHistory
+        ? displayedTasks
+        : displayedTasks.slice((currentPage - 1) * TASK_CENTER_PAGE_SIZE, currentPage * TASK_CENTER_PAGE_SIZE),
+    [currentPage, displayedTasks, usesServerHistory],
   )
   const groupedTasks = useMemo(() => {
     if (effectiveScopeFilter !== 'all') {
@@ -269,19 +316,24 @@ export function TaskCenter() {
         left: TASK_CENTER_EDGE_PADDING,
         top: TASK_CENTER_EDGE_PADDING,
         width: TASK_CENTER_PANEL_WIDTH,
+        height: TASK_CENTER_PANEL_HEIGHT,
       }
     }
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
     const panelWidth = Math.min(TASK_CENTER_PANEL_WIDTH, viewportWidth - TASK_CENTER_EDGE_PADDING * 2)
-    const preferTop = buttonPosition.y - TASK_CENTER_PANEL_GAP - TASK_CENTER_PANEL_HEIGHT
+    const panelHeight = Math.max(
+      320,
+      Math.min(TASK_CENTER_PANEL_HEIGHT, viewportHeight - TASK_CENTER_EDGE_PADDING * 2),
+    )
+    const preferTop = buttonPosition.y - TASK_CENTER_PANEL_GAP - panelHeight
     const preferBottom = buttonPosition.y + TASK_CENTER_BUTTON_HEIGHT + TASK_CENTER_PANEL_GAP
     const hasSpaceAbove = preferTop >= TASK_CENTER_EDGE_PADDING
     const rawTop = hasSpaceAbove
       ? preferTop
       : Math.min(
           preferBottom,
-          Math.max(TASK_CENTER_EDGE_PADDING, viewportHeight - TASK_CENTER_PANEL_HEIGHT - TASK_CENTER_EDGE_PADDING),
+          Math.max(TASK_CENTER_EDGE_PADDING, viewportHeight - panelHeight - TASK_CENTER_EDGE_PADDING),
         )
     const alignedLeft = buttonPosition.x
     const alignedRight = buttonPosition.x + TASK_CENTER_BUTTON_WIDTH - panelWidth
@@ -293,9 +345,10 @@ export function TaskCenter() {
       ),
       top: Math.max(
         TASK_CENTER_EDGE_PADDING,
-        Math.min(rawTop, viewportHeight - TASK_CENTER_PANEL_HEIGHT - TASK_CENTER_EDGE_PADDING),
+        Math.min(rawTop, viewportHeight - panelHeight - TASK_CENTER_EDGE_PADDING),
       ),
       width: panelWidth,
+      height: panelHeight,
     }
   }, [buttonPosition.x, buttonPosition.y])
 
@@ -346,58 +399,78 @@ export function TaskCenter() {
       {open ? (
         <div
           className={`fixed pointer-events-auto ${dragging ? '' : 'transition-[left,top] duration-200 ease-out'}`}
-          style={{ left: panelStyle.left, top: panelStyle.top, width: panelStyle.width }}
+          style={{
+            left: panelStyle.left,
+            top: panelStyle.top,
+            width: panelStyle.width,
+            height: panelStyle.height,
+          }}
         >
           <Card
             title="任务中心"
             size="small"
             className="shadow-lg"
+            style={{ height: '100%', borderRadius: 14, overflow: 'hidden' }}
             extra={
               <Button size="small" type="text" onClick={() => setOpen(false)}>
                 收起
               </Button>
             }
-            bodyStyle={{ maxHeight: 304, overflow: 'auto' }}
+            bodyStyle={{ height: 'calc(100% - 46px)', overflow: 'hidden', padding: 0, position: 'relative' }}
           >
-            <div className="mb-3 flex flex-col gap-2">
-              <Segmented
-                size="small"
-                value={scopeFilter}
-                onChange={(value) => {
-                  setScopeFilter(value as 'auto' | 'all' | 'current' | 'active' | 'settled')
-                  setPage(1)
-                }}
-                options={[
-                  { label: '智能', value: 'auto' },
-                  { label: `当前页 ${summaryCounts.current}`, value: 'current' },
-                  { label: `运行中 ${summaryCounts.active}`, value: 'active' },
-                  { label: `最近结束 ${summaryCounts.settled}`, value: 'settled' },
-                  { label: '全部', value: 'all' },
-                ]}
-              />
-              <Select
-                size="small"
-                allowClear
-                placeholder="按任务类型筛选"
-                value={taskKindFilter}
-                onChange={(value) => {
-                  setTaskKindFilter(value)
-                  setPage(1)
-                }}
-                options={taskKindOptions}
-              />
-              <div className="text-[11px] text-gray-400">
-                默认优先：当前页 → 运行中 → 最近结束 → 全部 · 每页最多 3 条
+            <div className="flex h-full min-h-0 flex-col">
+              {usesServerHistory && historyLoading ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/75 backdrop-blur-[1px]">
+                  <Spin tip="正在加载任务" />
+                </div>
+              ) : null}
+              <div className="shrink-0 border-b border-gray-100 px-4 pb-3 pt-4">
+                <div className="flex flex-col gap-2">
+                  <Segmented
+                    size="small"
+                    value={scopeFilter}
+                    onChange={(value) => {
+                      setScopeFilter(value as 'all' | 'current' | 'active' | 'settled')
+                      setPage(1)
+                    }}
+                    options={[
+                      { label: `当前页 ${summaryCounts.current}`, value: 'current' },
+                      { label: `运行中 ${summaryCounts.active}`, value: 'active' },
+                      {
+                        label: `已结束 ${effectiveScopeFilter === 'settled' && usesServerHistory ? historyTotal : summaryCounts.settled}`,
+                        value: 'settled',
+                      },
+                      { label: '全部', value: 'all' },
+                    ]}
+                  />
+                  <Select
+                    size="small"
+                    allowClear
+                    dropdownStyle={{ zIndex: 1301 }}
+                    placeholder="按任务类型筛选"
+                    value={taskKindFilter}
+                    onChange={(value) => {
+                      setTaskKindFilter(value)
+                      setPage(1)
+                    }}
+                    options={taskKindOptions}
+                  />
+                  <div className="text-[11px] text-gray-400">
+                    默认展示运行中任务；已结束和全部记录按需从历史中加载 · 每页最多 4 条
+                  </div>
+                </div>
               </div>
-            </div>
-            {filteredTasks.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有任务记录" />
-            ) : (
-              <div className="space-y-3">
-                {groupedTasks.map((group) => (
-                  <div key={group.key} className="space-y-2">
-                    {group.title ? <div className="text-[11px] font-medium text-gray-400">{group.title}</div> : null}
-                    {group.tasks.map((task) => {
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 [scrollbar-gutter:stable]">
+                {displayedTasks.length === 0 ? (
+                  <div className="flex h-full items-center justify-center">
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有任务记录" />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {groupedTasks.map((group) => (
+                      <div key={group.key} className="space-y-2">
+                        {group.title ? <div className="text-[11px] font-medium text-gray-400">{group.title}</div> : null}
+                        {group.tasks.map((task) => {
                       const tone = taskTone(task)
                       const elapsed = formatElapsedMs(task.elapsedMs)
                       const startedAt = formatStartedAt(task.startedAtTs)
@@ -474,15 +547,20 @@ export function TaskCenter() {
                           />
                         </div>
                       )
-                    })}
+                        })}
+                      </div>
+                    ))}
                   </div>
-                ))}
-                {filteredTasks.length > TASK_CENTER_PAGE_SIZE ? (
-                  <div className="flex items-center justify-end gap-1 pt-1 text-xs text-gray-500">
+                )}
+              </div>
+              <div className="flex h-12 shrink-0 items-center justify-between border-t border-gray-100 bg-gray-50/80 px-4 text-xs text-gray-500">
+                <span>共 {displayedTotal} 条</span>
+                <div className="flex items-center gap-1">
                     <Button
                       size="small"
                       type="text"
                       icon={<ArrowLeftOutlined />}
+                      aria-label="上一页"
                       disabled={currentPage <= 1}
                       onClick={() => setPage((prev) => Math.max(1, prev - 1))}
                     />
@@ -491,13 +569,13 @@ export function TaskCenter() {
                       size="small"
                       type="text"
                       icon={<ArrowRightOutlined />}
+                      aria-label="下一页"
                       disabled={currentPage >= totalPages}
                       onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
                     />
                   </div>
-                ) : null}
               </div>
-            )}
+            </div>
           </Card>
         </div>
       ) : null}

@@ -1,0 +1,42 @@
+services:
+  backend-migrate:
+    build:
+      dockerfile: deploy/docker/backend.local.Dockerfile
+
+  backend-seed-system-data:
+    build:
+      dockerfile: deploy/docker/backend.local.Dockerfile
+
+  backend:
+    build:
+      dockerfile: deploy/docker/backend.local.Dockerfile
+    ports: !override
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+
+  celery-worker:
+    build:
+      dockerfile: deploy/docker/backend.local.Dockerfile
+
+  front:
+    build:
+      dockerfile: deploy/docker/front.local.Dockerfile
+    ports: !override
+      - "127.0.0.1:${FRONT_PORT:-7788}:80"
+
+  mysql:
+    ports: !override
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+
+  redis:
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports: !override
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+
+  rustfs:
+    ports: !override
+      - "127.0.0.1:${RUSTFS_PORT:-9000}:9000"
+      - "127.0.0.1:${RUSTFS_CONSOLE_PORT:-9001}:9001"

@@ -38,14 +38,15 @@ export default function SettingsTab() {
     try {
       const values = await form.validateFields()
       setSettingsSaving(true)
-      await LlmService.updateModelSettingsApiV1LlmModelSettingsPut({
+      const res = await LlmService.updateModelSettingsApiV1LlmModelSettingsPut({
         requestBody: {
           api_timeout: values.api_timeout,
           log_level: values.log_level,
         },
       })
+      if (res.data) setSettings(res.data)
       message.success('设置已保存')
-      void load()
+      await load()
     } catch {
       message.error('保存失败')
     } finally {

@@ -34,7 +34,7 @@ CHAPTER_ORDER_FIELDS = {"index", "title", "created_at", "updated_at", "storyboar
     summary="章节列表（分页）",
 )
 async def list_chapters(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     project_id: str | None = Query(None, description="按项目过滤"),
     q: str | None = Query(None, description="关键字，过滤 title/summary"),
     order: str | None = Query(None, description="排序字段"),
@@ -86,7 +86,7 @@ async def list_chapters(
 )
 async def create_chapter(
     body: ChapterCreate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ChapterRead]:
     await ensure_not_exists(
         db,
@@ -112,7 +112,7 @@ async def create_chapter(
 )
 async def get_chapter(
     chapter_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ChapterRead]:
     obj = await get_or_404(db, Chapter, chapter_id, detail=entity_not_found("Chapter"))
     count_stmt = select(func.count(Shot.id)).where(Shot.chapter_id == chapter_id)
@@ -129,7 +129,7 @@ async def get_chapter(
 async def update_chapter(
     chapter_id: str,
     body: ChapterUpdate,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ChapterRead]:
     obj = await get_or_404(db, Chapter, chapter_id, detail=entity_not_found("Chapter"))
     update = body.model_dump(exclude_unset=True)
@@ -153,7 +153,7 @@ async def update_chapter(
 )
 async def delete_chapter(
     chapter_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[None]:
     await delete_if_exists(db, Chapter, chapter_id)
     return empty_response()

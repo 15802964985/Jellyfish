@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, JSON, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, JSON, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -56,6 +56,13 @@ class FileItem(Base, TimestampMixin):
     )
     content_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, comment="文件内容版本")
     content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, comment="文件内容哈希")
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False, default="", comment="上传时原始文件名")
+    mime_type: Mapped[str] = mapped_column(String(128), nullable=False, default="", comment="文件 MIME 类型")
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, comment="文件大小（字节）")
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="音视频时长（毫秒）")
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="图片/视频宽度")
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="图片/视频高度")
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False, default="", comment="SHA-256 校验值")
 
     usages: Mapped[list["FileUsage"]] = relationship(
         "FileUsage",

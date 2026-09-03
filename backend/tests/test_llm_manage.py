@@ -179,7 +179,7 @@ async def test_list_models_paginated_returns_filtered_items() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_model_rejects_unsupported_category_for_provider() -> None:
+async def test_create_model_allows_aliyun_video_category() -> None:
     db, engine = await _build_session()
     async with db:
         await create_provider(
@@ -192,23 +192,22 @@ async def test_create_model_rejects_unsupported_category_for_provider() -> None:
             ),
         )
 
-        with pytest.raises(HTTPException) as exc_info:
-            await create_model(
-                db,
-                body=ModelCreate(
-                    id="m-video-invalid",
-                    name="qwen-vl-video",
-                    category=ModelCategoryKey.video,
-                    provider_id="p-bailian",
-                ),
-            )
-        assert exc_info.value.status_code == 400
-        assert "does not support category=video" in str(exc_info.value.detail)
+        model = await create_model(
+            db,
+            body=ModelCreate(
+                id="m-video-aliyun",
+                name="wan3.0-video",
+                category=ModelCategoryKey.video,
+                provider_id="p-bailian",
+            ),
+        )
+        assert model.provider_id == "p-bailian"
+        assert model.category == ModelCategoryKey.video
     await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_update_model_rejects_switch_to_unsupported_provider_category_combo() -> None:
+async def test_update_model_allows_switch_to_aliyun_video_provider() -> None:
     db, engine = await _build_session()
     async with db:
         await create_provider(
@@ -239,14 +238,12 @@ async def test_update_model_rejects_switch_to_unsupported_provider_category_comb
             ),
         )
 
-        with pytest.raises(HTTPException) as exc_info:
-            await update_model(
-                db,
-                model_id="m-video-ok",
-                body=ModelUpdate(provider_id="p-bailian"),
-            )
-        assert exc_info.value.status_code == 400
-        assert "does not support category=video" in str(exc_info.value.detail)
+        model = await update_model(
+            db,
+            model_id="m-video-ok",
+            body=ModelUpdate(provider_id="p-bailian"),
+        )
+        assert model.provider_id == "p-bailian"
     await engine.dispose()
 
 

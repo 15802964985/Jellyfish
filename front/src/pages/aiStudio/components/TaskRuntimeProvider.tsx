@@ -3,8 +3,8 @@ import type { ReactNode } from 'react'
 import { FilmService } from '../../../services/generated'
 import { useTaskUiStore } from './taskUiStore'
 
-const TASK_POLL_INTERVAL_MS = 4000
-const TASK_RECENT_SECONDS = 15
+const TASK_POLL_INTERVAL_MS = 10000
+const TASK_RECENT_SECONDS = 60
 const TASK_PAGE_SIZE = 50
 
 type TaskRuntimeProviderProps = {

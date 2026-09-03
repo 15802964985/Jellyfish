@@ -171,6 +171,18 @@ class ModelRead(ModelBase):
     id: str = Field(..., description="模型 ID")
 
 
+class ModelConnectionTestRead(BaseModel):
+    """文本模型真实连通性测试结果。"""
+
+    ok: bool = Field(..., description="是否调用成功")
+    provider_id: str = Field(..., description="供应商 ID")
+    model_id: str = Field(..., description="实际测试的模型 ID")
+    model_name: str = Field(..., description="实际请求的模型名称")
+    category: ModelCategoryKey = Field(..., description="模型类别")
+    latency_ms: int = Field(..., description="调用耗时（毫秒）")
+    response_preview: str = Field("", description="模型响应摘要")
+
+
 class ModelSettingsBase(BaseModel):
     """模型全局设置通用字段。"""
 

@@ -8,6 +8,7 @@ import type { ApiResponse_FileRead_ } from '../models/ApiResponse_FileRead_';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
 import type { ApiResponse_PaginatedData_FileRead__ } from '../models/ApiResponse_PaginatedData_FileRead__';
 import type { Body_upload_file_api_api_v1_studio_files_upload_post } from '../models/Body_upload_file_api_api_v1_studio_files_upload_post';
+import type { FileTypeEnum } from '../models/FileTypeEnum';
 import type { FileUpdate } from '../models/FileUpdate';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -24,6 +25,7 @@ export class StudioFilesService {
         isDesc = false,
         page = 1,
         pageSize = 10,
+        fileType,
         projectId,
         chapterTitle,
         shotTitle,
@@ -36,6 +38,10 @@ export class StudioFilesService {
         isDesc?: boolean,
         page?: number,
         pageSize?: number,
+        /**
+         * 按文件类型过滤
+         */
+        fileType?: (FileTypeEnum | null),
         /**
          * 按 file_usages 限定项目；提供后仅返回该项目下有关联记录的文件
          */
@@ -58,6 +64,7 @@ export class StudioFilesService {
                 'is_desc': isDesc,
                 'page': page,
                 'page_size': pageSize,
+                'file_type': fileType,
                 'project_id': projectId,
                 'chapter_title': chapterTitle,
                 'shot_title': shotTitle,

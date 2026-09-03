@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.studio import AssetViewAngle
+from app.models.studio import AssetFileLink, AssetViewAngle, FileItem, FileType
 
 DOWNLOAD_URL_TEMPLATE = "/api/v1/studio/files/{file_id}/download"
 
@@ -76,3 +76,42 @@ async def resolve_thumbnail_infos(
         }
         for parent_id, info in best.items()
     }
+
+
+async def resolve_attachment_image_infos(
+    db: AsyncSession,
+    *,
+    entity_type: str,
+    entity_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """解析资产启用的图片附件，供无专用形象图时作为可选参考回退。"""
+    if not entity_ids:
+        return {}
+    stmt = (
+        select(AssetFileLink, FileItem)
+        .join(FileItem, FileItem.id == AssetFileLink.file_id)
+        .where(
+            AssetFileLink.entity_type == entity_type,
+            AssetFileLink.entity_id.in_(entity_ids),
+            AssetFileLink.enabled.is_(True),
+            FileItem.type == FileType.image,
+        )
+        .order_by(
+            AssetFileLink.entity_id,
+            AssetFileLink.is_primary.desc(),
+            AssetFileLink.sort_index,
+            AssetFileLink.id,
+        )
+    )
+    result: dict[str, dict[str, Any]] = {}
+    for link, file_item in (await db.execute(stmt)).all():
+        if link.entity_id in result:
+            continue
+        result[link.entity_id] = {
+            "image_id": None,
+            "file_id": file_item.id,
+            "thumbnail": download_url(file_item.id),
+            "source": "attachment",
+            "resource_role": link.resource_role,
+        }
+    return result

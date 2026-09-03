@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { ApiResponse_ImageGenerationOptionsRead_ } from '../models/ApiResponse_ImageGenerationOptionsRead_';
 import type { ApiResponse_list_ProviderSupportedRead__ } from '../models/ApiResponse_list_ProviderSupportedRead__';
+import type { ApiResponse_ModelConnectionTestRead_ } from '../models/ApiResponse_ModelConnectionTestRead_';
 import type { ApiResponse_ModelRead_ } from '../models/ApiResponse_ModelRead_';
 import type { ApiResponse_ModelSettingsRead_ } from '../models/ApiResponse_ModelSettingsRead_';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
@@ -287,6 +288,27 @@ export class LlmService {
         });
     }
     /**
+     * 真实测试供应商文本连接
+     * @returns ApiResponse_ModelConnectionTestRead_ Successful Response
+     * @throws ApiError
+     */
+    public static testProviderConnectionApiV1LlmProvidersProviderIdTestConnectionPost({
+        providerId,
+    }: {
+        providerId: string,
+    }): CancelablePromise<ApiResponse_ModelConnectionTestRead_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/llm/providers/{provider_id}/test-connection',
+            path: {
+                'provider_id': providerId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * 列出模型（分页）
      * @returns ApiResponse_PaginatedData_ModelRead__ Successful Response
      * @throws ApiError
@@ -425,6 +447,27 @@ export class LlmService {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/v1/llm/models/{model_id}',
+            path: {
+                'model_id': modelId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 真实测试文本模型
+     * @returns ApiResponse_ModelConnectionTestRead_ Successful Response
+     * @throws ApiError
+     */
+    public static testModelApiV1LlmModelsModelIdTestPost({
+        modelId,
+    }: {
+        modelId: string,
+    }): CancelablePromise<ApiResponse_ModelConnectionTestRead_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/llm/models/{model_id}/test',
             path: {
                 'model_id': modelId,
             },

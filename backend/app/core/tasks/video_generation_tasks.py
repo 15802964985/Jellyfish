@@ -14,6 +14,7 @@ from app.core.integrations.kling.task_api import normalize_video_state, unwrap_v
 from app.core.integrations.kling.video import KlingVideoApiAdapter
 from app.core.integrations.vidu.video import ViduVideoApiAdapter
 from app.core.integrations.volcengine.video import VolcengineVideoApiAdapter
+from app.core.integrations.aliyun.video import AliyunVideoApiAdapter
 from app.core.contracts.provider import ProviderConfig
 from app.core.tasks.registry import resolve_task_adapter
 from app.core.contracts.video_generation import VideoGenerationInput, VideoGenerationResult
@@ -28,6 +29,7 @@ __all__ = [
     "VolcengineVideoGenerationTask",
     "ViduVideoGenerationTask",
     "VideoGenerationTask",
+    "AliyunVideoGenerationTask",
 ]
 
 
@@ -275,6 +277,65 @@ class ViduVideoGenerationTask(AbstractVideoGenerationTask):
             await self._sleep_poll()
 
 
+class AliyunVideoGenerationTask(AbstractVideoGenerationTask):
+    """阿里百炼万相视频任务：创建任务后轮询 DashScope 统一任务端点。"""
+
+    def __init__(
+        self,
+        *,
+        adapter: AliyunVideoApiAdapter | None = None,
+        provider_config: ProviderConfig,
+        input_: VideoGenerationInput,
+        poll_interval_s: float = 2.0,
+        timeout_s: float = 120.0,
+    ) -> None:
+        super().__init__(provider_config=provider_config, input_=input_, poll_interval_s=poll_interval_s, timeout_s=timeout_s)
+        self._adapter = adapter or AliyunVideoApiAdapter()
+
+    async def _create_task(self) -> None:
+        self._provider_task_id = await self._adapter.create_video_task(
+            cfg=self._cfg,
+            input_=self._input,
+            timeout_s=self._timeout_s,
+        )
+
+    async def _poll_and_get_result(self) -> VideoGenerationResult:
+        """轮询万相任务，并规范化其视频 URL 和终态。"""
+        task_id = self._provider_task_id or ""
+        if not task_id:
+            raise RuntimeError("Aliyun video poll missing provider task id")
+        while True:
+            payload = await self._adapter.get_video_task(
+                cfg=self._cfg,
+                task_id=task_id,
+                timeout_s=self._timeout_s,
+            )
+            output = payload.get("output") or {}
+            state = str(output.get("task_status") or "").upper()
+            if state == "SUCCEEDED":
+                video_url = str(output.get("video_url") or "")
+                if not video_url:
+                    video_url = next(
+                        (
+                            str(item.get("url") or item.get("video_url"))
+                            for item in (output.get("results") or [])
+                            if isinstance(item, dict) and (item.get("url") or item.get("video_url"))
+                        ),
+                        "",
+                    )
+                if not video_url:
+                    raise RuntimeError(f"Aliyun video task succeeded without output: {payload!r}")
+                return VideoGenerationResult(
+                    url=video_url,
+                    provider_task_id=task_id,
+                    provider="aliyun_bailian",
+                    status=state,
+                )
+            if state in {"FAILED", "CANCELED", "UNKNOWN"}:
+                raise RuntimeError(f"Aliyun video task failed: {output.get('message') or payload.get('message') or state}")
+            await self._sleep_poll()
+
+
 class KlingVideoGenerationTask(AbstractVideoGenerationTask):
     """可灵视频任务：创建后复用其统一任务查询接口轮询产物。"""
 
@@ -418,6 +479,22 @@ class VideoGenerationTask(BaseTask):
     ) -> AbstractVideoGenerationTask:
         """构造可灵视频任务实现，供任务注册表按 provider 分派。"""
         return KlingVideoGenerationTask(
+            provider_config=provider_config,
+            input_=input_,
+            poll_interval_s=poll_interval_s,
+            timeout_s=timeout_s,
+        )
+
+    @staticmethod
+    def _build_aliyun_impl(
+        *,
+        provider_config: ProviderConfig,
+        input_: VideoGenerationInput,
+        poll_interval_s: float = 2.0,
+        timeout_s: float = 120.0,
+    ) -> AbstractVideoGenerationTask:
+        """构造阿里百炼视频任务实现。"""
+        return AliyunVideoGenerationTask(
             provider_config=provider_config,
             input_=input_,
             poll_interval_s=poll_interval_s,

@@ -5,12 +5,13 @@ import { ActorsTab } from './tabs/ActorsTab'
 import { ScenesTab } from './tabs/ScenesTab'
 import { PropsTab } from './tabs/PropsTab'
 import { CostumesTab } from './tabs/CostumesTab'
+import { AudioAssetsTab } from './tabs/AudioAssetsTab'
 
 const TAB_PARAM = 'tab'
-type AssetTabKey = 'actor' | 'scene' | 'prop' | 'costume'
+type AssetTabKey = 'actor' | 'scene' | 'prop' | 'costume' | 'audio'
 
 function isValidTab(tab: string | null): tab is AssetTabKey {
-  return tab === 'actor' || tab === 'scene' || tab === 'prop' || tab === 'costume'
+  return tab === 'actor' || tab === 'scene' || tab === 'prop' || tab === 'costume' || tab === 'audio'
 }
 
 const AssetManager = () => {
@@ -58,6 +59,7 @@ const AssetManager = () => {
             { key: 'scene', label: '场景', children: <ScenesTab /> },
             { key: 'prop', label: '道具', children: <PropsTab /> },
             { key: 'costume', label: '服装', children: <CostumesTab /> },
+            { key: 'audio', label: '配音音效', children: <AudioAssetsTab /> },
           ]}
         />
       </Card>

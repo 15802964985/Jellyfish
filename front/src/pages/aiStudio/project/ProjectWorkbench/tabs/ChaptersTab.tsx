@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Card, Button, Tag, Space, Table, Empty, Modal, Input, Dropdown, message } from 'antd'
+import { Alert, Card, Button, Checkbox, Tag, Space, Table, Empty, Modal, Input, Dropdown, Upload, Pagination, message } from 'antd'
 import type { MenuProps, TableColumnsType } from 'antd'
 import {
   EditOutlined,
@@ -10,6 +10,8 @@ import {
   ScissorOutlined,
   StopOutlined,
   SyncOutlined,
+  UploadOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ScriptProcessingService, StudioChaptersService } from '../../../../../services/generated'
@@ -29,6 +31,8 @@ import {
   upsertRelationTaskStateInMap,
   useChapterDivisionTaskMapPolling,
 } from '../chapterDivisionTasks'
+import { notifyProjectDataChanged } from '../projectDataEvents'
+import { readScriptFile, type ImportedScriptChapter } from '../scriptImport'
 
 const { TextArea } = Input
 const CREATE_PARAM = 'create'
@@ -46,12 +50,32 @@ export function ChaptersTab() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createTitle, setCreateTitle] = useState('')
   const [createContent, setCreateContent] = useState('')
+  const [infoEditOpen, setInfoEditOpen] = useState(false)
+  const [infoEditingChapter, setInfoEditingChapter] = useState<Chapter | null>(null)
+  const [infoTitle, setInfoTitle] = useState('')
+  const [infoSummary, setInfoSummary] = useState('')
+  const [infoSaving, setInfoSaving] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importChapters, setImportChapters] = useState<ImportedScriptChapter[]>([])
+  const [autoDivideAfterImport, setAutoDivideAfterImport] = useState(false)
   const [chapterFlowMap, setChapterFlowMap] = useState<Record<string, ChapterFlowStats>>({})
   const [chapterDivisionActionId, setChapterDivisionActionId] = useState<string | null>(null)
+  const [chapterPage, setChapterPage] = useState(1)
+  const [chapterPageSize, setChapterPageSize] = useState(10)
   const taskUiUpsert = useTaskUiStore((state) => state.upsertTask)
   const taskUiRemove = useTaskUiStore((state) => state.removeTask)
   const syncedTaskIdsRef = useRef<string[]>([])
   const chapterIds = useMemo(() => chapters.map((chapter) => chapter.id), [chapters])
+  const pagedChapters = useMemo(
+    () => chapters.slice((chapterPage - 1) * chapterPageSize, chapterPage * chapterPageSize),
+    [chapterPage, chapterPageSize, chapters],
+  )
+
+  useEffect(() => {
+    const lastPage = Math.max(1, Math.ceil(chapters.length / chapterPageSize))
+    setChapterPage((current) => Math.min(current, lastPage))
+  }, [chapterPageSize, chapters.length])
   useTaskPageContext(
     chapterIds.map((id) => ({
       relationType: 'chapter_division',
@@ -62,6 +86,7 @@ export function ChaptersTab() {
     chapterIds,
     onTasksSettled: async () => {
       await refresh()
+      if (projectId) notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
     },
   })
 
@@ -185,6 +210,7 @@ export function ChaptersTab() {
       setCreateTitle('')
       setCreateContent('')
       await refresh()
+      notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
       openCreateNextStep(draftChapter, !!rawText.trim())
     } catch {
       message.error('创建章节失败')
@@ -219,7 +245,187 @@ export function ChaptersTab() {
     setCreateContent('')
     window.setTimeout(() => openCreateNextStep(draftChapter, !!rawText.trim()), 0)
     void refresh()
+    notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
   }
+
+  const openInfoEditModal = (chapter: Chapter) => {
+    setInfoEditingChapter(chapter)
+    setInfoTitle(chapter.title)
+    setInfoSummary(chapter.summary ?? '')
+    setInfoEditOpen(true)
+  }
+
+  const handleSaveChapterInfo = async () => {
+    if (!projectId || !infoEditingChapter) return
+    const title = infoTitle.trim()
+    if (!title) {
+      message.warning('请输入章节标题')
+      return
+    }
+    setInfoSaving(true)
+    try {
+      await StudioChaptersService.updateChapterApiV1StudioChaptersChapterIdPatch({
+        chapterId: infoEditingChapter.id,
+        requestBody: { title, summary: infoSummary.trim() },
+      })
+      patchChapterLocal(infoEditingChapter.id, { title, summary: infoSummary.trim() })
+      setInfoEditOpen(false)
+      setInfoEditingChapter(null)
+      notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
+      message.success('章节信息已更新')
+    } catch {
+      message.error('章节信息更新失败')
+    } finally {
+      setInfoSaving(false)
+    }
+  }
+
+  const handleDeleteChapter = (chapter: Chapter) => {
+    if (!projectId) return
+    Modal.confirm({
+      title: `删除章节「${chapter.title}」？`,
+      content: '该章节下的分镜及关联内容也可能受到影响。删除后无法恢复。',
+      okText: '确认删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await StudioChaptersService.deleteChapterApiV1StudioChaptersChapterIdDelete({ chapterId: chapter.id })
+          await refresh()
+          notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
+          message.success('章节已删除')
+        } catch {
+          message.error('章节删除失败')
+        }
+      },
+    })
+  }
+
+  const handleImportScripts = async () => {
+    if (!projectId || !importChapters.length) return
+    setImporting(true)
+    let createdCount = 0
+    let divisionCount = 0
+    try {
+      const firstIndex = Math.max(0, ...chapters.map((chapter) => chapter.index)) + 1
+      for (const [offset, chapter] of importChapters.entries()) {
+        const chapterId = newId('c')
+        await StudioChaptersService.createChapterApiV1StudioChaptersPost({
+          requestBody: {
+            id: chapterId,
+            project_id: projectId,
+            index: firstIndex + offset,
+            title: chapter.title,
+            summary: '',
+            raw_text: chapter.content,
+            storyboard_count: 0,
+            status: 'draft',
+          },
+        })
+        createdCount += 1
+        if (autoDivideAfterImport && chapter.content.trim()) {
+          await ScriptProcessingService.divideScriptAsyncApiV1ScriptProcessingDivideAsyncPost({
+            requestBody: {
+              chapter_id: chapterId,
+              script_text: chapter.content,
+              write_to_db: true,
+            },
+          })
+          divisionCount += 1
+        }
+      }
+      await refresh()
+      notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
+      setImportOpen(false)
+      setImportChapters([])
+      setAutoDivideAfterImport(false)
+      message.success(
+        divisionCount
+          ? `已导入 ${createdCount} 个章节，并启动 ${divisionCount} 个分镜提取任务`
+          : `已导入 ${createdCount} 个章节`,
+      )
+    } catch {
+      if (createdCount) {
+        await refresh()
+        notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
+        message.warning(`已导入 ${createdCount} 个章节，后续章节导入失败，请检查后重试`)
+      } else {
+        message.error('剧本导入失败')
+      }
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const scriptImportModal = (
+    <Modal
+      title="导入剧本"
+      open={importOpen}
+      onCancel={() => {
+        if (importing) return
+        setImportOpen(false)
+        setImportChapters([])
+      }}
+      onOk={() => void handleImportScripts()}
+      okText={`导入${importChapters.length ? ` ${importChapters.length} 个章节` : ''}`}
+      okButtonProps={{ disabled: !importChapters.length }}
+      confirmLoading={importing}
+      closable={!importing}
+      maskClosable={!importing}
+      width={680}
+    >
+      <div className="space-y-4">
+        <Upload.Dragger
+          accept=".txt,.md,.markdown,text/plain,text/markdown"
+          maxCount={1}
+          showUploadList={false}
+          disabled={importing}
+          beforeUpload={async (file) => {
+            try {
+              setImportChapters(await readScriptFile(file))
+              message.success('剧本解析完成')
+            } catch (error) {
+              setImportChapters([])
+              message.error(error instanceof Error ? error.message : '剧本解析失败')
+            }
+            return Upload.LIST_IGNORE
+          }}
+        >
+          <p className="ant-upload-drag-icon"><UploadOutlined /></p>
+          <p className="ant-upload-text">点击或拖入剧本文件</p>
+          <p className="ant-upload-hint">支持 TXT、MD、MARKDOWN，最大 5MB；按“第X集/章/幕”或 Markdown 标题拆分</p>
+        </Upload.Dragger>
+
+        {importChapters.length ? (
+          <div className="max-h-56 overflow-auto rounded border border-gray-200 divide-y">
+            {importChapters.map((chapter, index) => (
+              <div key={`${chapter.title}-${index}`} className="px-3 py-2">
+                <div className="font-medium">{index + 1}. {chapter.title}</div>
+                <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+                  {chapter.content || '该标题下暂无正文'}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <Checkbox
+          checked={autoDivideAfterImport}
+          disabled={!importChapters.length || importing}
+          onChange={(event) => setAutoDivideAfterImport(event.target.checked)}
+        >
+          导入后自动启动 AI 分镜提取
+        </Checkbox>
+        {autoDivideAfterImport ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="每个章节都会创建一个 AI 任务，并产生模型调用费用。角色、场景、道具、服装需在分镜完成后进入要素提取确认。"
+          />
+        ) : null}
+      </div>
+    </Modal>
+  )
 
   const handlePrimaryAction = (record: Chapter) => {
     if (!projectId) return
@@ -369,6 +575,12 @@ export function ChaptersTab() {
           }
         : null,
       {
+        key: 'info',
+        label: '编辑章节信息',
+        icon: <EditOutlined />,
+        onClick: () => openInfoEditModal(record),
+      },
+      {
         key: 'raw',
         label: '编辑原文',
         icon: <EditOutlined />,
@@ -383,6 +595,14 @@ export function ChaptersTab() {
             onClick: () => void handleCancelDivideTask(record),
           }
         : null,
+      {
+        key: 'delete',
+        label: '删除章节',
+        icon: <DeleteOutlined />,
+        danger: true,
+        disabled: !!activeTask,
+        onClick: () => handleDeleteChapter(record),
+      },
     ].filter(Boolean)
   }
 
@@ -398,7 +618,7 @@ export function ChaptersTab() {
           type="link"
           size="small"
           style={{ paddingInline: 0 }}
-          onClick={() => openEditModal(record)}
+          onClick={() => openInfoEditModal(record)}
         >
           {title || '未命名章节'}
         </Button>
@@ -523,6 +743,9 @@ export function ChaptersTab() {
         <Card>
           <Empty description="还没有任何章节，立即创建第一章吧" image={Empty.PRESENTED_IMAGE_SIMPLE}>
           <Space>
+            <Button size="large" icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
+              导入剧本
+            </Button>
             <Button type="primary" size="large" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               创建第一章
             </Button>
@@ -559,29 +782,59 @@ export function ChaptersTab() {
             </div>
           </div>
         </Modal>
+        {scriptImportModal}
       </>
     )
   }
 
   return (
     <Card
+      className="h-full min-h-0 flex flex-col"
+      bodyStyle={{
+        display: 'flex',
+        flex: 1,
+        flexDirection: 'column',
+        minHeight: 0,
+        overflow: 'hidden',
+      }}
       title="章节列表"
       extra={
         <Space>
+          <Button icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>
+            导入剧本
+          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
             新建章节
           </Button>
         </Space>
       }
     >
-      <Table<Chapter>
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={chapters}
-        pagination={{ pageSize: 10 }}
-        size="small"
-      />
+      <div className="flex-1 min-h-0 overflow-auto">
+        <Table<Chapter>
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={pagedChapters}
+          pagination={false}
+          size="small"
+        />
+      </div>
+
+      <div className="shrink-0 mt-3 pt-3 border-t border-gray-100 bg-white flex justify-end overflow-x-auto">
+        <Pagination
+          current={chapterPage}
+          pageSize={chapterPageSize}
+          total={chapters.length}
+          showSizeChanger
+          showQuickJumper
+          pageSizeOptions={[10, 20, 50, 100]}
+          showTotal={(total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 个章节`}
+          onChange={(page, pageSize) => {
+            setChapterPage(page)
+            setChapterPageSize(pageSize)
+          }}
+        />
+      </div>
 
       <ChapterRawTextEditorModal
         open={editOpen}
@@ -625,6 +878,30 @@ export function ChaptersTab() {
               onChange={(e) => setCreateContent(e.target.value)}
               className="mt-1 font-mono text-sm"
             />
+          </div>
+        </div>
+      </Modal>
+      {scriptImportModal}
+      <Modal
+        title="编辑章节信息"
+        open={infoEditOpen}
+        onCancel={() => {
+          if (infoSaving) return
+          setInfoEditOpen(false)
+          setInfoEditingChapter(null)
+        }}
+        onOk={() => void handleSaveChapterInfo()}
+        okText="保存"
+        confirmLoading={infoSaving}
+      >
+        <div className="space-y-3">
+          <div>
+            <div className="text-sm text-gray-600 mb-1">章节标题</div>
+            <Input value={infoTitle} onChange={(event) => setInfoTitle(event.target.value)} />
+          </div>
+          <div>
+            <div className="text-sm text-gray-600 mb-1">章节摘要</div>
+            <TextArea rows={4} value={infoSummary} onChange={(event) => setInfoSummary(event.target.value)} />
           </div>
         </div>
       </Modal>

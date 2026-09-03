@@ -9,6 +9,8 @@ import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { StudioEntitiesApi } from '../../../../../services/studioEntities'
 import { StudioAssetTypeFormModal } from '../../../assets/components/StudioAssetTypeFormModal'
 import { encodeWorkbenchAssetEditReturnTo } from '../utils/workbenchAssetReturnTo'
+import { notifyProjectDataChanged } from '../projectDataEvents'
+import { loadAllPaginated } from '../../../../../services/loadAllPaginated'
 
 type SceneLike = {
   id: string
@@ -48,18 +50,12 @@ export function ScenesTab() {
     if (!projectId) return
     setLinksLoading(true)
     try {
-      const res = await StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
-        entityType: 'scene',
-        projectId,
-        chapterId: null,
-        shotId: null,
-        assetId: null,
-        order: null,
-        isDesc: false,
-        page: 1,
-        pageSize: 100,
-      })
-      const items = (res.data?.items ?? []) as ProjectSceneLinkRead[]
+      const items = await loadAllPaginated((page, pageSize) =>
+        StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
+          entityType: 'scene', projectId, chapterId: null, shotId: null, assetId: null,
+          order: null, isDesc: false, page, pageSize,
+        }),
+      ) as ProjectSceneLinkRead[]
       setLinks(items)
 
       const ids = Array.from(new Set(items.map((l) => l.scene_id)))
@@ -88,14 +84,10 @@ export function ScenesTab() {
     setScenesLoading(true)
     try {
       const q = (searchQuery !== undefined ? searchQuery : search).trim()
-      const res = await StudioEntitiesApi.list('scene', {
-        q: q ? q : null,
-        order: 'updated_at',
-        isDesc: true,
-        page: 1,
-        pageSize: 100,
-      })
-      setScenes((res.data?.items ?? []) as SceneLike[])
+      const items = await loadAllPaginated((page, pageSize) => StudioEntitiesApi.list('scene', {
+        q: q ? q : null, order: 'updated_at', isDesc: true, page, pageSize,
+      }))
+      setScenes(items as SceneLike[])
     } catch {
       message.error('加载场景失败')
       setScenes([])
@@ -135,6 +127,7 @@ export function ScenesTab() {
       message.success(`已关联场景「${scene.name}」到项目`)
       setLinkModalOpen(false)
       await loadLinks()
+      notifyProjectDataChanged({ projectId, resources: ['project', 'scenes'] })
     } catch {
       message.error('关联失败')
     } finally {
@@ -148,6 +141,7 @@ export function ScenesTab() {
       await StudioShotLinksService.deleteProjectSceneLinkApiV1StudioShotLinksSceneLinkIdDelete({ linkId: link.id })
       message.success('已取消关联')
       await loadLinks()
+      if (projectId) notifyProjectDataChanged({ projectId, resources: ['project', 'scenes'] })
     } catch {
       message.error('取消关联失败')
     } finally {
@@ -273,6 +267,7 @@ export function ScenesTab() {
         onCancel={() => setCreateModalOpen(false)}
         onSaved={async () => {
           await loadLinks()
+          notifyProjectDataChanged({ projectId, resources: ['project', 'scenes'] })
         }}
       />
 

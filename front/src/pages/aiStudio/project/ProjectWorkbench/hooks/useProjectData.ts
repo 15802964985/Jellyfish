@@ -3,6 +3,8 @@ import { projects as mockProjects, chapters as mockChapters, type Project, type 
 import { StudioChaptersService, StudioProjectsService } from '../../../../../services/generated'
 import type { ChapterRead, ProjectRead } from '../../../../../services/generated'
 import { StudioEntitiesApi } from '../../../../../services/studioEntities'
+import { subscribeProjectDataChanged } from '../projectDataEvents'
+import { loadAllPaginated } from '../../../../../services/loadAllPaginated'
 
 const useMock = import.meta.env.VITE_USE_MOCK === 'true'
 
@@ -89,6 +91,16 @@ export function useProject(projectId: string | undefined) {
     void load()
   }, [load])
 
+  useEffect(
+    () =>
+      subscribeProjectDataChanged((event) => {
+        if (event.projectId === projectId && event.resources.some((item) => item !== 'files')) {
+          void load()
+        }
+      }),
+    [load, projectId],
+  )
+
   return { project, loading, refresh: load }
 }
 
@@ -111,12 +123,9 @@ export function useChapters(projectId: string | undefined) {
       if (useMock) {
         setChapters(mockChapters.filter((c) => c.projectId === projectId))
       } else {
-        const res = await StudioChaptersService.listChaptersApiV1StudioChaptersGet({
-          projectId,
-          page: 1,
-          pageSize: 100,
-        })
-        const items = res.data?.items ?? []
+        const items = await loadAllPaginated((page, pageSize) =>
+          StudioChaptersService.listChaptersApiV1StudioChaptersGet({ projectId, page, pageSize }),
+        )
         setChapters(items.map(toUIChapter))
       }
     } catch {
@@ -129,6 +138,14 @@ export function useChapters(projectId: string | undefined) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(
+    () =>
+      subscribeProjectDataChanged((event) => {
+        if (event.projectId === projectId && event.resources.includes('chapters')) void load()
+      }),
+    [load, projectId],
+  )
 
   return { chapters, loading, refresh: load, patchChapterLocal }
 }
@@ -145,12 +162,10 @@ export function useProjectCharacters(projectId: string | undefined) {
     }
     setLoading(true)
     try {
-      const res = await StudioEntitiesApi.list('character', {
-        page: 1,
-        pageSize: 100,
-        q: null,
-      })
-      const items = (res.data?.items ?? []).filter((x) => x.project_id === projectId)
+      const allItems = await loadAllPaginated((page, pageSize) =>
+        StudioEntitiesApi.list('character', { page, pageSize, q: null }),
+      )
+      const items = allItems.filter((x) => x.project_id === projectId)
       setCharacters(items)
     } catch {
       setCharacters([])
@@ -162,6 +177,14 @@ export function useProjectCharacters(projectId: string | undefined) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(
+    () =>
+      subscribeProjectDataChanged((event) => {
+        if (event.projectId === projectId && event.resources.includes('characters')) void load()
+      }),
+    [load, projectId],
+  )
 
   return { characters, loading, refresh: load }
 }

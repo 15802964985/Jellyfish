@@ -16,6 +16,7 @@ import {
   Space,
   Tag,
   Popconfirm,
+  Pagination,
 } from 'antd'
 import {
   PlusOutlined,
@@ -39,6 +40,7 @@ import { getChapterPreparationState } from './ProjectWorkbench/chapterPreparatio
 import { ensureHasShotsBeforeShooting } from './ProjectWorkbench/ensureHasShotsBeforeShooting'
 import { getChapterShotsPath, getChapterStudioPath } from './ProjectWorkbench/routes'
 import { loadProjectFlowStatsForChapters, type ProjectFlowStats } from './ProjectWorkbench/projectFlowStats'
+import { loadAllPaginated } from '../../../services/loadAllPaginated'
 
 type ViewMode = 'grid' | 'compact' | 'large'
 type FilterTab = 'all' | 'editRaw' | 'extractShots' | 'prepareShots' | 'generating' | 'ready'
@@ -71,6 +73,8 @@ const ProjectLobby: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [multiSelectMode, setMultiSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [listPage, setListPage] = useState(1)
+  const [listPageSize, setListPageSize] = useState(12)
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<ProjectView | null>(null)
@@ -131,11 +135,9 @@ const ProjectLobby: React.FC = () => {
       if (useMock) {
         setProjects(mockProjects)
       } else {
-        const res = await StudioProjectsService.listProjectsApiV1StudioProjectsGet({
-          page: 1,
-          pageSize: 10,
-        })
-        const items = res.data?.items ?? []
+        const items = await loadAllPaginated((page, pageSize) =>
+          StudioProjectsService.listProjectsApiV1StudioProjectsGet({ page, pageSize }),
+        )
         setProjects(items.map(toUIProject))
       }
     } catch {
@@ -235,12 +237,13 @@ const ProjectLobby: React.FC = () => {
 
         const chapterResponses = await Promise.all(
           list.map(async (project) => {
-            const res = await StudioChaptersService.listChaptersApiV1StudioChaptersGet({
-              projectId: project.id,
-              page: 1,
-              pageSize: 100,
-            })
-            const items: ChapterRead[] = res.data?.items ?? []
+            const items: ChapterRead[] = await loadAllPaginated((page, pageSize) =>
+              StudioChaptersService.listChaptersApiV1StudioChaptersGet({
+                projectId: project.id,
+                page,
+                pageSize,
+              }),
+            )
             return [
               project.id,
               summarizeProjectChapters(
@@ -338,6 +341,15 @@ const ProjectLobby: React.FC = () => {
 
     return next
   }, [projects, search, filterTab, sortKey, sortOrder, projectStageMap, projectFlowStatsMap])
+
+  useEffect(() => {
+    setListPage(1)
+  }, [search, filterTab, sortKey, sortOrder, viewMode])
+
+  const pagedProjects = useMemo(() => {
+    const start = (listPage - 1) * listPageSize
+    return filteredSorted.slice(start, start + listPageSize)
+  }, [filteredSorted, listPage, listPageSize])
 
   const handleSelectProject = (id: string) => {
     setSelectedProjectId(id)
@@ -544,7 +556,7 @@ const ProjectLobby: React.FC = () => {
     return gradients[index]
   }
 
-  const selectedProject = filteredSorted.find((p) => p.id === selectedProjectId) ?? filteredSorted[0]
+  const selectedProject = filteredSorted.find((p) => p.id === selectedProjectId) ?? pagedProjects[0]
 
   const renderCard = (p: ProjectView) => {
     const status = getProjectStatus(p)
@@ -880,7 +892,7 @@ const ProjectLobby: React.FC = () => {
                 </Card>
               </Col>
             )}
-            {filteredSorted.map((p) => (
+            {pagedProjects.map((p) => (
               <Col
                 key={p.id}
                 xs={24}
@@ -893,6 +905,22 @@ const ProjectLobby: React.FC = () => {
               </Col>
             ))}
           </Row>
+          {filteredSorted.length > 0 ? (
+            <div className="mt-4 flex justify-end">
+              <Pagination
+                current={listPage}
+                pageSize={listPageSize}
+                total={filteredSorted.length}
+                showSizeChanger
+                pageSizeOptions={[12, 24, 48, 96]}
+                showTotal={(total) => `共 ${total} 个项目`}
+                onChange={(page, pageSize) => {
+                  setListPage(page)
+                  setListPageSize(pageSize)
+                }}
+              />
+            </div>
+          ) : null}
         </Col>
 
         <Col xs={24} lg={6} className="flex-shrink-0">

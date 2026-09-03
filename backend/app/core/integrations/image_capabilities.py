@@ -55,6 +55,11 @@ def register_image_model_capability(
 
         register_kling_image_capability(model_prefix=model_prefix, capability=capability)
         return
+    if provider == "aliyun_bailian":
+        from app.core.integrations.aliyun.image_capabilities import register_aliyun_image_capability
+
+        register_aliyun_image_capability(model_prefix=model_prefix, capability=capability)
+        return
     from app.core.integrations.volcengine.image_capabilities import register_volcengine_image_capability
 
     register_volcengine_image_capability(model_prefix=model_prefix, capability=capability)
@@ -66,12 +71,14 @@ def clear_image_model_capability_overrides(*, provider: ProviderKey | None = Non
     from app.core.integrations.vidu.image_capabilities import clear_vidu_image_capability_overrides
     from app.core.integrations.volcengine.image_capabilities import clear_volcengine_image_capability_overrides
     from app.core.integrations.kling.image_capabilities import clear_kling_image_capability_overrides
+    from app.core.integrations.aliyun.image_capabilities import clear_aliyun_image_capability_overrides
 
     if provider is None:
         clear_openai_image_capability_overrides()
         clear_volcengine_image_capability_overrides()
         clear_vidu_image_capability_overrides()
         clear_kling_image_capability_overrides()
+        clear_aliyun_image_capability_overrides()
         return
     if provider == "openai":
         clear_openai_image_capability_overrides()
@@ -81,6 +88,9 @@ def clear_image_model_capability_overrides(*, provider: ProviderKey | None = Non
         return
     if provider == "kling":
         clear_kling_image_capability_overrides()
+        return
+    if provider == "aliyun_bailian":
+        clear_aliyun_image_capability_overrides()
         return
     clear_volcengine_image_capability_overrides()
 
@@ -98,6 +108,10 @@ def resolve_image_capability(*, provider: ProviderKey, model: str | None) -> Ima
         from app.core.integrations.kling.image_capabilities import resolve_kling_image_capability
 
         return resolve_kling_image_capability(model)
+    if provider == "aliyun_bailian":
+        from app.core.integrations.aliyun.image_capabilities import resolve_aliyun_image_capability
+
+        return resolve_aliyun_image_capability(model)
     from app.core.integrations.volcengine.image_capabilities import resolve_volcengine_image_capability
 
     return resolve_volcengine_image_capability(model)
