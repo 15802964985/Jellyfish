@@ -17,6 +17,10 @@ services:
     build:
       dockerfile: deploy/docker/backend.local.Dockerfile
 
+  celery-beat:
+    build:
+      dockerfile: deploy/docker/backend.local.Dockerfile
+
   front:
     build:
       dockerfile: deploy/docker/front.local.Dockerfile

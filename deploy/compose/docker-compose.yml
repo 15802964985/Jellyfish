@@ -132,6 +132,30 @@ services:
         condition: service_completed_successfully
     command: ["uv", "run", "celery", "-A", "app.core.celery_app:celery_app", "worker", "-l", "info"]
 
+  celery-beat:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/backend.Dockerfile
+    environment:
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+      DEBUG: "false"
+      API_V1_PREFIX: /api/v1
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-migrate:
+        condition: service_completed_successfully
+      backend-seed-system-data:
+        condition: service_completed_successfully
+    command: ["uv", "run", "celery", "-A", "app.core.celery_app:celery_app", "beat", "-l", "info", "--schedule", "/tmp/celerybeat-schedule"]
+
   front:
     build:
       context: ../..

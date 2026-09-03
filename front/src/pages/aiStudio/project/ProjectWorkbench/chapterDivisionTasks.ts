@@ -307,6 +307,12 @@ export function useCancelableRelationTask(options: UseRelationTaskPollingOptions
     (data?: TaskCancelLike | null) => {
       if (!relationTask.task) return null
       const nextTask = applyCancelToRelationTaskState(relationTask.task, data)
+      // pending 任务可由 API 立即推进到 cancelled。此时不再等待下一轮轮询，
+      // 直接清除本地活动任务，避免弹窗按钮和关闭入口永久保持 loading。
+      if (!isActiveTaskStatus(nextTask.status)) {
+        relationTask.setTrackedTask(null)
+        return nextTask
+      }
       relationTask.setTrackedTask(nextTask)
       return nextTask
     },

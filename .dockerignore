@@ -2,10 +2,15 @@
 # dependencies in Docker build stages. Native packages such as esbuild must
 # always be installed for the image platform.
 **/node_modules
+front/node_modules
 
 # Development-only local state is not part of application build contexts.
 **/.venv
+backend/.venv
 **/__pycache__
+backend/.pytest_cache
+.test-tmp
+.uv-cache
 **/.codegraph
 .git
 **/.env

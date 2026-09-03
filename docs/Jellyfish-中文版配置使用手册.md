@@ -86,7 +86,7 @@ docker compose `
 
 正常状态：
 
-- `front`、`backend`、`celery-worker` 为 `Up`。
+- `front`、`backend`、`celery-worker`、`celery-beat` 为 `Up`。其中 Worker 执行任务，Beat 每 10 秒可靠投递数据库 outbox 中的待执行任务；缺少 Beat 时任务只会停留在“等待中”，不会调用模型。
 - `mysql`、`redis` 为 `Up (healthy)`。
 - `backend-migrate`、`backend-seed-system-data` 为 `Exited (0)`。前者运行 Alembic 迁移，后者写入系统内置数据；退出码 0 表示成功，不是故障。
 
@@ -688,10 +688,11 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:7788/
 
 - `backend-migrate` 和 `backend-seed-system-data` 均为 `Exited (0)`。
 - MySQL、Redis 为 `healthy`。
-- 后端、Worker、前端均为 `Up`。
+- 后端、Worker、Beat、前端均为 `Up`。
 - 三个 HTTP 请求均返回 `200`。
 - 日志无迁移失败、表不存在、Traceback 或前端启动失败。
 - `generation_dispatch_outbox` 等统一生成表的 `created_at`、`updated_at` 默认值为 `CURRENT_TIMESTAMP`；否则章节智能操作会在创建任务时回滚，任务中心也不会产生记录。
+- `celery-beat` 日志应周期出现 `task.dispatch_generation_outbox` 调度；新任务通常在下一个10秒周期内获得 `executor_task_id`。若任务长期为 `pending` 且 outbox 的 `dispatched_at` 为空，应先检查 Beat，而不是修改模型密钥。
 
 重新执行 9.3 的数量 SQL，确认项目、章节、模型、供应商、任务和文件没有异常减少。浏览器按 `Ctrl + F5`，人工验证：
 

@@ -156,11 +156,14 @@ Broker：Redis
 
 - API 层创建 `GenerationTask`
 - API 层写入 `task_kind`
-- 通过 `spawn_*_task(...)` 投递到 Celery
+- API 在同一事务写入 `GenerationDispatchOutbox`，保证任务记录与待投递消息同时成功或同时回滚
+- `celery-beat` 每 10 秒触发 outbox dispatcher，把尚未投递的任务发送到 Celery；Broker 暂时不可用时保留记录并在后续周期重试
 - Celery 统一走 `task.execute(task_id)`
 - worker 通过 `TaskExecutorRegistry` 按 `task_kind` 路由到具体 `WorkerTaskExecutor`
 - worker 执行后把状态与结果回写到 MySQL
 - 页面继续通过既有任务状态接口轮询和恢复
+
+`celery-worker` 只消费任务，不负责运行 Beat 调度器；Compose 必须同时保持 `celery-beat` 为 `Up`。缺少 Beat 时任务会停留在 `pending`，其 outbox 的 `dispatched_at` 与 `executor_task_id` 均为空，并且不会进入模型调用阶段。
 
 对核心任务（如 `divide`）进一步采用两阶段模型：
 
@@ -311,6 +314,7 @@ Broker：Redis
 
 - 对已进入 Celery worker 的任务，当前支持 best-effort 的“立即取消”
 - 对无法立即终止的单次长调用，仍保留阶段边界协作式取消作为兜底
+- 对尚未投递的 `pending` 任务，取消接口直接返回 `cancelled`；业务弹窗收到该终态后立即清除本地活动任务，解除按钮、编辑区和关闭入口的 loading 状态
 - 当前不承诺 provider / LLM SDK 层面的绝对强终止，只保证业务任务状态会立即收敛
 
 ## 服务层约束

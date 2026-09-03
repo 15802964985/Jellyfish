@@ -18,6 +18,8 @@ venv/
 *.egg-info/
 .eggs/
 .pytest_cache/
+.test-tmp/
+.uv-cache/
 .coverage
 htmlcov/
 .jellyfish.db
