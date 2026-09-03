@@ -129,4 +129,8 @@ class ResolvedGenerationSnapshot(BaseModel):
     media: ImageMediaInput | VideoMediaInput | None = None
     operation_input: TypedOperationInput
     execution_prompt: str | None = None
+    prompt_profile_rules: list[str] = Field(
+        default_factory=list,
+        description="提交时实际应用的供应商提示词适配规则，仅保存规则名，不保存凭据",
+    )
     credential_ref: str | None = None

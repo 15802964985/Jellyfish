@@ -1,6 +1,7 @@
 """Seed system-managed prompt templates after the database schema is migrated."""
 
 import asyncio
+import re
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
@@ -51,7 +52,15 @@ def _seed_statements() -> list[str]:
         if normalized.startswith("DELETE FROM `PROMPT_TEMPLATES`"):
             # The legacy seed replaced IDs 1-6 unconditionally. Restrict the
             # replacement to system rows so a user record is never deleted.
-            statement = statement.replace(" WHERE ", " WHERE is_system = 1 AND ", 1)
+            statement, replacements = re.subn(
+                r"\bWHERE\b",
+                "WHERE is_system = 1 AND",
+                statement,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            if replacements != 1:
+                raise ValueError("Prompt template seed DELETE must contain a WHERE clause")
         if normalized.startswith(("DELETE", "INSERT")):
             statements.append(statement)
     return statements

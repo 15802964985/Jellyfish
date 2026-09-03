@@ -28,6 +28,7 @@ from app.services.studio.generation.frame.derive_preview import derive_frame_pre
 from app.services.studio.generation.video.build_base import build_video_base_draft
 from app.services.studio.generation.video.build_context import build_video_context
 from app.services.studio.generation.video.derive_preview import derive_video_preview
+from app.services.studio.image_tasks import build_prompt_with_template_snapshot, shot_frame_prompt_category
 
 
 def _image_media(file_ids: list[str]) -> ImageMediaInput:
@@ -92,15 +93,33 @@ class ShotFramePromptRenderer:
 
     async def render(self, db: AsyncSession, request: PromptRenderRequest) -> RenderedPromptSnapshot:
         """复用分镜帧 base/context/preview 链，保持图片映射顺序。"""
-        del db
         render_input = request.input
         if not isinstance(render_input, ShotFramePromptRenderInput):
             raise ValueError("shot_frame renderer requires shot_frame input")
 
+        rendered_template = None
+        prompt = render_input.prompt
+        if db is not None:
+            rendered_template = await build_prompt_with_template_snapshot(
+                db,
+                category=shot_frame_prompt_category(render_input.frame_type),
+                variables={
+                    "prompt": render_input.prompt,
+                    "director_command_summary": render_input.director_command_summary,
+                    "continuity_guidance": render_input.continuity_guidance,
+                    "frame_specific_guidance": render_input.frame_specific_guidance,
+                    "composition_anchor": render_input.composition_anchor,
+                    "screen_direction_guidance": render_input.screen_direction_guidance,
+                },
+                fallback_prompt=render_input.prompt,
+                not_found_msg="分镜帧提示词为空，请先生成或填写帧提示词",
+            )
+            prompt = rendered_template.prompt
+
         base = build_frame_base_draft(
             shot_id=render_input.shot_id,
             frame_type=render_input.frame_type,
-            prompt=render_input.prompt,
+            prompt=prompt,
             director_command_summary=render_input.director_command_summary,
             continuity_guidance=render_input.continuity_guidance,
             frame_specific_guidance=render_input.frame_specific_guidance,
@@ -113,18 +132,23 @@ class ShotFramePromptRenderer:
             items=render_input.images,
         )
         preview = derive_frame_preview(base=base, context=context)
+        variables_snapshot = {
+            "shot_id": render_input.shot_id,
+            "frame_type": preview.frame_type,
+            "prompt": preview.base_prompt,
+            "reference_mappings": [item.model_dump(mode="json") for item in preview.mappings],
+            "selected_guidance": preview.selected_guidance,
+            "dropped_guidance": preview.dropped_guidance,
+        }
+        if rendered_template is not None:
+            variables_snapshot["template_variables"] = rendered_template.merged_variables
         return RenderedPromptSnapshot(
             render_id=_render_id(),
             renderer=self.name,
             execution_prompt=preview.rendered_prompt,
-            variables_snapshot={
-                "shot_id": render_input.shot_id,
-                "frame_type": preview.frame_type,
-                "prompt": preview.base_prompt,
-                "reference_mappings": [item.model_dump(mode="json") for item in preview.mappings],
-                "selected_guidance": preview.selected_guidance,
-                "dropped_guidance": preview.dropped_guidance,
-            },
+            variables_snapshot=variables_snapshot,
+            template_id=rendered_template.template_id if rendered_template else None,
+            template_version=rendered_template.template_version if rendered_template else None,
             recommended_media=_image_media(preview.images),
             base_prompt=preview.base_prompt,
             selected_guidance=preview.selected_guidance,

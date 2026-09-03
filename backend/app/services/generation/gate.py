@@ -21,6 +21,7 @@ from app.models.studio import Shot, ShotDetail, ShotFrameImage
 from app.models.studio_asset_images import ActorImage, CharacterImage, CostumeImage, PropImage, SceneImage
 from app.models.studio_prompts_files_timeline import FileItem
 from app.models.types import FileType
+from app.services.generation.prompt_profiles import apply_generation_prompt_profile
 from app.services.studio.asset_reference_context import resolve_shot_reference_bundle
 
 
@@ -59,6 +60,14 @@ class GenerationEntityGate:
             revision=revision,
         )
         await self._validate_media(db, media)
+        prompt_profile = apply_generation_prompt_profile(
+            prompt=execution_prompt,
+            modality=command.modality,
+            target_kind=command.target.kind,
+            provider_key=str(revision.provider_key),
+            model_name=revision.model_name,
+            media=media,
+        )
         return ResolvedGenerationSnapshot(
             model_id=model.id,
             model_revision_id=revision.id,
@@ -66,7 +75,8 @@ class GenerationEntityGate:
             expected_version_id=await self._target_version(db, command),
             media=media,
             operation_input=command.request.operation_input,
-            execution_prompt=execution_prompt,
+            execution_prompt=prompt_profile.prompt,
+            prompt_profile_rules=list(prompt_profile.applied_rules),
             credential_ref=revision.credential_ref,
         )
 
