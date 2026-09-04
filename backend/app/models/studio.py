@@ -19,6 +19,7 @@ from app.models.studio_prompts_files_timeline import FileItem, PromptTemplate, T
 from app.models.studio_file_usages import FileUsage
 from app.models.experiment_sessions import ExperimentMessage, ExperimentSession
 from app.models.studio_media_assets import AssetFileLink, AudioAsset, ShotAudioTrack
+from app.models.studio_script_imports import ScriptImport
 from app.models.studio_projects import (
     Chapter,
     Project,
@@ -117,4 +118,5 @@ __all__ = [
     "AssetFileLink",
     "AudioAsset",
     "ShotAudioTrack",
+    "ScriptImport",
 ]

@@ -26,6 +26,18 @@ from app.schemas.studio.prompts import (
     PromptTemplateRead,
     PromptTemplateUpdate,
 )
+from app.schemas.studio.script_imports import (
+    ParsedScriptChapter,
+    ScriptDocumentBlock,
+    ScriptDocumentParseResult,
+    ScriptImportCreate,
+    ScriptImportCommitRequest,
+    ScriptImportCommitResult,
+    ScriptImportChapterOverride,
+    ScriptImportRead,
+    ScriptImportReviewUpdate,
+    ScriptSourceSpan,
+)
 
 from app.schemas.studio.entity_existence import (
     EntityNameExistenceCheckRequest,

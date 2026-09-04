@@ -25,7 +25,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.utils import apply_keyword_filter, apply_order, paginate
 from app.core import storage
-from app.models.studio import AssetFileLink, AudioAsset, FileItem, FileType
+from app.models.studio import AssetFileLink, AudioAsset, FileItem, FileType, ScriptImport
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.studio import FileDetailRead, FileRead, FileUpdate, FileUsageRead, FileUsageWrite
 from app.services.common import create_and_refresh, entity_not_found, flush_and_refresh, get_or_404, patch_model
@@ -540,12 +540,16 @@ async def delete_file(
         (await db.execute(select(func.count(AudioAsset.id)).where(AudioAsset.file_id == file_id))).scalar()
         or 0
     )
-    if asset_link_count or audio_asset_count:
+    script_import_count = int(
+        (await db.execute(select(func.count(ScriptImport.id)).where(ScriptImport.file_id == file_id))).scalar()
+        or 0
+    )
+    if asset_link_count or audio_asset_count or script_import_count:
         raise HTTPException(
             status_code=409,
             detail=(
                 f"文件仍被 {asset_link_count} 个资产附件和 {audio_asset_count} 个音频资产使用，"
-                "请先解除业务关联"
+                f"并作为 {script_import_count} 个剧本导入批次的原始证据，请先解除业务关联"
             ),
         )
 

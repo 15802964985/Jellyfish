@@ -30,6 +30,7 @@ export type { ApiResponse_list_ExperimentMessageRead__ } from './models/ApiRespo
 export type { ApiResponse_list_ExperimentSessionRead__ } from './models/ApiResponse_list_ExperimentSessionRead__';
 export type { ApiResponse_list_PromptCategoryOptionRead__ } from './models/ApiResponse_list_PromptCategoryOptionRead__';
 export type { ApiResponse_list_ProviderSupportedRead__ } from './models/ApiResponse_list_ProviderSupportedRead__';
+export type { ApiResponse_list_ScriptImportRead__ } from './models/ApiResponse_list_ScriptImportRead__';
 export type { ApiResponse_list_ShotAudioTrackRead__ } from './models/ApiResponse_list_ShotAudioTrackRead__';
 export type { ApiResponse_list_ShotCharacterLinkRead__ } from './models/ApiResponse_list_ShotCharacterLinkRead__';
 export type { ApiResponse_list_ShotExtractedCandidateRead__ } from './models/ApiResponse_list_ShotExtractedCandidateRead__';
@@ -71,6 +72,8 @@ export type { ApiResponse_RenderedPromptSnapshot_ } from './models/ApiResponse_R
 export type { ApiResponse_SceneInfoAnalysisResult_ } from './models/ApiResponse_SceneInfoAnalysisResult_';
 export type { ApiResponse_ScriptConsistencyCheckResult_ } from './models/ApiResponse_ScriptConsistencyCheckResult_';
 export type { ApiResponse_ScriptDivisionResult_ } from './models/ApiResponse_ScriptDivisionResult_';
+export type { ApiResponse_ScriptImportCommitResult_ } from './models/ApiResponse_ScriptImportCommitResult_';
+export type { ApiResponse_ScriptImportRead_ } from './models/ApiResponse_ScriptImportRead_';
 export type { ApiResponse_ShotAssetsOverviewRead_ } from './models/ApiResponse_ShotAssetsOverviewRead_';
 export type { ApiResponse_ShotAudioTrackRead_ } from './models/ApiResponse_ShotAudioTrackRead_';
 export type { ApiResponse_ShotCharacterLinkRead_ } from './models/ApiResponse_ShotCharacterLinkRead_';
@@ -174,6 +177,7 @@ export type { PaginatedData_ShotLinkedAssetItem_ } from './models/PaginatedData_
 export type { PaginatedData_ShotRead_ } from './models/PaginatedData_ShotRead_';
 export type { PaginatedData_TaskListItemRead_ } from './models/PaginatedData_TaskListItemRead_';
 export type { Pagination } from './models/Pagination';
+export type { ParsedScriptChapter } from './models/ParsedScriptChapter';
 export type { ProjectActorLinkRead } from './models/ProjectActorLinkRead';
 export type { ProjectAssetLinkCreate } from './models/ProjectAssetLinkCreate';
 export type { ProjectCostumeLinkRead } from './models/ProjectCostumeLinkRead';
@@ -211,10 +215,19 @@ export type { ScriptConsistencyCheckResult } from './models/ScriptConsistencyChe
 export type { ScriptConsistencyIssue } from './models/ScriptConsistencyIssue';
 export type { ScriptDividerRequest } from './models/ScriptDividerRequest';
 export type { ScriptDivisionResult } from './models/ScriptDivisionResult';
+export type { ScriptDocumentBlock } from './models/ScriptDocumentBlock';
+export type { ScriptDocumentParseResult } from './models/ScriptDocumentParseResult';
 export type { ScriptExtractRequest } from './models/ScriptExtractRequest';
+export type { ScriptImportChapterOverride } from './models/ScriptImportChapterOverride';
+export type { ScriptImportCommitRequest } from './models/ScriptImportCommitRequest';
+export type { ScriptImportCommitResult } from './models/ScriptImportCommitResult';
+export type { ScriptImportCreate } from './models/ScriptImportCreate';
+export type { ScriptImportRead } from './models/ScriptImportRead';
+export type { ScriptImportReviewUpdate } from './models/ScriptImportReviewUpdate';
 export type { ScriptOperationInput } from './models/ScriptOperationInput';
 export type { ScriptOptimizeRequest } from './models/ScriptOptimizeRequest';
 export type { ScriptSimplifyRequest } from './models/ScriptSimplifyRequest';
+export type { ScriptSourceSpan } from './models/ScriptSourceSpan';
 export type { ShotAssetOverviewItem } from './models/ShotAssetOverviewItem';
 export type { ShotAssetsOverviewRead } from './models/ShotAssetsOverviewRead';
 export type { ShotAssetsOverviewSummary } from './models/ShotAssetsOverviewSummary';
@@ -310,6 +323,7 @@ export { StudioGenerationTasksService } from './services/StudioGenerationTasksSe
 export { StudioMediaAssetsService } from './services/StudioMediaAssetsService';
 export { StudioProjectsService } from './services/StudioProjectsService';
 export { StudioPromptsService } from './services/StudioPromptsService';
+export { StudioScriptImportsService } from './services/StudioScriptImportsService';
 export { StudioShotCharacterLinksService } from './services/StudioShotCharacterLinksService';
 export { StudioShotDetailsService } from './services/StudioShotDetailsService';
 export { StudioShotDialogLinesService } from './services/StudioShotDialogLinesService';

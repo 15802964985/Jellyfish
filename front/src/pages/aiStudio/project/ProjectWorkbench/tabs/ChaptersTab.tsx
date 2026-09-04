@@ -14,7 +14,13 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ScriptProcessingService, StudioChaptersService } from '../../../../../services/generated'
+import {
+  ScriptProcessingService,
+  StudioChaptersService,
+  StudioFilesService,
+  StudioScriptImportsService,
+  type ScriptImportRead,
+} from '../../../../../services/generated'
 import { chapterStatusMap } from '../constants'
 import { getChapterShotsPath, getChapterStudioPath } from '../routes'
 import { useChapters, newId, type Chapter } from '../hooks/useProjectData'
@@ -32,11 +38,11 @@ import {
   useChapterDivisionTaskMapPolling,
 } from '../chapterDivisionTasks'
 import { notifyProjectDataChanged } from '../projectDataEvents'
-import { readScriptFile, type ImportedScriptChapter } from '../scriptImport'
 
 const { TextArea } = Input
 const CREATE_PARAM = 'create'
 const EDIT_PARAM = 'edit'
+type ImportChapterEdit = { title: string; theme: string; screenplay_text: string }
 
 export function ChaptersTab() {
   const taskCopy = TASK_COPY.chapterDivision
@@ -57,7 +63,9 @@ export function ChaptersTab() {
   const [infoSaving, setInfoSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importing, setImporting] = useState(false)
-  const [importChapters, setImportChapters] = useState<ImportedScriptChapter[]>([])
+  const [importBatch, setImportBatch] = useState<ScriptImportRead | null>(null)
+  const [selectedImportChapters, setSelectedImportChapters] = useState<number[]>([])
+  const [importChapterEdits, setImportChapterEdits] = useState<Record<number, ImportChapterEdit>>({})
   const [autoDivideAfterImport, setAutoDivideAfterImport] = useState(false)
   const [chapterFlowMap, setChapterFlowMap] = useState<Record<string, ChapterFlowStats>>({})
   const [chapterDivisionActionId, setChapterDivisionActionId] = useState<string | null>(null)
@@ -71,6 +79,7 @@ export function ChaptersTab() {
     () => chapters.slice((chapterPage - 1) * chapterPageSize, chapterPage * chapterPageSize),
     [chapterPage, chapterPageSize, chapters],
   )
+  const parsedImportChapters = importBatch?.parse_result.chapters ?? []
 
   useEffect(() => {
     const lastPage = Math.max(1, Math.ceil(chapters.length / chapterPageSize))
@@ -302,32 +311,31 @@ export function ChaptersTab() {
   }
 
   const handleImportScripts = async () => {
-    if (!projectId || !importChapters.length) return
+    if (!projectId || !importBatch || !selectedImportChapters.length) return
     setImporting(true)
-    let createdCount = 0
     let divisionCount = 0
     try {
-      const firstIndex = Math.max(0, ...chapters.map((chapter) => chapter.index)) + 1
-      for (const [offset, chapter] of importChapters.entries()) {
-        const chapterId = newId('c')
-        await StudioChaptersService.createChapterApiV1StudioChaptersPost({
-          requestBody: {
-            id: chapterId,
-            project_id: projectId,
-            index: firstIndex + offset,
-            title: chapter.title,
-            summary: '',
-            raw_text: chapter.content,
-            storyboard_count: 0,
-            status: 'draft',
-          },
-        })
-        createdCount += 1
-        if (autoDivideAfterImport && chapter.content.trim()) {
+      const committed = await StudioScriptImportsService.commitScriptImportApiApiV1StudioScriptImportsImportIdCommitPost({
+        importId: importBatch.id,
+        requestBody: {
+          selected_chapter_indexes: selectedImportChapters,
+          chapter_overrides: Object.fromEntries(
+            selectedImportChapters.map((index) => [String(index), importChapterEdits[index]]),
+          ),
+        },
+      })
+      const chapterIds = committed.data?.chapter_ids ?? []
+      if (autoDivideAfterImport) {
+        for (const [offset, chapterId] of chapterIds.entries()) {
+          const parsed = parsedImportChapters.find(
+            (chapter) => chapter.index === selectedImportChapters[offset],
+          )
+          const scriptText = importChapterEdits[selectedImportChapters[offset]]?.screenplay_text ?? parsed?.screenplay_text ?? ''
+          if (!scriptText.trim()) continue
           await ScriptProcessingService.divideScriptAsyncApiV1ScriptProcessingDivideAsyncPost({
             requestBody: {
               chapter_id: chapterId,
-              script_text: chapter.content,
+              script_text: scriptText,
               write_to_db: true,
             },
           })
@@ -337,21 +345,43 @@ export function ChaptersTab() {
       await refresh()
       notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
       setImportOpen(false)
-      setImportChapters([])
+      setImportBatch(null)
+      setSelectedImportChapters([])
+      setImportChapterEdits({})
       setAutoDivideAfterImport(false)
+      const createdCount = committed.data?.created_count ?? chapterIds.length
       message.success(
         divisionCount
           ? `已导入 ${createdCount} 个章节，并启动 ${divisionCount} 个分镜提取任务`
           : `已导入 ${createdCount} 个章节`,
       )
-    } catch {
-      if (createdCount) {
-        await refresh()
-        notifyProjectDataChanged({ projectId, resources: ['project', 'chapters'] })
-        message.warning(`已导入 ${createdCount} 个章节，后续章节导入失败，请检查后重试`)
-      } else {
-        message.error('剧本导入失败')
-      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '剧本导入失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handleSaveImportReview = async () => {
+    if (!importBatch) return
+    setImporting(true)
+    try {
+      const response = await StudioScriptImportsService.updateScriptImportReviewApiApiV1StudioScriptImportsImportIdReviewPatch({
+        importId: importBatch.id,
+        requestBody: {
+          review_state: {
+            ...importBatch.review_state,
+            selected_chapter_indexes: selectedImportChapters,
+            chapter_overrides: Object.fromEntries(
+              Object.entries(importChapterEdits).map(([index, edit]) => [index, edit]),
+            ),
+          },
+        },
+      })
+      if (response.data) setImportBatch(response.data)
+      message.success('导入预览草稿已保存')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存导入预览失败')
     } finally {
       setImporting(false)
     }
@@ -364,54 +394,148 @@ export function ChaptersTab() {
       onCancel={() => {
         if (importing) return
         setImportOpen(false)
-        setImportChapters([])
+        setImportBatch(null)
+        setSelectedImportChapters([])
+        setImportChapterEdits({})
       }}
       onOk={() => void handleImportScripts()}
-      okText={`导入${importChapters.length ? ` ${importChapters.length} 个章节` : ''}`}
-      okButtonProps={{ disabled: !importChapters.length }}
+      okText={`确认导入${selectedImportChapters.length ? ` ${selectedImportChapters.length} 个章节` : ''}`}
+      okButtonProps={{ disabled: !selectedImportChapters.length }}
       confirmLoading={importing}
       closable={!importing}
       maskClosable={!importing}
-      width={680}
+      width={900}
     >
       <div className="space-y-4">
         <Upload.Dragger
-          accept=".txt,.md,.markdown,text/plain,text/markdown"
+          accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           maxCount={1}
           showUploadList={false}
           disabled={importing}
           beforeUpload={async (file) => {
             try {
-              setImportChapters(await readScriptFile(file))
-              message.success('剧本解析完成')
+              if (!projectId) throw new Error('缺少项目 ID')
+              if (!/\.(txt|md|markdown|pdf|docx)$/i.test(file.name)) throw new Error('目前支持 TXT、MD、PDF、DOCX 格式')
+              if (file.size > 25 * 1024 * 1024) throw new Error('剧本文件不能超过 25MB')
+              setImporting(true)
+              const uploaded = await StudioFilesService.uploadFileApiApiV1StudioFilesUploadPost({
+                name: file.name.replace(/\.[^.]+$/, ''),
+                formData: { file: file as unknown as string },
+              })
+              if (!uploaded.data?.id) throw new Error('上传成功但未返回文件 ID')
+              const created = await StudioScriptImportsService.createScriptImportApiApiV1StudioScriptImportsPost({
+                requestBody: { project_id: projectId, file_id: uploaded.data.id },
+              })
+              if (!created.data) throw new Error('解析成功但未返回导入预览')
+              const parsedChapters = created.data.parse_result.chapters ?? []
+              const savedOverrides = (created.data.review_state?.chapter_overrides ?? {}) as Record<string, Partial<ImportChapterEdit>>
+              const savedSelection = created.data.review_state?.selected_chapter_indexes
+              setImportBatch(created.data)
+              setSelectedImportChapters(Array.isArray(savedSelection)
+                ? savedSelection.filter((value): value is number => typeof value === 'number')
+                : parsedChapters.map((chapter) => chapter.index))
+              setImportChapterEdits(Object.fromEntries(parsedChapters.map((chapter) => {
+                const saved = savedOverrides[String(chapter.index)] ?? {}
+                return [chapter.index, {
+                  title: saved.title ?? chapter.title,
+                  theme: saved.theme ?? chapter.theme ?? '',
+                  screenplay_text: saved.screenplay_text ?? chapter.screenplay_text,
+                }]
+              })))
+              message.success(`本地解析完成：识别到 ${parsedChapters.length} 个章节`)
             } catch (error) {
-              setImportChapters([])
+              setImportBatch(null)
+              setSelectedImportChapters([])
+              setImportChapterEdits({})
               message.error(error instanceof Error ? error.message : '剧本解析失败')
+            } finally {
+              setImporting(false)
             }
             return Upload.LIST_IGNORE
           }}
         >
           <p className="ant-upload-drag-icon"><UploadOutlined /></p>
           <p className="ant-upload-text">点击或拖入剧本文件</p>
-          <p className="ant-upload-hint">支持 TXT、MD、MARKDOWN，最大 5MB；按“第X集/章/幕”或 Markdown 标题拆分</p>
+          <p className="ant-upload-hint">支持 TXT、MD、PDF、DOCX，最大 25MB；PDF 需包含文字层；先解析预览，不会直接写入章节</p>
         </Upload.Dragger>
 
-        {importChapters.length ? (
-          <div className="max-h-56 overflow-auto rounded border border-gray-200 divide-y">
-            {importChapters.map((chapter, index) => (
-              <div key={`${chapter.title}-${index}`} className="px-3 py-2">
-                <div className="font-medium">{index + 1}. {chapter.title}</div>
-                <div className="text-xs text-gray-500 mt-1 line-clamp-2">
-                  {chapter.content || '该标题下暂无正文'}
-                </div>
-              </div>
+        {importBatch ? (
+          <div className="space-y-3">
+            <Alert
+              type="info"
+              showIcon
+              message={`文档类型：${importBatch.document_profile}；解析器：${importBatch.parser_version}`}
+              description="概述、完整提示词、配音汇总、音效和制作备注已与真实章节分离。请勾选确认后再写入项目。"
+            />
+            {importBatch.parse_result.warnings?.map((warning) => (
+              <Alert key={warning} type="warning" showIcon message={warning} />
             ))}
+            <div className="flex items-center justify-between gap-3">
+              <Checkbox
+                checked={selectedImportChapters.length === parsedImportChapters.length}
+                indeterminate={selectedImportChapters.length > 0 && selectedImportChapters.length < parsedImportChapters.length}
+                onChange={(event) => setSelectedImportChapters(
+                  event.target.checked ? parsedImportChapters.map((chapter) => chapter.index) : [],
+                )}
+              >
+                全选识别到的章节
+              </Checkbox>
+              <Button size="small" loading={importing} onClick={() => void handleSaveImportReview()}>
+                保存预览草稿
+              </Button>
+            </div>
+            <div className="max-h-[42vh] overflow-auto rounded border border-gray-200 divide-y">
+              {parsedImportChapters.map((chapter) => (
+                <div key={chapter.index} className="px-3 py-3">
+                  <Checkbox
+                    checked={selectedImportChapters.includes(chapter.index)}
+                    onChange={(event) => setSelectedImportChapters((current) => event.target.checked
+                      ? [...current, chapter.index].sort((a, b) => a - b)
+                      : current.filter((index) => index !== chapter.index))}
+                  >
+                    <span className="font-medium">{chapter.index}. {importChapterEdits[chapter.index]?.title ?? chapter.title}</span>
+                    {chapter.target_duration_seconds ? <Tag className="ml-2">{chapter.target_duration_seconds} 秒</Tag> : null}
+                    {chapter.theme ? <Tag color="blue">{chapter.theme}</Tag> : null}
+                  </Checkbox>
+                  <div className="mt-2 ml-6 grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <Input
+                      size="small"
+                      addonBefore="标题"
+                      value={importChapterEdits[chapter.index]?.title ?? chapter.title}
+                      onChange={(event) => setImportChapterEdits((current) => ({
+                        ...current,
+                        [chapter.index]: { ...current[chapter.index], title: event.target.value },
+                      }))}
+                    />
+                    <Input
+                      size="small"
+                      addonBefore="主题"
+                      value={importChapterEdits[chapter.index]?.theme ?? chapter.theme ?? ''}
+                      onChange={(event) => setImportChapterEdits((current) => ({
+                        ...current,
+                        [chapter.index]: { ...current[chapter.index], theme: event.target.value },
+                      }))}
+                    />
+                  </div>
+                  <TextArea
+                    className="mt-2 ml-6"
+                    style={{ width: 'calc(100% - 24px)' }}
+                    autoSize={{ minRows: 2, maxRows: 6 }}
+                    value={importChapterEdits[chapter.index]?.screenplay_text ?? chapter.screenplay_text}
+                    onChange={(event) => setImportChapterEdits((current) => ({
+                      ...current,
+                      [chapter.index]: { ...current[chapter.index], screenplay_text: event.target.value },
+                    }))}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
         <Checkbox
           checked={autoDivideAfterImport}
-          disabled={!importChapters.length || importing}
+          disabled={!selectedImportChapters.length || importing}
           onChange={(event) => setAutoDivideAfterImport(event.target.checked)}
         >
           导入后自动启动 AI 分镜提取

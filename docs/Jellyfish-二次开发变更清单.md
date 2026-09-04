@@ -52,9 +52,11 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 
 ### LC-004 剧本文件导入与智能拆解入口
 
-- 新增/修改：项目工作台支持 TXT、Markdown、PDF、DOCX；解析正文后保存/创建章节并进入智能拆解流程；修正章节拆分任务关联。
-- 关键位置：`scriptImport.ts`、`ChaptersTab.tsx`、`script_processing.py`、`chapterDivisionTasks.ts`。
-- 必须保留：导入与手工录入并存；格式/大小错误有明确提示；原始正文不因拆解失败丢失。
+- 新增/修改：项目工作台支持 TXT、Markdown、PDF 文字层和 DOCX；后端可注册格式适配器统一生成带原始位置的语义块，区分真实章节、概述、作者提示词、配音/音效汇总和制作备注。
+- 新增/修改：新增可恢复 `ScriptImport` 草稿、内容 hash/解析器版本幂等、结构预览和章节勾选；确认后一次事务写入章节，重复提交不重复建章。旧的前端 `scriptImport.ts` 标题正则已删除。
+- 关键位置：`script_import_parser.py`、`studio_script_imports.py`、`services/studio/script_imports.py`、`studio/script_imports.py`、`ChaptersTab.tsx`、revision `a7c3e5d9f204`。
+- 必须保留：导入与手工录入并存；先预览后写库；格式/编码/大小错误有明确提示；原文件保存在文件库；解析或后续 AI 失败不产生半章。
+- 未完成边界：外部 LLM 深度分析、资产匹配/提交、分镜/音频/提示词贯通尚未交付；未经用户主动授权不得把剧本正文发送到模型供应商。
 
 ### LC-005 全局文件管理与未关联素材复用
 
@@ -86,7 +88,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 ### LC-009 数据模型、API 与 Alembic 迁移
 
 - 新增实体：`AssetFileLink`、`AudioAsset`、`ShotAudioTrack` 及用途、类别、轨道类型等枚举和 Schema。
-- 本地 revision：`e2a6c8f4d901_add_rich_media_assets.py`；扩展 `d8f4a1e9b702_add_unified_generation_foundation.py`；新增 `f4b8d2c6a103_fix_generation_timestamp_defaults.py`。
+- 本地 revision：`e2a6c8f4d901_add_rich_media_assets.py`；扩展 `d8f4a1e9b702_add_unified_generation_foundation.py`；新增 `f4b8d2c6a103_fix_generation_timestamp_defaults.py` 和 `a7c3e5d9f204_add_script_imports.py`。
 - 新增/修改 API：文件详情/预览/选择、资产附件 CRUD、音频资产 CRUD、镜头音轨 CRUD、模型目录/能力/连接测试、任务状态等；同步生成前端 OpenAPI client。
 - 必须保留：旧数据库可安全 baseline/reconciliation；统一生成表时间默认值正确；迁移和系统 seed 幂等；用户数据和自定义模板不被 seed 覆盖。
 
@@ -144,7 +146,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 | PL-007 | 供应商生成链路补全 | P0-P3 完成，P4 待人工 | 模型目录、能力一致性约束、阿里模型家族及其他供应商首批适配和 Mock 测试完成 | 获得逐供应商付费许可后做 text/image/video 最小真实样例，验证任务、取消、超时、错误、产物下载和 RustFS，再更新真实验收矩阵 |
 | PL-008 | 任务异步化与取消 | 主线完成，增强按需 | 主线脚本接口已任务化、可恢复、可请求/协作式取消；预备接口已有后端 | 若出现真实页面再接 `merge-entities`/`analyze-variants`；只有明确业务需要才做运行句柄或强终止；持续收口同步兼容入口 |
 | PL-009 | 整体开发规划 | 持续进行 | 核心流程和数据架构已基本稳定，多项结构、交互和提示词工作已分拆推进 | 继续按“结构治理 → 流程体验 → 提示词专项 → 够用的剪辑能力”复盘；以具体子计划和验收为准，避免用宏观描述代替任务 |
-| PL-010 | 智能剧本导入与生产要素编排 | 方案讨论，未编码 | 已用《第一次，放开手》TXT/Markdown 作为首个跨格式回归样本完成根因和业务映射审计，并明确样本不构成产品限制 | 建立插件式格式适配、文档类型识别和统一语义草稿；确认双入口、先预览后提交、演员/资产候选、模型化时间线和提示词边界后，按 P0–P5 实施，并用多题材、多结构、多格式矩阵验收 |
+| PL-010 | 智能剧本导入与生产要素编排 | P0/P1 完成；P3 章节提交完成；未迁移运行库 | 插件式 TXT/MD/PDF/DOCX 解析、语义块与来源、真实样本 4 章回归、ScriptImport 草稿/API/可编辑向导、草稿保存恢复、勾选章节事务幂等提交和 OpenAPI 已完成；后端 395 项非集成测试及前端构建通过 | 先取得“用户主动点击后可向当前默认文本模型发送剧本”的明确授权，再完成 P2 证据候选；随后补齐 P3 资产匹配/落位、P4 生成与音频链和 P5 正式迁移/运行验收 |
 
 详细来源：
 

@@ -13,6 +13,7 @@ from app.api.v1.routes.studio import (
     media_assets,
     projects,
     prompts,
+    script_imports,
     text_lab,
     shots,
     timeline,
@@ -23,6 +24,7 @@ router = APIRouter()
 
 router.include_router(projects.router, prefix="/projects", tags=["studio/projects"])
 router.include_router(chapters.router, prefix="/chapters", tags=["studio/chapters"])
+router.include_router(script_imports.router, prefix="/script-imports", tags=["studio/script-imports"])
 
 router.include_router(shots.router, prefix="/shots", tags=["studio/shots"])
 router.include_router(shots.details_router, prefix="/shot-details", tags=["studio/shot-details"])
