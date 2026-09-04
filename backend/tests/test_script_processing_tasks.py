@@ -24,6 +24,7 @@ from app.services.script_processing_tasks import (
     SCENE_INFO_ANALYSIS_RELATION_TYPE,
     SCRIPT_OPTIMIZATION_RELATION_TYPE,
     SCRIPT_SIMPLIFICATION_RELATION_TYPE,
+    SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE,
     SCRIPT_EXTRACTION_RELATION_TYPE,
     VARIANT_ANALYSIS_RELATION_TYPE,
     create_character_portrait_task,
@@ -36,12 +37,42 @@ from app.services.script_processing_tasks import (
     create_scene_info_task,
     create_script_optimization_task,
     create_script_simplification_task,
+    create_script_import_analysis_task,
     create_variant_task,
     pick_analysis_relation_entity_id,
     pick_consistency_relation_entity_id,
     pick_merge_relation_entity_id,
     pick_variant_relation_entity_id,
 )
+
+
+@pytest.mark.asyncio
+async def test_create_script_import_analysis_task_freezes_approved_model() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
+    SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    import app.models.task  # noqa: F401
+    import app.models.task_links  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with SessionLocal() as db:
+        result = await create_script_import_analysis_task(
+            db,
+            import_id="import-1",
+            parsed_document={"chapters": []},
+            model_id="approved-text-model",
+            model_revision_id="approved-text-revision",
+        )
+        task = await db.get(GenerationTask, result.task_id)
+        assert result.relation_type == SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE
+        assert task is not None
+        assert task.payload["snapshot"]["run_args"]["model_id"] == "approved-text-model"
+        assert task.payload["snapshot"]["run_args"]["model_revision_id"] == "approved-text-revision"
+        assert "api_key" not in str(task.payload).lower()
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

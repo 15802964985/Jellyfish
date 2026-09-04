@@ -203,6 +203,12 @@ class ShotDetail(Base,TimestampMixin):
         default=list,
         comment="镜头动作拍点（按时间顺序排列，用于关键帧与视频生成）",
     )
+    audio_cues: Mapped[list[dict]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        comment="尚未绑定音频文件的对白/旁白/字幕/BGM/SFX/静音计划",
+    )
     prompt_template_id: Mapped[str | None] = mapped_column(
         String(64),
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),

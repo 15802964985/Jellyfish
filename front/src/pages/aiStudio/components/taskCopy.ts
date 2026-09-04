@@ -165,6 +165,7 @@ export const TASK_KIND_TITLE_MAP: Record<string, string> = {
   script_simplify: TASK_COPY.scriptSimplify.title,
   script_optimize: TASK_COPY.scriptOptimize.title,
   script_character_portrait: '角色画像分析',
+  script_import_analyze: '剧本深度分析',
   script_prop_info: '道具信息分析',
   script_scene_info: '场景信息分析',
   script_costume_info: '服装信息分析',
@@ -174,6 +175,7 @@ export const TASK_KIND_TITLE_MAP: Record<string, string> = {
 }
 
 export const RELATION_TYPE_LABEL_MAP: Record<string, string> = {
+  script_import_analysis: '剧本导入',
   chapter_division: '章节',
   script_extraction: '章节',
   consistency_check: '章节',

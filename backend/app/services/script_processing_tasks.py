@@ -24,6 +24,7 @@ SCENE_INFO_ANALYSIS_RELATION_TYPE = "scene_info_analysis"
 COSTUME_INFO_ANALYSIS_RELATION_TYPE = "costume_info_analysis"
 SCRIPT_OPTIMIZATION_RELATION_TYPE = "script_optimization"
 SCRIPT_SIMPLIFICATION_RELATION_TYPE = "script_simplification"
+SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE = "script_import_analysis"
 SCRIPT_DIVIDE_TASK_KIND = "script_divide"
 SCRIPT_EXTRACT_TASK_KIND = "script_extract"
 SCRIPT_MERGE_TASK_KIND = "script_merge"
@@ -35,6 +36,7 @@ SCRIPT_SCENE_INFO_TASK_KIND = "script_scene_info"
 SCRIPT_COSTUME_INFO_TASK_KIND = "script_costume_info"
 SCRIPT_OPTIMIZE_TASK_KIND = "script_optimize"
 SCRIPT_SIMPLIFY_TASK_KIND = "script_simplify"
+SCRIPT_IMPORT_ANALYZE_TASK_KIND = "script_import_analyze"
 _ACTIVE_TASK_STATUSES = (
     GenerationTaskStatus.pending,
     GenerationTaskStatus.running,
@@ -606,5 +608,43 @@ async def create_script_simplification_task(
         source_text=script_text,
         run_args={
             "script_text": script_text,
+        },
+    )
+
+
+async def create_script_import_analysis_task(
+    db: AsyncSession,
+    *,
+    import_id: str,
+    parsed_document: dict,
+    model_id: str,
+    model_revision_id: str,
+) -> AsyncTaskCreateResult:
+    existing = await _find_active_task(
+        db,
+        relation_type=SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE,
+        relation_entity_id=import_id,
+    )
+    if existing is not None:
+        status_value = existing.status.value if hasattr(existing.status, "value") else str(existing.status)
+        return AsyncTaskCreateResult(
+            task_id=existing.id,
+            status=TaskStatus(status_value),
+            reused=True,
+            relation_type=SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE,
+            relation_entity_id=import_id,
+        )
+    return await _create_analysis_task(
+        db,
+        task_kind=SCRIPT_IMPORT_ANALYZE_TASK_KIND,
+        relation_type=SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE,
+        relation_entity_id=import_id,
+        operation="analyze-script-import",
+        source_text=json.dumps(parsed_document, ensure_ascii=False),
+        run_args={
+            "import_id": import_id,
+            "parsed_document": parsed_document,
+            "model_id": model_id,
+            "model_revision_id": model_revision_id,
         },
     )

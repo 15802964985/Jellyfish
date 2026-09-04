@@ -96,9 +96,44 @@ class ScriptImportReviewUpdate(BaseModel):
     review_state: dict[str, Any]
 
 
+class ScriptImportAnalyzeRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=64)
+
+
+class ScriptImportMediaPlanRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=64)
+
+
+class ScriptImportMediaPlanItem(BaseModel):
+    candidate_id: str
+    chapter_index: int
+    shot_index: int
+    requested_seconds: float | None = None
+    segment_seconds: list[int] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ScriptImportMediaPlanRead(BaseModel):
+    model_id: str
+    model_name: str
+    provider_key: str
+    allowed_ratios: list[str] = Field(default_factory=list)
+    default_ratio: str | None = None
+    supports_text_to_video: bool
+    supports_first_frame: bool
+    supports_last_frame: bool
+    supports_subject_references: bool
+    items: list[ScriptImportMediaPlanItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ScriptImportCommitRequest(BaseModel):
     selected_chapter_indexes: list[int] = Field(default_factory=list)
     chapter_overrides: dict[str, "ScriptImportChapterOverride"] = Field(default_factory=dict)
+    candidate_decisions: dict[str, "ScriptImportCandidateDecision"] = Field(default_factory=dict)
+    include_shots: bool = False
+    include_audio_dialogue: bool = False
+    media_plan_model_id: str | None = Field(default=None, max_length=64)
 
 
 class ScriptImportChapterOverride(BaseModel):
@@ -107,11 +142,32 @@ class ScriptImportChapterOverride(BaseModel):
     screenplay_text: str | None = None
 
 
+class ScriptImportCandidateDecision(BaseModel):
+    action: Literal["create", "link", "detail", "ignore"] = "ignore"
+    existing_entity_id: str | None = None
+    edited_name: str | None = Field(default=None, max_length=255)
+    edited_description: str | None = None
+
+
 class ScriptImportCommitResult(BaseModel):
     import_id: str
     chapter_ids: list[str] = Field(default_factory=list)
     created_count: int = 0
+    entity_ids: dict[str, str] = Field(default_factory=dict)
+    shot_ids: list[str] = Field(default_factory=list)
+    dialogue_line_ids: list[int] = Field(default_factory=list)
     reused: bool = False
+
+
+class ScriptImportEntityMatch(BaseModel):
+    entity_id: str
+    entity_type: Literal["actor", "character", "scene", "prop", "costume"]
+    name: str
+    score: float = Field(ge=0, le=1)
+
+
+class ScriptImportMatchesRead(BaseModel):
+    matches: dict[str, list[ScriptImportEntityMatch]] = Field(default_factory=dict)
 
 
 class ScriptImportRead(BaseModel):

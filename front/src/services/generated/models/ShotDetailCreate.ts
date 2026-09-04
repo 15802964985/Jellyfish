@@ -5,6 +5,7 @@
 import type { CameraAngle } from './CameraAngle';
 import type { CameraMovement } from './CameraMovement';
 import type { CameraShotType } from './CameraShotType';
+import type { ShotAudioCuePlan } from './ShotAudioCuePlan';
 import type { VFXType } from './VFXType';
 export type ShotDetailCreate = {
     /**
@@ -63,6 +64,10 @@ export type ShotDetailCreate = {
      * 动作拍点（按时间顺序排列）
      */
     action_beats?: Array<string>;
+    /**
+     * 待绑定素材的声音与字幕计划
+     */
+    audio_cues?: Array<ShotAudioCuePlan>;
     /**
      * 镜头分镜首帧提示词
      */

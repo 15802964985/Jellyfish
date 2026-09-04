@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Empty, InputNumber, Modal, Select, Slider, Space, Switch, Tag, message } from 'antd'
 import { DeleteOutlined, PlusOutlined, SoundOutlined } from '@ant-design/icons'
-import type { AudioAssetRead, ShotAudioTrackRead, ShotAudioTrackType } from '../../../../services/generated'
-import { StudioMediaAssetsService } from '../../../../services/generated'
+import type { AudioAssetRead, ShotAudioCuePlan, ShotAudioTrackRead, ShotAudioTrackType } from '../../../../services/generated'
+import { StudioMediaAssetsService, StudioShotDetailsService } from '../../../../services/generated'
 import { buildFileDownloadUrl } from '../../assets/utils'
 
 const TRACK_OPTIONS: Array<{ value: ShotAudioTrackType; label: string; color: string }> = [
@@ -17,9 +17,29 @@ function trackMeta(type: ShotAudioTrackType) {
   return TRACK_OPTIONS.find((item) => item.value === type) ?? TRACK_OPTIONS[0]
 }
 
+const CUE_LABELS: Record<string, string> = {
+  dialogue: '对白建议',
+  voiceover: '旁白建议',
+  bgm: '配乐建议',
+  ambient: '环境声建议',
+  sfx: '音效建议',
+  subtitle: '字幕建议',
+  silence: '静音要求',
+}
+
+function cueTrackType(audioType?: string): ShotAudioTrackType | null {
+  if (audioType === 'dialogue') return 'dialogue'
+  if (audioType === 'voiceover') return 'narration'
+  if (audioType === 'bgm') return 'bgm'
+  if (audioType === 'ambient') return 'ambient'
+  if (audioType === 'sfx') return 'sfx'
+  return null
+}
+
 /** 镜头真实音轨管理器：从素材库选择音频，持久化时间、音量和循环参数。 */
 export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
   const [tracks, setTracks] = useState<ShotAudioTrackRead[]>([])
+  const [cues, setCues] = useState<ShotAudioCuePlan[]>([])
   const [assets, setAssets] = useState<AudioAssetRead[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -29,12 +49,17 @@ export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
   const load = useCallback(async () => {
     if (!shotId) {
       setTracks([])
+      setCues([])
       return
     }
     setLoading(true)
     try {
-      const response = await StudioMediaAssetsService.listShotAudioTracksApiApiV1StudioMediaAssetsShotsShotIdAudioTracksGet({ shotId })
-      setTracks(response.data ?? [])
+      const [tracksResponse, detailResponse] = await Promise.all([
+        StudioMediaAssetsService.listShotAudioTracksApiApiV1StudioMediaAssetsShotsShotIdAudioTracksGet({ shotId }),
+        StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId }),
+      ])
+      setTracks(tracksResponse.data ?? [])
+      setCues(detailResponse.data?.audio_cues ?? [])
     } catch {
       message.error('加载镜头音轨失败')
     } finally {
@@ -108,6 +133,39 @@ export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
         <Button onClick={() => void openPicker('narration')}><PlusOutlined />配音 {groupedCount.voice || ''}</Button>
         <Button onClick={() => void openPicker('sfx')}><PlusOutlined />音效 {groupedCount.effect || ''}</Button>
       </div>
+
+      {cues.length ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+          <div className="mb-2 text-sm font-medium text-amber-900">剧本导入的声音计划</div>
+          <div className="space-y-2">
+            {cues.map((cue, index) => {
+              const suggestedType = cueTrackType(cue.audio_type)
+              return (
+                <div key={cue.candidate_id ?? `${cue.audio_type}-${index}`} className="flex items-start justify-between gap-2 rounded bg-white px-2 py-2 text-xs">
+                  <div>
+                    <Tag>{CUE_LABELS[cue.audio_type ?? ''] ?? cue.audio_type ?? '声音'}</Tag>
+                    {cue.speaker ? <span className="mr-2 font-medium">{cue.speaker}</span> : null}
+                    <span>{cue.text}</span>
+                    {cue.start_seconds !== null && cue.start_seconds !== undefined ? (
+                      <span className="ml-2 text-slate-400">
+                        {cue.start_seconds}s{cue.end_seconds !== null && cue.end_seconds !== undefined ? `–${cue.end_seconds}s` : ''}
+                      </span>
+                    ) : null}
+                  </div>
+                  {suggestedType ? (
+                    <Button type="link" size="small" onClick={() => void openPicker(suggestedType)}>
+                      选择素材
+                    </Button>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-2 text-xs text-amber-800">
+            这些是可编辑生产建议，不是音频文件；选择素材后才会进入真实音轨和后期合成。
+          </div>
+        </div>
+      ) : null}
 
       {tracks.length === 0 && !loading ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前镜头没有音轨" />

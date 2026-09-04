@@ -54,9 +54,10 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 
 - 新增/修改：项目工作台支持 TXT、Markdown、PDF 文字层和 DOCX；后端可注册格式适配器统一生成带原始位置的语义块，区分真实章节、概述、作者提示词、配音/音效汇总和制作备注。
 - 新增/修改：新增可恢复 `ScriptImport` 草稿、内容 hash/解析器版本幂等、结构预览和章节勾选；确认后一次事务写入章节，重复提交不重复建章。旧的前端 `scriptImport.ts` 标题正则已删除。
-- 关键位置：`script_import_parser.py`、`studio_script_imports.py`、`services/studio/script_imports.py`、`studio/script_imports.py`、`ChaptersTab.tsx`、revision `a7c3e5d9f204`。
-- 必须保留：导入与手工录入并存；先预览后写库；格式/编码/大小错误有明确提示；原文件保存在文件库；解析或后续 AI 失败不产生半章。
-- 未完成边界：外部 LLM 深度分析、资产匹配/提交、分镜/音频/提示词贯通尚未交付；未经用户主动授权不得把剧本正文发送到模型供应商。
+- 新增/修改：用户主动确认供应商和费用后才创建 `script_import_analyze` 任务；任务冻结已披露的文本模型，只输出带原文证据、来源类别和置信度的项目/资产/镜头/声音候选。演员、角色、场景、道具、服装默认忽略，支持新建、匹配已有、仅作细节或忽略。
+- 新增/修改：一次事务提交选中章节、人工确认资产、镜头级角色/场景/道具/服装关联、对白/旁白和声音计划；视频模型能力规划不调用外部 API，提交时重新校验并把时长转换为合法片段。作者提示和项目约束以软参考进入现有镜头 PromptRenderer。
+- 关键位置：`script_import_parser.py`、`script_import_analysis_agent.py`、`studio_script_imports.py`、`services/studio/script_imports.py`、`script_processing_{tasks,worker}.py`、`ChaptersTab.tsx`、`ShotAudioTracksPanel.tsx`、revision `a7c3e5d9f204` 与 `b9e4c7a2d106`。
+- 必须保留：导入与手工录入并存；先预览后写库；未经用户点击同意不得外发正文；候选默认不创建；导入不触发图片/视频生成；格式/编码/大小/模型失败不产生半章或孤立资产；重复提交幂等。
 
 ### LC-005 全局文件管理与未关联素材复用
 
@@ -88,7 +89,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 ### LC-009 数据模型、API 与 Alembic 迁移
 
 - 新增实体：`AssetFileLink`、`AudioAsset`、`ShotAudioTrack` 及用途、类别、轨道类型等枚举和 Schema。
-- 本地 revision：`e2a6c8f4d901_add_rich_media_assets.py`；扩展 `d8f4a1e9b702_add_unified_generation_foundation.py`；新增 `f4b8d2c6a103_fix_generation_timestamp_defaults.py` 和 `a7c3e5d9f204_add_script_imports.py`。
+- 本地 revision：`e2a6c8f4d901_add_rich_media_assets.py`；扩展 `d8f4a1e9b702_add_unified_generation_foundation.py`；新增 `f4b8d2c6a103_fix_generation_timestamp_defaults.py`、`a7c3e5d9f204_add_script_imports.py` 和 `b9e4c7a2d106_add_shot_audio_cues.py`。
 - 新增/修改 API：文件详情/预览/选择、资产附件 CRUD、音频资产 CRUD、镜头音轨 CRUD、模型目录/能力/连接测试、任务状态等；同步生成前端 OpenAPI client。
 - 必须保留：旧数据库可安全 baseline/reconciliation；统一生成表时间默认值正确；迁移和系统 seed 幂等；用户数据和自定义模板不被 seed 覆盖。
 
@@ -146,7 +147,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 | PL-007 | 供应商生成链路补全 | P0-P3 完成，P4 待人工 | 模型目录、能力一致性约束、阿里模型家族及其他供应商首批适配和 Mock 测试完成 | 获得逐供应商付费许可后做 text/image/video 最小真实样例，验证任务、取消、超时、错误、产物下载和 RustFS，再更新真实验收矩阵 |
 | PL-008 | 任务异步化与取消 | 主线完成，增强按需 | 主线脚本接口已任务化、可恢复、可请求/协作式取消；预备接口已有后端 | 若出现真实页面再接 `merge-entities`/`analyze-variants`；只有明确业务需要才做运行句柄或强终止；持续收口同步兼容入口 |
 | PL-009 | 整体开发规划 | 持续进行 | 核心流程和数据架构已基本稳定，多项结构、交互和提示词工作已分拆推进 | 继续按“结构治理 → 流程体验 → 提示词专项 → 够用的剪辑能力”复盘；以具体子计划和验收为准，避免用宏观描述代替任务 |
-| PL-010 | 智能剧本导入与生产要素编排 | P0/P1 完成；P3 章节提交完成；未迁移运行库 | 插件式 TXT/MD/PDF/DOCX 解析、语义块与来源、真实样本 4 章回归、ScriptImport 草稿/API/可编辑向导、草稿保存恢复、勾选章节事务幂等提交和 OpenAPI 已完成；后端 395 项非集成测试及前端构建通过 | 先取得“用户主动点击后可向当前默认文本模型发送剧本”的明确授权，再完成 P2 证据候选；随后补齐 P3 资产匹配/落位、P4 生成与音频链和 P5 正式迁移/运行验收 |
+| PL-010 | 智能剧本导入与生产要素编排 | P0–P4 代码完成；P5 自动回归完成，待正式迁移和运行验收 | 通用解析、可恢复草稿、显式外发同意、冻结文本模型、证据候选、人工资产决策、事务落位、镜头级资产关系、模型合法时长规划、PromptRenderer 软上下文、对白与声音计划已完成；后端 399 项非集成测试、前端定向 lint 和生产构建通过 | 执行正式 MySQL 备份与 Alembic 到 `b9e4c7a2d106`，重启 API/Worker/Beat/前端并完成真实页面烟测；真实付费文本分析仍只在用户点击时发生，图片/视频真实生成继续遵守 PL-007 的逐供应商付费许可 |
 
 详细来源：
 

@@ -19,6 +19,7 @@ from app.chains.agents import (
     SceneInfoAnalysisAgent,
     ScriptOptimizerAgent,
     ScriptSimplifierAgent,
+    ScriptImportAnalysisAgent,
     VariantAnalyzerAgent,
 )
 from app.chains.agents.script_processing_agents import (
@@ -35,7 +36,7 @@ from app.services.script_extraction_cache import (
     get_cached_script_extract,
     set_cached_script_extract,
 )
-from app.services.llm.runtime import build_default_text_llm_sync
+from app.services.llm.runtime import build_default_text_llm_sync, build_text_llm_revision_sync
 from app.services.studio.script_division import write_division_result_to_chapter_sync
 from app.services.studio.shot_extracted_candidates import (
     sync_from_extraction_draft_sync as sync_shot_extracted_candidates_from_draft_sync,
@@ -44,6 +45,10 @@ from app.services.studio.shot_extracted_dialogue_candidates import (
     sync_from_extraction_draft_sync as sync_shot_extracted_dialogue_candidates_from_draft_sync,
 )
 from app.services.studio.shot_semantic_defaults import apply_shot_semantic_defaults_from_draft_sync
+from app.models.studio import ScriptImport
+from app.models.task import GenerationTask
+from app.schemas.skills.script_import_analysis import ScriptImportAnalysisResult
+from app.services.studio.script_imports import sanitize_script_import_analysis
 from app.services.worker.task_executor import (
     AbstractLLMResultGenerator,
     AbstractWorkerTaskExecutor,
@@ -199,6 +204,24 @@ class ScriptSimplificationResultGenerator(AbstractLLMResultGenerator):
         return agent.extract(script_text=str(run_args.get("script_text") or ""))
 
 
+class ScriptImportAnalysisResultGenerator(AbstractLLMResultGenerator):
+    thinking = True
+
+    def generate(self, db: Session, run_args: dict[str, Any]) -> ScriptImportAnalysisResult:
+        revision_id = str(run_args.get("model_revision_id") or "")
+        if not revision_id:
+            raise HTTPException(status_code=503, detail="script import analysis model snapshot is missing")
+        llm = build_text_llm_revision_sync(db, revision_id=revision_id, thinking=self.thinking)
+        return self.generate_with_llm(llm, run_args)
+
+    def generate_with_llm(self, llm, run_args: dict[str, Any]) -> ScriptImportAnalysisResult:
+        agent = ScriptImportAnalysisAgent(llm)
+        result = agent.analyze(
+            parsed_document_json=json.dumps(run_args.get("parsed_document") or {}, ensure_ascii=False)
+        )
+        return sanitize_script_import_analysis(result, dict(run_args.get("parsed_document") or {}))
+
+
 class DivideTaskExecutor(_ScriptProcessingTaskExecutor):
     task_kind = "script_divide"
     timeout_seconds = 1800.0
@@ -331,6 +354,37 @@ class ScriptOptimizationTaskExecutor(_SimpleLLMTaskExecutor):
 class ScriptSimplificationTaskExecutor(_SimpleLLMTaskExecutor):
     task_kind = "script_simplify"
     generator_class = ScriptSimplificationResultGenerator
+
+
+class ScriptImportAnalysisTaskExecutor(_SimpleLLMTaskExecutor):
+    task_kind = "script_import_analyze"
+    generator_class = ScriptImportAnalysisResultGenerator
+
+    def should_apply(self, ctx: WorkerTaskContext, run_args: dict[str, Any], result: Any) -> bool:
+        return True
+
+    def apply_result(self, ctx: WorkerTaskContext, run_args: dict[str, Any], result: Any) -> None:
+        import_id = str(run_args.get("import_id") or "")
+        row = ctx.db.get(ScriptImport, import_id)
+        if row is None:
+            raise RuntimeError(f"ScriptImport not found: {import_id}")
+        if row.status == "committed":
+            return
+        row.analysis_result = result.model_dump(mode="json")
+        row.status = "ready"
+        row.error_message = ""
+
+    def _mark_failed(self, task_id: str, error: str) -> None:
+        super()._mark_failed(task_id, error)
+        with self._session_maker() as db:
+            task = db.get(GenerationTask, task_id)
+            run_args = ((task.payload or {}).get("snapshot") or {}).get("run_args") if task else {}
+            import_id = str((run_args or {}).get("import_id") or "")
+            row = db.get(ScriptImport, import_id) if import_id else None
+            if row is not None:
+                row.status = "failed"
+                row.error_message = error
+                db.commit()
 
 
 def generate_division_result(

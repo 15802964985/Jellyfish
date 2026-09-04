@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Alert, Card, Button, Checkbox, Tag, Space, Table, Empty, Modal, Input, Dropdown, Upload, Pagination, message } from 'antd'
+import { Alert, Card, Button, Checkbox, Tag, Space, Table, Empty, Modal, Input, Dropdown, Upload, Pagination, Select, message } from 'antd'
 import type { MenuProps, TableColumnsType } from 'antd'
 import {
   EditOutlined,
@@ -16,10 +16,14 @@ import {
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ScriptProcessingService,
+  LlmService,
   StudioChaptersService,
   StudioFilesService,
   StudioScriptImportsService,
   type ScriptImportRead,
+  type ScriptImportCandidateDecision,
+  type ScriptImportEntityMatch,
+  type ScriptImportMediaPlanRead,
 } from '../../../../../services/generated'
 import { chapterStatusMap } from '../constants'
 import { getChapterShotsPath, getChapterStudioPath } from '../routes'
@@ -43,6 +47,32 @@ const { TextArea } = Input
 const CREATE_PARAM = 'create'
 const EDIT_PARAM = 'edit'
 type ImportChapterEdit = { title: string; theme: string; screenplay_text: string }
+type ImportEvidence = { block_id: string; quote: string }
+type ImportEntityCandidate = {
+  candidate_id: string
+  entity_type: 'actor' | 'character' | 'scene' | 'prop' | 'costume'
+  name: string
+  description?: string
+  confidence?: number
+  source_kind?: 'explicit' | 'inferred' | 'suggested'
+  evidence?: ImportEvidence[]
+}
+type ImportAnalysis = {
+  project_brief?: Record<string, unknown>
+  entities?: ImportEntityCandidate[]
+  shots?: Array<Record<string, unknown>>
+  audio?: Array<Record<string, unknown>>
+  validation?: Array<{ severity?: string; message?: string }>
+  warnings?: string[]
+}
+
+const IMPORT_ENTITY_LABELS: Record<ImportEntityCandidate['entity_type'], string> = {
+  actor: '演员',
+  character: '角色',
+  scene: '场景',
+  prop: '道具',
+  costume: '服装',
+}
 
 export function ChaptersTab() {
   const taskCopy = TASK_COPY.chapterDivision
@@ -66,6 +96,11 @@ export function ChaptersTab() {
   const [importBatch, setImportBatch] = useState<ScriptImportRead | null>(null)
   const [selectedImportChapters, setSelectedImportChapters] = useState<number[]>([])
   const [importChapterEdits, setImportChapterEdits] = useState<Record<number, ImportChapterEdit>>({})
+  const [candidateDecisions, setCandidateDecisions] = useState<Record<string, ScriptImportCandidateDecision>>({})
+  const [entityMatches, setEntityMatches] = useState<Record<string, ScriptImportEntityMatch[]>>({})
+  const [includeImportedShots, setIncludeImportedShots] = useState(false)
+  const [includeImportedDialogue, setIncludeImportedDialogue] = useState(false)
+  const [importMediaPlan, setImportMediaPlan] = useState<ScriptImportMediaPlanRead | null>(null)
   const [autoDivideAfterImport, setAutoDivideAfterImport] = useState(false)
   const [chapterFlowMap, setChapterFlowMap] = useState<Record<string, ChapterFlowStats>>({})
   const [chapterDivisionActionId, setChapterDivisionActionId] = useState<string | null>(null)
@@ -80,6 +115,55 @@ export function ChaptersTab() {
     [chapterPage, chapterPageSize, chapters],
   )
   const parsedImportChapters = importBatch?.parse_result.chapters ?? []
+  const importAnalysis = (importBatch?.analysis_result ?? {}) as ImportAnalysis
+
+  const updateCandidateDecision = (
+    candidateId: string,
+    patch: Partial<ScriptImportCandidateDecision>,
+  ) => {
+    setCandidateDecisions((current) => ({
+      ...current,
+      [candidateId]: {
+        action: current[candidateId]?.action ?? 'ignore',
+        ...current[candidateId],
+        ...patch,
+      },
+    }))
+  }
+
+  useEffect(() => {
+    if (!importBatch || importBatch.status !== 'analyzing') return
+    let cancelled = false
+    const refreshImport = async () => {
+      try {
+        const response = await StudioScriptImportsService.getScriptImportApiApiV1StudioScriptImportsImportIdGet({
+          importId: importBatch.id,
+        })
+        if (!cancelled && response.data) setImportBatch(response.data)
+      } catch {
+        // 任务中心仍可恢复状态；短暂网络错误交给下一次低频轮询。
+      }
+    }
+    void refreshImport()
+    const timer = window.setInterval(() => void refreshImport(), 10_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [importBatch?.id, importBatch?.status])
+
+  useEffect(() => {
+    if (!importBatch || !['ready', 'committed'].includes(importBatch.status)) return
+    let cancelled = false
+    void StudioScriptImportsService.getScriptImportMatchesApiApiV1StudioScriptImportsImportIdMatchesGet({
+      importId: importBatch.id,
+    }).then((response) => {
+      if (!cancelled) setEntityMatches(response.data?.matches ?? {})
+    }).catch(() => {
+      if (!cancelled) setEntityMatches({})
+    })
+    return () => { cancelled = true }
+  }, [importBatch?.id, importBatch?.status])
 
   useEffect(() => {
     const lastPage = Math.max(1, Math.ceil(chapters.length / chapterPageSize))
@@ -310,6 +394,52 @@ export function ChaptersTab() {
     })
   }
 
+  const handleStartImportAnalysis = async () => {
+    if (!importBatch) return
+    try {
+      const settings = await LlmService.getModelSettingsApiV1LlmModelSettingsGet()
+      const modelId = settings.data?.default_text_model_id
+      if (!modelId) throw new Error('尚未设置默认文本模型，请先到模型管理配置')
+      const model = await LlmService.getModelApiV1LlmModelsModelIdGet({ modelId })
+      if (!model.data) throw new Error('默认文本模型不存在或已被删除')
+      const provider = await LlmService.getProviderApiV1LlmProvidersProviderIdGet({
+        providerId: model.data.provider_id,
+      })
+      Modal.confirm({
+        title: '确认发送剧本进行 AI 深度分析',
+        width: 620,
+        okText: '同意发送并开始分析',
+        cancelText: '取消',
+        content: (
+          <div className="space-y-2 mt-3">
+            <Alert
+              type="warning"
+              showIcon
+              message="剧本正文将发送到外部模型供应商，并可能产生文本模型费用"
+            />
+            <div>供应商：<strong>{provider.data?.name ?? model.data.provider_id}</strong></div>
+            <div>模型：<strong>{model.data.name}</strong></div>
+            <div className="text-sm text-gray-500">
+              用途仅限提取项目设定、演员/角色、场景、道具、服装、镜头、对白、字幕与音效候选。
+              不发送 API Key、数据库密码，不自动生成图片或视频。结果仍需人工选择后才写入业务表。
+            </div>
+          </div>
+        ),
+        onOk: async () => {
+          const response = await StudioScriptImportsService.analyzeScriptImportApiApiV1StudioScriptImportsImportIdAnalyzePost({
+            importId: importBatch.id,
+            requestBody: { model_id: modelId },
+          })
+          if (!response.data?.task_id) throw new Error('分析任务创建失败')
+          setImportBatch((current) => current ? { ...current, status: 'analyzing', error_message: '' } : current)
+          message.success('AI 深度分析任务已创建，可在任务中心查看')
+        },
+      })
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '无法启动 AI 深度分析')
+    }
+  }
+
   const handleImportScripts = async () => {
     if (!projectId || !importBatch || !selectedImportChapters.length) return
     setImporting(true)
@@ -322,10 +452,14 @@ export function ChaptersTab() {
           chapter_overrides: Object.fromEntries(
             selectedImportChapters.map((index) => [String(index), importChapterEdits[index]]),
           ),
+          candidate_decisions: candidateDecisions,
+          include_shots: includeImportedShots,
+          include_audio_dialogue: includeImportedDialogue,
+          media_plan_model_id: importMediaPlan?.model_id,
         },
       })
       const chapterIds = committed.data?.chapter_ids ?? []
-      if (autoDivideAfterImport) {
+      if (autoDivideAfterImport && !includeImportedShots) {
         for (const [offset, chapterId] of chapterIds.entries()) {
           const parsed = parsedImportChapters.find(
             (chapter) => chapter.index === selectedImportChapters[offset],
@@ -348,6 +482,11 @@ export function ChaptersTab() {
       setImportBatch(null)
       setSelectedImportChapters([])
       setImportChapterEdits({})
+      setCandidateDecisions({})
+      setEntityMatches({})
+      setIncludeImportedShots(false)
+      setIncludeImportedDialogue(false)
+      setImportMediaPlan(null)
       setAutoDivideAfterImport(false)
       const createdCount = committed.data?.created_count ?? chapterIds.length
       message.success(
@@ -375,6 +514,10 @@ export function ChaptersTab() {
             chapter_overrides: Object.fromEntries(
               Object.entries(importChapterEdits).map(([index, edit]) => [index, edit]),
             ),
+            candidate_decisions: candidateDecisions,
+            include_shots: includeImportedShots,
+            include_audio_dialogue: includeImportedDialogue,
+            media_plan_model_id: importMediaPlan?.model_id,
           },
         },
       })
@@ -382,6 +525,27 @@ export function ChaptersTab() {
       message.success('导入预览草稿已保存')
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存导入预览失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const handlePlanImportMedia = async () => {
+    if (!importBatch) return
+    try {
+      setImporting(true)
+      const settings = await LlmService.getModelSettingsApiV1LlmModelSettingsGet()
+      const modelId = settings.data?.default_video_model_id
+      if (!modelId) throw new Error('尚未设置默认视频模型，请先到模型管理配置')
+      const response = await StudioScriptImportsService.planScriptImportMediaApiApiV1StudioScriptImportsImportIdPlanMediaPost({
+        importId: importBatch.id,
+        requestBody: { model_id: modelId },
+      })
+      if (!response.data) throw new Error('视频模型规划未返回结果')
+      setImportMediaPlan(response.data)
+      message.success(`已按 ${response.data.model_name} 检查片段时长与参考能力`)
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '视频模型能力规划失败')
     } finally {
       setImporting(false)
     }
@@ -397,6 +561,9 @@ export function ChaptersTab() {
         setImportBatch(null)
         setSelectedImportChapters([])
         setImportChapterEdits({})
+        setCandidateDecisions({})
+        setEntityMatches({})
+        setImportMediaPlan(null)
       }}
       onOk={() => void handleImportScripts()}
       okText={`确认导入${selectedImportChapters.length ? ` ${selectedImportChapters.length} 个章节` : ''}`}
@@ -429,6 +596,7 @@ export function ChaptersTab() {
               if (!created.data) throw new Error('解析成功但未返回导入预览')
               const parsedChapters = created.data.parse_result.chapters ?? []
               const savedOverrides = (created.data.review_state?.chapter_overrides ?? {}) as Record<string, Partial<ImportChapterEdit>>
+              const savedDecisions = (created.data.review_state?.candidate_decisions ?? {}) as Record<string, ScriptImportCandidateDecision>
               const savedSelection = created.data.review_state?.selected_chapter_indexes
               setImportBatch(created.data)
               setSelectedImportChapters(Array.isArray(savedSelection)
@@ -442,11 +610,32 @@ export function ChaptersTab() {
                   screenplay_text: saved.screenplay_text ?? chapter.screenplay_text,
                 }]
               })))
+              setCandidateDecisions(savedDecisions)
+              setIncludeImportedShots(Boolean(created.data.review_state?.include_shots))
+              setIncludeImportedDialogue(Boolean(created.data.review_state?.include_audio_dialogue))
+              const savedMediaPlanModelId = created.data.review_state?.media_plan_model_id
+              if (typeof savedMediaPlanModelId === 'string' && savedMediaPlanModelId) {
+                try {
+                  const planned = await StudioScriptImportsService.planScriptImportMediaApiApiV1StudioScriptImportsImportIdPlanMediaPost({
+                    importId: created.data.id,
+                    requestBody: { model_id: savedMediaPlanModelId },
+                  })
+                  setImportMediaPlan(planned.data ?? null)
+                } catch {
+                  setImportMediaPlan(null)
+                  message.warning('此前选择的视频模型已不可用，请重新规划片段时长')
+                }
+              } else {
+                setImportMediaPlan(null)
+              }
               message.success(`本地解析完成：识别到 ${parsedChapters.length} 个章节`)
             } catch (error) {
               setImportBatch(null)
               setSelectedImportChapters([])
               setImportChapterEdits({})
+              setCandidateDecisions({})
+              setEntityMatches({})
+              setImportMediaPlan(null)
               message.error(error instanceof Error ? error.message : '剧本解析失败')
             } finally {
               setImporting(false)
@@ -470,6 +659,177 @@ export function ChaptersTab() {
             {importBatch.parse_result.warnings?.map((warning) => (
               <Alert key={warning} type="warning" showIcon message={warning} />
             ))}
+            <div className="rounded border border-blue-100 bg-blue-50 p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-medium">AI 深度分析（可选）</div>
+                  <div className="text-xs text-gray-500">
+                    提取项目设定、演员/角色、场景、道具、服装、镜头与声音候选；默认不写入，需逐项确认。
+                  </div>
+                </div>
+                <Button
+                  type="primary"
+                  size="small"
+                  loading={importBatch.status === 'analyzing'}
+                  disabled={importBatch.status === 'committed'}
+                  onClick={() => void handleStartImportAnalysis()}
+                >
+                  {importBatch.status === 'failed' ? '重新分析' : '开始深度分析'}
+                </Button>
+              </div>
+              {importBatch.status === 'analyzing' ? (
+                <Alert type="info" showIcon message="AI 正在分析，任务完成后本窗口会自动更新，也可在任务中心查看。" />
+              ) : null}
+              {importBatch.status === 'failed' && importBatch.error_message ? (
+                <Alert type="error" showIcon message="AI 深度分析失败" description={importBatch.error_message} />
+              ) : null}
+              {importAnalysis.warnings?.map((warning) => (
+                <Alert key={`analysis-${warning}`} type="warning" showIcon message={warning} />
+              ))}
+              {importAnalysis.validation?.map((item, index) => (
+                <Alert
+                  key={`validation-${index}-${item.message}`}
+                  type={item.severity === 'error' ? 'error' : 'warning'}
+                  showIcon
+                  message={item.message ?? '分析结果需要人工核对'}
+                />
+              ))}
+              {Object.keys(importAnalysis.project_brief ?? {}).length ? (
+                <details>
+                  <summary className="cursor-pointer text-sm font-medium">查看 AI 提取的项目设定</summary>
+                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-xs">
+                    {JSON.stringify(importAnalysis.project_brief, null, 2)}
+                  </pre>
+                </details>
+              ) : null}
+              {(importAnalysis.entities?.length ?? 0) > 0 ? (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">资产候选（默认忽略，请选择如何处理）</div>
+                  <div className="max-h-[34vh] space-y-2 overflow-auto pr-1">
+                    {importAnalysis.entities?.map((candidate) => {
+                      const decision = candidateDecisions[candidate.candidate_id]
+                      const action = decision?.action ?? 'ignore'
+                      const matches = entityMatches[candidate.candidate_id] ?? []
+                      return (
+                        <div key={candidate.candidate_id} className="rounded border border-gray-200 bg-white p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <Tag color="blue">{IMPORT_ENTITY_LABELS[candidate.entity_type]}</Tag>
+                              <span className="font-medium">{candidate.name}</span>
+                              {typeof candidate.confidence === 'number' ? (
+                                <span className="ml-2 text-xs text-gray-400">置信度 {Math.round(candidate.confidence * 100)}%</span>
+                              ) : null}
+                              <Tag className="ml-2">
+                                {candidate.source_kind === 'explicit' ? '原文明示' : candidate.source_kind === 'suggested' ? '创作建议' : 'AI 推断'}
+                              </Tag>
+                            </div>
+                            <Select
+                              size="small"
+                              value={action}
+                              style={{ width: 150 }}
+                              onChange={(value: ScriptImportCandidateDecision['action']) => updateCandidateDecision(
+                                candidate.candidate_id,
+                                { action: value, existing_entity_id: undefined },
+                              )}
+                              options={[
+                                { value: 'ignore', label: '忽略，不写入' },
+                                { value: 'create', label: '新建资产' },
+                                { value: 'link', label: '关联已有资产' },
+                                { value: 'detail', label: '仅作细节参考' },
+                              ]}
+                            />
+                          </div>
+                          {candidate.description ? <div className="mt-1 text-sm text-gray-600">{candidate.description}</div> : null}
+                          {candidate.evidence?.length ? (
+                            <div className="mt-2 text-xs text-gray-500">
+                              原文证据：{candidate.evidence.map((item) => `“${item.quote}”`).join('；')}
+                            </div>
+                          ) : null}
+                          {action === 'link' ? (
+                            <Select
+                              className="mt-2 w-full"
+                              showSearch
+                              placeholder={matches.length ? '选择已有资产' : '未找到相似资产，请改为新建或忽略'}
+                              value={decision?.existing_entity_id}
+                              onChange={(value) => updateCandidateDecision(candidate.candidate_id, { existing_entity_id: value })}
+                              options={matches.map((match) => ({
+                                value: match.entity_id,
+                                label: `${match.name}（相似度 ${Math.round(match.score * 100)}%）`,
+                              }))}
+                            />
+                          ) : null}
+                          {action === 'create' ? (
+                            <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                              <Input
+                                size="small"
+                                addonBefore="名称"
+                                value={decision?.edited_name ?? candidate.name}
+                                onChange={(event) => updateCandidateDecision(candidate.candidate_id, { edited_name: event.target.value })}
+                              />
+                              <Input
+                                size="small"
+                                addonBefore="说明"
+                                value={decision?.edited_description ?? candidate.description ?? ''}
+                                onChange={(event) => updateCandidateDecision(candidate.candidate_id, { edited_description: event.target.value })}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {(importAnalysis.shots?.length ?? 0) > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Checkbox
+                      checked={includeImportedShots}
+                      onChange={(event) => {
+                        setIncludeImportedShots(event.target.checked)
+                        if (event.target.checked) setAutoDivideAfterImport(false)
+                      }}
+                    >
+                      导入已审核镜头草稿（{importAnalysis.shots?.length ?? 0} 个，不调用图片/视频模型）
+                    </Checkbox>
+                    <Button size="small" loading={importing} onClick={() => void handlePlanImportMedia()}>
+                      按默认视频模型规划时长
+                    </Button>
+                  </div>
+                  {importMediaPlan ? (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message={`${importMediaPlan.model_name}：规划 ${importMediaPlan.items?.reduce((count, item) => count + (item.segment_seconds?.length ?? 0), 0) ?? 0} 个生成片段`}
+                      description={(
+                        <div className="space-y-1">
+                          <div>
+                            比例：{importMediaPlan.allowed_ratios?.join('、') || '由模型决定'}；
+                            文生视频：{importMediaPlan.supports_text_to_video ? '支持' : '不支持'}；
+                            首帧：{importMediaPlan.supports_first_frame ? '支持' : '不支持'}；
+                            尾帧：{importMediaPlan.supports_last_frame ? '支持' : '不支持'}；
+                            主体参考：{importMediaPlan.supports_subject_references ? '支持' : '不支持'}。
+                          </div>
+                          {importMediaPlan.items?.flatMap((item) => item.warnings ?? []).map((warning, index) => (
+                            <div key={`${warning}-${index}`} className="text-amber-700">{warning}</div>
+                          ))}
+                          <div>确认导入时会按此模型重新校验并拆成合法片段；这里只做本地规划，不产生模型费用。</div>
+                        </div>
+                      )}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {(importAnalysis.audio?.length ?? 0) > 0 ? (
+                <Checkbox
+                  checked={includeImportedDialogue}
+                  disabled={!includeImportedShots}
+                  onChange={(event) => setIncludeImportedDialogue(event.target.checked)}
+                >
+                  同时导入对白/旁白到镜头（声音候选共 {importAnalysis.audio?.length ?? 0} 条）
+                </Checkbox>
+              ) : null}
+            </div>
             <div className="flex items-center justify-between gap-3">
               <Checkbox
                 checked={selectedImportChapters.length === parsedImportChapters.length}
@@ -535,7 +895,7 @@ export function ChaptersTab() {
 
         <Checkbox
           checked={autoDivideAfterImport}
-          disabled={!selectedImportChapters.length || importing}
+          disabled={!selectedImportChapters.length || importing || includeImportedShots}
           onChange={(event) => setAutoDivideAfterImport(event.target.checked)}
         >
           导入后自动启动 AI 分镜提取

@@ -125,6 +125,19 @@ class ShotExtractedDialogueCandidateRead(BaseModel):
     updated_at: datetime = Field(..., description="更新时间")
 
 
+class ShotAudioCuePlan(BaseModel):
+    candidate_id: str
+    audio_type: Literal["dialogue", "voiceover", "sfx", "bgm", "ambient", "subtitle", "silence"]
+    chapter_index: int | None = None
+    shot_index: int | None = None
+    speaker: str | None = None
+    text: str
+    start_seconds: float | None = None
+    end_seconds: float | None = None
+    evidence: list[dict[str, str]] = Field(default_factory=list)
+    confidence: float = 0.5
+
+
 class ShotDetailBase(BaseModel):
     id: str = Field(..., description="镜头 ID（与 shots.id 共享主键）")
     camera_shot: CameraShotType = Field(..., description="景别")
@@ -140,6 +153,7 @@ class ShotDetailBase(BaseModel):
     vfx_type: VFXType = Field(VFXType.none, description="视效类型")
     vfx_note: str = Field("", description="视效说明")
     action_beats: list[str] = Field(default_factory=list, description="动作拍点（按时间顺序排列）")
+    audio_cues: list[ShotAudioCuePlan] = Field(default_factory=list, description="待绑定素材的声音与字幕计划")
     first_frame_prompt: str = Field(
         "",
         description="镜头分镜首帧提示词",
@@ -172,6 +186,7 @@ class ShotDetailUpdate(BaseModel):
     vfx_type: VFXType | None = None
     vfx_note: str | None = None
     action_beats: list[str] | None = None
+    audio_cues: list[ShotAudioCuePlan] | None = None
     first_frame_prompt: str | None = None
     last_frame_prompt: str | None = None
     key_frame_prompt: str | None = None

@@ -21,6 +21,7 @@ from app.services.script_processing_worker import (
     SceneInfoTaskExecutor,
     ScriptOptimizationTaskExecutor,
     ScriptSimplificationTaskExecutor,
+    ScriptImportAnalysisTaskExecutor,
     VariantTaskExecutor,
 )
 from app.services.studio.image_task_runner import run_image_generation_task
@@ -54,6 +55,7 @@ task_executor_registry.register("script_scene_info", SceneInfoTaskExecutor())
 task_executor_registry.register("script_costume_info", CostumeInfoTaskExecutor())
 task_executor_registry.register("script_optimize", ScriptOptimizationTaskExecutor())
 task_executor_registry.register("script_simplify", ScriptSimplificationTaskExecutor())
+task_executor_registry.register("script_import_analyze", ScriptImportAnalysisTaskExecutor())
 task_executor_registry.register(
     "text_chat",
     AbstractAsyncDelegatingExecutor(
