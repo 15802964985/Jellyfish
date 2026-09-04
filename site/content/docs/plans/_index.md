@@ -19,6 +19,7 @@ description: "记录当前正在推进的开发计划、改造方案与阶段性
 - [生成准备架构重构计划](/docs/plans/generation-workspace-refactor/)
 - [富媒体资产后续计划](/docs/plans/media-assets/)
 - [提示词与 Agent 后续编排计划](/docs/plans/prompt-orchestration-roadmap/)
+- [智能剧本导入与生产要素编排计划](/docs/plans/intelligent-script-import-plan/)
 - [供应商生成链路补全计划](/docs/plans/provider-generation-integration-plan/)
 
 计划的跨版本续做状态统一登记在仓库根目录 `docs/Jellyfish-二次开发变更清单.md` 的 `PL-*` 台账中。阶段只完成一部分时，必须同时更新来源计划和对应 `PL-*`；上游升级后先复核未关闭计划，再安排下一步系统优化。

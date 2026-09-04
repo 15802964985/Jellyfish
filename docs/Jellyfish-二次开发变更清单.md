@@ -144,6 +144,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 | PL-007 | 供应商生成链路补全 | P0-P3 完成，P4 待人工 | 模型目录、能力一致性约束、阿里模型家族及其他供应商首批适配和 Mock 测试完成 | 获得逐供应商付费许可后做 text/image/video 最小真实样例，验证任务、取消、超时、错误、产物下载和 RustFS，再更新真实验收矩阵 |
 | PL-008 | 任务异步化与取消 | 主线完成，增强按需 | 主线脚本接口已任务化、可恢复、可请求/协作式取消；预备接口已有后端 | 若出现真实页面再接 `merge-entities`/`analyze-variants`；只有明确业务需要才做运行句柄或强终止；持续收口同步兼容入口 |
 | PL-009 | 整体开发规划 | 持续进行 | 核心流程和数据架构已基本稳定，多项结构、交互和提示词工作已分拆推进 | 继续按“结构治理 → 流程体验 → 提示词专项 → 够用的剪辑能力”复盘；以具体子计划和验收为准，避免用宏观描述代替任务 |
+| PL-010 | 智能剧本导入与生产要素编排 | 方案讨论，未编码 | 已用《第一次，放开手》TXT/Markdown 样本完成现状根因和业务映射审计 | 确认双入口、先预览后提交、演员/资产候选策略、语义时间线和提示词处理边界后，按 P0–P5 实施 |
 
 详细来源：
 
@@ -156,6 +157,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 - `site/content/docs/plans/provider-generation-integration-plan.md`
 - `site/content/docs/plans/task-async-cancellation-plan.md`
 - `site/content/docs/plans/development-plan.md`
+- `site/content/docs/plans/intelligent-script-import-plan.md`
 
 已经完整结束的 `local-customization-port-to-codex-0718`、`unified-asset-image-template-plan` 和 `unified-generation-orchestration-plan` 保留为历史决策，不进入待续做清单；若作者新版导致其验收条件重新失效，必须重新打开为新的 PL 条目，而不是悄悄修改“已完成”结论。
 
