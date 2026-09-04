@@ -195,9 +195,17 @@ def test_reap_text_streams_celery_runs_async_reaper(monkeypatch) -> None:
     async def _fake_reaper() -> list[str]:
         return ["expired-text-task"]
 
+    calls: list[str] = []
+
+    async def _fake_close() -> None:
+        calls.append("close")
+
     monkeypatch.setattr(execute_task_module, "reap_expired_text_stream_runs", _fake_reaper)
+    monkeypatch.setattr(execute_task_module, "reset_db_runtime", lambda: calls.append("reset"))
+    monkeypatch.setattr(execute_task_module, "close_db", _fake_close)
 
     assert execute_task_module.reap_text_streams_celery() == ["expired-text-task"]
+    assert calls == ["reset", "close"]
 
 
 def test_dispatch_generation_outbox_celery_runs_dispatcher(monkeypatch) -> None:

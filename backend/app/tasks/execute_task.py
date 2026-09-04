@@ -14,6 +14,7 @@ import logging
 from celery.result import AsyncResult
 
 from app.core.celery_app import celery_app
+from app.core.db import close_db, reset_db_runtime
 from app.core.db_sync import sync_session_maker
 from app.models.task import GenerationTask
 from app.services.generation.dispatch import GenerationOutboxDispatcher
@@ -76,7 +77,15 @@ def run_task_celery(task_id: str) -> None:
 @celery_app.task(name="task.reap_text_streams")
 def reap_text_streams_celery() -> list[str]:
     """由 Celery Beat 周期回收过期的 hidden 文本流，避免重启后任务永久卡在 streaming。"""
-    return asyncio.run(reap_expired_text_stream_runs())
+    reset_db_runtime()
+
+    async def _run() -> list[str]:
+        try:
+            return await reap_expired_text_stream_runs()
+        finally:
+            await close_db()
+
+    return asyncio.run(_run())
 
 
 @celery_app.task(name="task.dispatch_generation_outbox")

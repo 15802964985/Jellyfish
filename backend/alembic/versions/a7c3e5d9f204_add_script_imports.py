@@ -31,7 +31,8 @@ def upgrade() -> None:
         sa.Column("analysis_result", sa.JSON(), nullable=False),
         sa.Column("review_state", sa.JSON(), nullable=False),
         sa.Column("commit_result", sa.JSON(), nullable=False),
-        sa.Column("error_message", sa.Text(), nullable=False, server_default=""),
+        # MySQL rejects DEFAULT values on TEXT; ORM writes an explicit empty string.
+        sa.Column("error_message", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint("project_id", "content_hash", "parser_version", name="uq_script_import_project_content_parser"),
