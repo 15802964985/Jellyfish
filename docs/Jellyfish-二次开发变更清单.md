@@ -9,7 +9,7 @@
 | 作者仓库 | `https://github.com/Forget-C/Jellyfish.git` |
 | 作者迁移基线 | `codex/0718`，本地共同基线提交 `508f2c7` |
 | 本地稳定分支 | `local/stable-codex-0718` |
-| 本次功能清单核对 HEAD | `a211f7f`（智能剧本导入 P0–P4 完整工作流；其后的迁移兼容修复见提交映射） |
+| 本次功能清单核对 HEAD | `fa6a75d`（智能剧本导入 P0–P5、正式迁移兼容与 Worker 生命周期修复） |
 | 本地 Fork | `https://github.com/15802964985/Jellyfish.git` |
 | 正式代码目录 | `E:\JellyfishNew` |
 | 统计范围 | `git diff 508f2c7..local/stable-codex-0718` |
@@ -194,6 +194,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 | `3590f0b` | 智能剧本导入格式适配、可恢复草稿、可编辑预览和章节事务幂等提交 |
 | `1ee0eba` | 记录智能剧本导入 P0/P1 实现、业务边界和后续阶段 |
 | `a211f7f` | 完成证据化 AI 分析、人工资产决策、事务落位、模型时长规划、声音计划和前端工作流 |
+| `fa6a75d` | 兼容 MySQL `TEXT` 迁移限制，修复 Celery 周期任务跨事件循环，并记录正式迁移、重启和运行验收结果 |
 
 后续每个二开提交必须在本表追加一行，并同步上方对应 LC 条目；若删除或被上游替代，也要记录原因，不直接抹去历史。
 
