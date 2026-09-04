@@ -638,7 +638,7 @@ git switch -c "integration/upstream-$Stamp"
 
 ### 9.5 建立台账并逐项智能迁移
 
-先把 `docs/Jellyfish-二次开发变更清单.md` 的全部 LC 条目复制成当次迁移决策台账。每一项必须记录上游证据、本地证据、最终决定、代码/迁移/API、测试和文档，决定分为：采用上游、保留本地、兼容合并、重新实现、淘汰。
+先把 `docs/Jellyfish-二次开发变更清单.md` 的全部 `LC-*` 已生效能力和所有未关闭 `PL-*` 阶段计划复制成当次迁移决策台账。每一项必须记录上游证据、本地证据、最终决定、代码/迁移/API、测试和文档，决定分为：采用上游、保留本地、兼容合并、重新实现、淘汰；计划条目还要记录已完成阶段、未完成阶段、阻塞条件，以及升级后继续、合并、重写、暂缓或取消。
 
 候选仓库可以把自己的 Fork 加为 `origin` 并 fetch，用于审计本地稳定分支，但不能直接把全部 commit 合并进去：
 
@@ -770,6 +770,7 @@ git push origin $ReleaseTag
 2. `site/content/docs/architecture/local-customization-inventory.md`：更新当前真实能力。
 3. `site/content/docs/guide/upstream-upgrade-sop.md`：流程有改进时同步修订。
 4. 本手册：同步用户可见的功能、配置、部署和验证方法。
+5. 所有受影响的 `site/content/docs/plans/`：同步阶段状态，并从仍未完成的 `PL-*` 确定下一步系统优化顺序。
 
 确认 Fork 能看到稳定分支和标签后，升级代码才算完成。
 

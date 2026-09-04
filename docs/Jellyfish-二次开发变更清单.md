@@ -129,7 +129,46 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 - 前端验证重点：TypeScript、生产构建，以及项目/章节/任务/模型/文件/资产/音视频流程烟测。
 - 必须保留：代码、API、generated client、迁移、测试、架构事实和用户手册在同一次交付中一致。
 
-## 3. 本地提交与变更主题映射
+## 3. 未完成、部分完成和待续做计划台账
+
+下列计划不是“当前已经完整交付的能力”，但属于二开连续性的一部分。上游升级时必须与 LC-001 至 LC-014 一起审计：先判断作者新版是否已经实现，再决定继续、合并、改写、暂缓或取消。升级完成后，应从这些计划继续下一步系统优化，不能因为代码迁移成功就把计划视为自动完成。
+
+| 计划 ID | 来源计划 | 当前状态 | 已完成部分 | 升级后待继续/重新评估 |
+| --- | --- | --- | --- | --- |
+| PL-001 | Alembic 统一数据库迁移 | 部分完成 | 初始 schema、旧库安全 baseline、Compose migrate/seed、系统模板保护已落地 | seed 从遗留 SQL 收敛为版本化数据包；完成发布周期观察后移除 `init_db.py` 和遗留 SQL；先检查作者新版是否已完成同类收敛 |
+| PL-002 | 实验室历史输入回填与重试 | 部分完成 | 文本/图片/视频的提示词、模型、图片参考、视频帧和主体素材可恢复，已有版本化输入快照 | 模板 ID/变量无损恢复；图片全部可选参数快照；模型或文件失效的细粒度诊断 |
+| PL-003 | 实验室会话持久化 | P0/P1 完成，P2 待条件 | 会话 CRUD、历史分页、URL 定位、任务消息回写、结果恢复和稳定 sequence 已完成 | 身份体系落地后做归属、鉴权、审计、保留、归档和产物 GC；重新审计游标分页、请求幂等键和可靠派发是否已被新版统一生成链覆盖 |
+| PL-004 | 生成准备架构重构 | 主链完成，收尾待做 | frame/video/asset image 的 shared、draft、derive、submit 主链已统一 | 压缩 `ChapterStudio` 局部辅助逻辑；治理前端类型遗留；按实际复用价值评估通用生成 UI，而非为抽象而抽象 |
+| PL-005 | 富媒体资产增强 | 主链完成，增强待做 | 上传、全局复用、预览、可选关联、生成引用、音频库、镜头音轨和 FFmpeg 合成已完成 | ffprobe 元数据；OCR/可编辑摘要；供应商能力持续校准；后台缩略图；波形时间线/拖拽/静音；项目权限和多用户隔离 |
+| PL-006 | 提示词与 Agent 后续编排 | P0 完成，P1-P3 待做 | 10 个生产系统模板、镜头帧模板、视频连续性、Wan/Vidu profile 已接入 | P1 文本 Agent 模板版本化；P2 音频结构计划进入模型原生/后期合成真实链路；P3 有契约的组合工作流和经许可、安全审查的外部 Skill |
+| PL-007 | 供应商生成链路补全 | P0-P3 完成，P4 待人工 | 模型目录、能力一致性约束、阿里模型家族及其他供应商首批适配和 Mock 测试完成 | 获得逐供应商付费许可后做 text/image/video 最小真实样例，验证任务、取消、超时、错误、产物下载和 RustFS，再更新真实验收矩阵 |
+| PL-008 | 任务异步化与取消 | 主线完成，增强按需 | 主线脚本接口已任务化、可恢复、可请求/协作式取消；预备接口已有后端 | 若出现真实页面再接 `merge-entities`/`analyze-variants`；只有明确业务需要才做运行句柄或强终止；持续收口同步兼容入口 |
+| PL-009 | 整体开发规划 | 持续进行 | 核心流程和数据架构已基本稳定，多项结构、交互和提示词工作已分拆推进 | 继续按“结构治理 → 流程体验 → 提示词专项 → 够用的剪辑能力”复盘；以具体子计划和验收为准，避免用宏观描述代替任务 |
+
+详细来源：
+
+- `site/content/docs/plans/alembic-unified-migration-plan.md`
+- `site/content/docs/plans/experiment-history-retry.md`
+- `site/content/docs/plans/experiment-session-persistence-plan.md`
+- `site/content/docs/plans/generation-workspace-refactor.md`
+- `site/content/docs/plans/media-assets.md`
+- `site/content/docs/plans/prompt-orchestration-roadmap.md`
+- `site/content/docs/plans/provider-generation-integration-plan.md`
+- `site/content/docs/plans/task-async-cancellation-plan.md`
+- `site/content/docs/plans/development-plan.md`
+
+已经完整结束的 `local-customization-port-to-codex-0718`、`unified-asset-image-template-plan` 和 `unified-generation-orchestration-plan` 保留为历史决策，不进入待续做清单；若作者新版导致其验收条件重新失效，必须重新打开为新的 PL 条目，而不是悄悄修改“已完成”结论。
+
+### 计划状态同步规则
+
+1. 阶段开始、完成、暂缓、取消或验收失败时，同时更新来源计划和本节对应 PL 行。
+2. “代码已写”“Mock 已通过”“真实业务已验收”是不同状态，不能合并写成“已完成”。
+3. 暂缓必须写明依赖条件，例如身份体系、用户付费许可或上游 API 稳定性。
+4. 上游升级的迁移决策台账必须同时包含全部 LC 能力和全部未关闭 PL 计划。
+5. 升级验收结束后先复核每个 PL：作者是否已实现、前置条件是否满足、优先级是否变化，再确定下一阶段优化顺序。
+6. 新计划如果只完成 Phase 1/2，必须新增或更新 PL 条目，列出已完成阶段、未完成阶段、继续入口和验收条件。
+
+## 4. 本地提交与变更主题映射
 
 | 提交 | 主题 |
 | --- | --- |
@@ -145,10 +184,11 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 | `538122b` | 文本/图片/视频供应商执行适配及能力矩阵补全 |
 | `a6cfdf9` | 未关联文件复用、媒体网页预览和生成引用完善 |
 | `7a85955` | 生产系统提示词模板、连续性编排和供应商 prompt profile |
+| `daf9a61` | 首次固化二开全量台账、能力摘要和上游智能迁移 SOP |
 
 后续每个二开提交必须在本表追加一行，并同步上方对应 LC 条目；若删除或被上游替代，也要记录原因，不直接抹去历史。
 
-## 4. 迁移时不能机械复制的内容
+## 5. 迁移时不能机械复制的内容
 
 - `front/openapi.json` 和 `front/src/services/generated/`：先合并后端契约，再整体生成。
 - 锁文件：先正确合并依赖声明，再用锁定的包管理器生成。
@@ -158,7 +198,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 - 临时 Bug 补丁：若作者已修复，采用作者实现并移除本地重复代码。
 - 已废弃接口/任务链：迁移业务意图到新扩展点，不为少改代码恢复旧架构。
 
-## 5. 后续二开自动同步模板
+## 6. 后续二开和阶段计划自动同步模板
 
 每次变更在本文追加：
 
@@ -177,14 +217,17 @@ API / OpenAPI / generated client：
 运行烟测：
 手册与架构文档：
 下次上游迁移建议：采用 / 保留 / 兼容 / 重实现 / 待比较
+关联计划 ID / 当前阶段：
+本次完成阶段：
+仍未完成阶段、阻塞条件和继续入口：
 ```
 
 更新提交前执行 `git diff --name-status <上次清单提交>..HEAD`，确认所有功能变化都能映射到某个 LC 条目。无法说明用途的文件差异必须先审查，不能直接归入“其他”。
 
-## 6. 与标准升级流程的关系
+## 7. 与标准升级流程的关系
 
 - 架构摘要：`site/content/docs/architecture/local-customization-inventory.md`
 - 强制流程：`site/content/docs/guide/upstream-upgrade-sop.md`
 - 用户操作：`docs/Jellyfish-中文版配置使用手册.md` 第 9 节
 
-下一次收到“检查 GitHub 最新代码并同步更新”指令后，先复制本清单 LC-001 至 LC-014 形成迁移决策台账，再对作者最新代码逐项取长补短；全部验收通过后，更新基线、HEAD、统计、提交映射和能力条目。
+下一次收到“检查 GitHub 最新代码并同步更新”指令后，先复制本清单 LC-001 至 LC-014 和所有未关闭 PL 条目形成迁移决策台账，再对作者最新代码逐项取长补短；全部验收通过后，更新基线、HEAD、统计、提交映射、能力条目和计划状态，并从仍未关闭的 PL 计划确定下一步优化工作。
