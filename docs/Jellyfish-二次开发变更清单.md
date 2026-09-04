@@ -9,7 +9,7 @@
 | 作者仓库 | `https://github.com/Forget-C/Jellyfish.git` |
 | 作者迁移基线 | `codex/0718`，本地共同基线提交 `508f2c7` |
 | 本地稳定分支 | `local/stable-codex-0718` |
-| 本次功能清单核对 HEAD | `7a85955`（本轮文档固化前的功能 HEAD） |
+| 本次功能清单核对 HEAD | `3590f0b`（智能剧本导入 P0/P1 与章节事务提交） |
 | 本地 Fork | `https://github.com/15802964985/Jellyfish.git` |
 | 正式代码目录 | `E:\JellyfishNew` |
 | 统计范围 | `git diff 508f2c7..local/stable-codex-0718` |
@@ -190,6 +190,7 @@ git diff --name-status 508f2c7..local/stable-codex-0718
 | `7a85955` | 生产系统提示词模板、连续性编排和供应商 prompt profile |
 | `daf9a61` | 首次固化二开全量台账、能力摘要和上游智能迁移 SOP |
 | `9c60d39` | 建立智能剧本导入 PL-010、样本根因分析和 P0–P5 初版方案 |
+| `3590f0b` | 智能剧本导入格式适配、可恢复草稿、可编辑预览和章节事务幂等提交 |
 
 后续每个二开提交必须在本表追加一行，并同步上方对应 LC 条目；若删除或被上游替代，也要记录原因，不直接抹去历史。
 
