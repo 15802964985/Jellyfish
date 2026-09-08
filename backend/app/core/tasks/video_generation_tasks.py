@@ -401,6 +401,36 @@ class KlingVideoGenerationTask(AbstractVideoGenerationTask):
             await self._sleep_poll()
 
 
+class MinimaxVideoGenerationTask(AbstractVideoGenerationTask):
+    """Reuse shared task/publication contract with MiniMax's bounded submit/query/file workflow."""
+    async def _create_task(self) -> None:
+        """Adapter submits once and returns a complete result, without intermediate false success."""
+        from app.core.integrations.minimax_video import MinimaxVideoApiAdapter
+        self._result = await MinimaxVideoApiAdapter().generate(cfg=self._cfg, inp=self._input, timeout_s=self._timeout_s)
+
+    async def _poll_and_get_result(self) -> VideoGenerationResult:
+        """Return the already retrieved result to the existing task wrapper."""
+        if self._result is None:
+            raise RuntimeError("MiniMax video missing result")
+        return self._result
+
+
+class DomesticVideoGenerationTask(MinimaxVideoGenerationTask):
+    """Reuse the task lifecycle, with independently validated BigModel/TokenHub HTTP adapters."""
+    async def _create_task(self) -> None:
+        """Resolve native protocol explicitly and return a fully retrieved result."""
+        from app.core.integrations.domestic_media import DomesticVideoApiAdapter
+        self._result = await DomesticVideoApiAdapter().generate(cfg=self._cfg, inp=self._input, timeout_s=self._timeout_s)
+
+
+class JimengVideoGenerationTask(MinimaxVideoGenerationTask):
+    """Native Jimeng signed workflow using common lifecycle and publication."""
+    async def _create_task(self) -> None:
+        """Wait boundedly for a result; credentials remain execution-only."""
+        from app.core.integrations.jimeng_media import JimengVideoApiAdapter
+        self._result = await JimengVideoApiAdapter().generate(cfg=self._cfg, inp=self._input, timeout_s=self._timeout_s)
+
+
 class VideoGenerationTask(BaseTask):
     """按 provider 分派到 OpenAI、火山或 Vidu 实现；对外构造函数签名保持不变。"""
 

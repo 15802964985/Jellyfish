@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import async_session_maker
@@ -95,6 +95,7 @@ async def _resolve_snapshot_provider_config(
     return ProviderConfig(
         provider=revision.provider_key,  # type: ignore[arg-type]
         api_key=api_key,
+        api_secret=(provider.api_secret or "").strip(),
         base_url=str(base_url).strip() or None if base_url else None,
     )
 
@@ -138,7 +139,11 @@ async def _resolve_snapshot_image_input(
             references.append(InputImageRef.model_construct(file_id=reference.file_id))
             in_memory_image_urls.append(data_url)
 
-    purpose = "asset_image" if snapshot.canonical_target.kind is GenerationTargetKind.asset_image_slot else "video_reference"
+    purpose = {
+        GenerationTargetKind.asset_image_slot: "asset_image",
+        GenerationTargetKind.shot_frame_slot: "video_reference",
+        GenerationTargetKind.experiment_session: "generic",
+    }[snapshot.canonical_target.kind]
     input_ = ImageGenerationInput(
         prompt=snapshot.execution_prompt,
         model=revision.model_name,
@@ -162,6 +167,14 @@ async def _run_snapshot_image_generation(
 ) -> tuple[dict, ResolvedGenerationSnapshot]:
     """执行统一提交的图片任务，并通过 Artifact 与 CAS Publisher 发布结果。"""
     snapshot = ResolvedGenerationSnapshot.model_validate(snapshot_payload)
+    # Validate the publication destination before any billable provider request.
+    publisher = {
+        GenerationTargetKind.asset_image_slot: AssetImagePublisher(),
+        GenerationTargetKind.shot_frame_slot: ShotFramePublisher(),
+    }.get(snapshot.canonical_target.kind)
+    is_experiment = snapshot.canonical_target.kind is GenerationTargetKind.experiment_session
+    if publisher is None and not is_experiment:
+        raise RuntimeError("image generation snapshot target is unsupported")
     provider_config = await _resolve_snapshot_provider_config(session, snapshot=snapshot)
     input_ = await _resolve_snapshot_image_input(session, task_id=task_id, snapshot=snapshot)
     provider_task = ImageGenerationTask(provider_config=provider_config, input_=input_)
@@ -177,15 +190,25 @@ async def _run_snapshot_image_generation(
         name_prefix=f"image-{snapshot.canonical_target.entity_id}",
         storage_prefix=f"generated-images/{snapshot.canonical_target.kind.value}",
     )
-    publisher = {
-        GenerationTargetKind.asset_image_slot: AssetImagePublisher(),
-        GenerationTargetKind.shot_frame_slot: ShotFramePublisher(),
-    }.get(snapshot.canonical_target.kind)
-    if publisher is None:
-        raise RuntimeError("image generation snapshot target is unsupported")
-    await publisher.publish_terminal(session, snapshot=snapshot, artifacts=artifacts)
+    if not artifacts:
+        raise RuntimeError("Image generation returned no usable images")
+    if publisher is not None:
+        await publisher.publish_terminal(session, snapshot=snapshot, artifacts=artifacts)
+    else:
+        # A conversation has no replaceable image slot or CAS version. Keep all
+        # archived artifacts and attach the primary file to this task only.
+        await session.execute(
+            update(GenerationTaskLink)
+            .where(
+                GenerationTaskLink.task_id == task_id,
+                GenerationTaskLink.relation_type == GenerationTargetKind.experiment_session.value,
+                GenerationTaskLink.relation_entity_id == snapshot.canonical_target.entity_id,
+            )
+            .values(file_id=artifacts[0].file_id)
+        )
     result_payload = result.model_dump()
     if artifacts:
+        result_payload["file_ids"] = [artifact.file_id for artifact in artifacts]
         result_payload["file_id"] = artifacts[0].file_id
         result_payload["publish_status"] = artifacts[0].publish_status.value
     return result_payload, snapshot

@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
+import { isVideoEditOnlyModel } from '../components/modelPurpose'
 import {
   Alert,
   Layout,
@@ -37,6 +38,7 @@ import {
 import { LlmService } from '../../../services/generated/services/LlmService'
 import type {
   ModelRead,
+  ModelOverviewItem,
   ModelCategoryKey,
   ProviderRead,
   ProviderSupportedRead,
@@ -55,6 +57,9 @@ import {
   SORT_OPTIONS,
 } from './constants'
 import { loadAllPaginated } from '../../../services/loadAllPaginated'
+import ModelIntegrationAudit from './ModelIntegrationAudit'
+import ModelSelectionGuide from './ModelSelectionGuide'
+import { overviewPresetForProvider } from './modelOverviewFilters'
 
 /** 模型编辑表单的字段约束，确保提交数据与后端导入契约一致。 */
 interface ModelFormValues {
@@ -66,7 +71,9 @@ interface ModelFormValues {
   params?: string
 }
 
-export default function ModelsTab() {
+export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider?: () => void }) {
+  const [selectionGuideOpen, setSelectionGuideOpen] = useState(false)
+  const [auditModel, setAuditModel] = useState<ModelRead | null>(null)
   const [providers, setProviders] = useState<ProviderRead[]>([])
   const [supportedProviders, setSupportedProviders] = useState<ProviderSupportedRead[]>([])
   const [models, setModels] = useState<ModelRead[]>([])
@@ -92,6 +99,7 @@ export default function ModelsTab() {
   const [importingModels, setImportingModels] = useState(false)
   const [testingModelId, setTestingModelId] = useState<string | null>(null)
   const requestIdRef = useRef(0)
+  const overviewPresetRef = useRef<ModelOverviewItem | null>(null)
   const [form] = Form.useForm<ModelFormValues>()
   const selectedFormCategory = Form.useWatch<ModelCategoryKey | undefined>('category', form)
   const selectedFormProviderId = Form.useWatch<string | undefined>('provider_id', form)
@@ -184,6 +192,7 @@ export default function ModelsTab() {
     text: 'default_text_model_id',
     image: 'default_image_model_id',
     video: 'default_video_model_id',
+    audio: 'default_audio_model_id',
   }
   const configuredDefaultCount = MODEL_CATEGORIES.filter(
     (category) => Boolean(modelSettings?.[defaultModelFieldByCategory[category.key]]),
@@ -208,7 +217,7 @@ export default function ModelsTab() {
 
   const handleTestModel = async (model: ModelRead) => {
     if (model.category !== 'text') {
-      message.warning('图片/视频测试会产生生成费用，请在对应图片或视频生成工作台进行真实测试')
+      message.warning('图片、视频和语音测试会产生生成费用，请在对应业务工作台进行真实测试')
       return
     }
     setTestingModelId(model.id)
@@ -228,9 +237,9 @@ export default function ModelsTab() {
     }
   }
 
-  const resolveProviderSpec = (providerName: string) =>
+  const resolveProviderSpec = (provider: ProviderRead) =>
     supportedProviders.find(
-      (spec) => spec.display_name === providerName || (spec.aliases?.length && spec.aliases.includes(providerName)),
+      (spec) => provider.adapter_key ? spec.key === provider.adapter_key : [spec.key, spec.display_name, ...(spec.aliases || [])].some((name) => name.toLowerCase() === provider.name.toLowerCase()),
     )
 
   const providerSelectOptions = useMemo(
@@ -242,7 +251,7 @@ export default function ModelsTab() {
     [providers, selectedFormProviderId],
   )
   const supportedFormCategories = useMemo(() => {
-    const spec = selectedFormProvider ? resolveProviderSpec(selectedFormProvider.name) : null
+    const spec = selectedFormProvider ? resolveProviderSpec(selectedFormProvider) : null
     if (!spec) return []
     return spec.supported_categories ?? []
   }, [selectedFormProvider, supportedProviders])
@@ -254,7 +263,7 @@ export default function ModelsTab() {
   )
   const unsupportedProviderWarning = useMemo(() => {
     if (!selectedFormProvider || !selectedFormCategory) return null
-    const spec = resolveProviderSpec(selectedFormProvider.name)
+    const spec = resolveProviderSpec(selectedFormProvider)
     if (!spec || (spec.supported_categories ?? []).includes(selectedFormCategory)) return null
     const categoryLabel = categoryLabelMap[selectedFormCategory]
     return `供应商「${selectedFormProvider.name}」不支持「${categoryLabel}」类别，请调整供应商或类别。`
@@ -320,13 +329,20 @@ export default function ModelsTab() {
           requestBody: { models: candidates },
         })
         const createdCount = response.data?.created?.length ?? 0
+        const created = response.data?.created ?? []
+        // Invalidate pre-save reads and display the authoritative mutation response.
+        requestIdRef.current += 1
+        setModels((prev) => [...created, ...prev.filter((item) => !created.some((model) => model.id === item.id))])
         const skippedCount = response.data?.skipped?.length ?? 0
         message.success(`已添加 ${createdCount} 个模型${skippedCount ? `，跳过 ${skippedCount} 个已存在模型` : ''}`)
       }
       setModelModalOpen(false)
+      setCategoryFilter(values.category)
+      setDisplayPage(1)
+      setSearch('')
       setModelEditing(null)
       form.resetFields()
-      await load()
+      if (!search) await load()
     } catch (e) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
       message.error(modelEditing ? '保存失败' : '添加模型失败')
@@ -351,6 +367,7 @@ export default function ModelsTab() {
   }
 
   const openModelModal = (m?: ModelRead) => {
+    overviewPresetRef.current = null
     setModelEditing(m ?? null)
     if (m) {
       form.setFieldsValue({
@@ -365,6 +382,35 @@ export default function ModelsTab() {
       setFormCatalog(null)
     }
     setModelModalOpen(true)
+  }
+
+  /** Open an exact saved record or prefill a catalogue model; never save or change defaults automatically. */
+  const configureFromOverview = async (item: ModelOverviewItem, modelId?: string) => {
+    if (modelId) {
+      try {
+        const response = await LlmService.getModelApiV1LlmModelsModelIdGet({ modelId })
+        if (!response.data) throw new Error('Model missing')
+        setSelectionGuideOpen(false)
+        openModelModal(response.data)
+      } catch {
+        message.error('读取配置失败，模型可能已删除。请重新读取总览。')
+      }
+      return
+    }
+    setSelectionGuideOpen(false)
+    if (!item.provider_ids?.length) {
+      setModelModalOpen(false)
+      message.info(`请先在供应商页配置「${item.provider_name}」，然后回到模型页选择「${item.model_name}」。`)
+      onConfigureProvider?.()
+      return
+    }
+    openModelModal()
+    overviewPresetRef.current = item
+    form.setFieldsValue({
+      category: item.category, names: [item.model_name],
+      provider_id: item.provider_ids.length === 1 ? item.provider_ids[0] : undefined,
+    })
+    if (item.provider_ids.length > 1) message.info('此厂商有多个账户，请选择要使用的供应商配置。')
   }
 
   /** 在添加表单中读取供应商目录；密钥仅在后端用于出站请求。 */
@@ -494,6 +540,14 @@ export default function ModelsTab() {
                   },
                 },
                 {
+                  key: 'integration-audit',
+                  label: '接入核查（免费）',
+                  onClick: ({ domEvent }) => {
+                    domEvent.stopPropagation()
+                    setAuditModel(record)
+                  },
+                },
+                {
                   key: 'delete',
                   label: '删除',
                   danger: true,
@@ -524,13 +578,17 @@ export default function ModelsTab() {
 
   return (
     <>
+      <ModelIntegrationAudit model={auditModel} onClose={() => setAuditModel(null)} />
+      <ModelSelectionGuide open={selectionGuideOpen} onClose={() => setSelectionGuideOpen(false)}
+        onConfigure={(item, modelId) => void configureFromOverview(item, modelId)} />
       <div className="flex-shrink-0 px-4 py-2 border-b border-gray-100 bg-white flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-gray-600 text-sm">共 {models.length} 个模型</span>
         </div>
         <Space wrap>
+          <Button onClick={() => setSelectionGuideOpen(true)}>场景选型说明</Button>
           <Button icon={<SettingOutlined />} onClick={() => setDefaultModelsDrawerOpen(true)}>
-            默认模型 {configuredDefaultCount}/3
+            默认模型 {configuredDefaultCount}/{MODEL_CATEGORIES.length}
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openModelModal()}>
             添加模型
@@ -855,7 +913,7 @@ export default function ModelsTab() {
         <div className="space-y-4">
           {MODEL_CATEGORIES.map((category) => {
             const field = defaultModelFieldByCategory[category.key]
-            const categoryModels = models.filter((model) => model.category === category.key)
+            const categoryModels = models.filter((model) => model.category === category.key && !isVideoEditOnlyModel(model))
             return (
               <div key={category.key}>
                 <div className="mb-1.5 text-sm font-medium text-gray-700">默认{category.label}</div>
@@ -881,7 +939,7 @@ export default function ModelsTab() {
       </Drawer>
 
       <Modal
-        title={modelEditing ? '编辑模型' : '添加模型'}
+        title={<Space>{modelEditing ? '编辑模型' : '添加模型'}<Button type="link" size="small" onClick={() => setSelectionGuideOpen(true)}>如何选模型？</Button></Space>}
         open={modelModalOpen}
         onCancel={() => {
           setModelModalOpen(false)
@@ -904,7 +962,11 @@ export default function ModelsTab() {
               placeholder="选择供应商（请先添加供应商）"
               options={providerSelectOptions}
               notFoundContent={providerOptionsLoading ? '加载中…' : '暂无供应商'}
-              onChange={() => form.setFieldsValue({ category: undefined, names: [] })}
+              onChange={(providerId: string) => {
+                const preset = overviewPresetForProvider(overviewPresetRef.current, providerId)
+                if (!preset) overviewPresetRef.current = null
+                form.setFieldsValue(preset ?? { category: undefined, names: [] })
+              }}
             />
           </Form.Item>
           <Form.Item name="category" label="类别" rules={[{ required: true, message: '请选择类别' }]}>

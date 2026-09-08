@@ -2,8 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { ScriptImportRead } from './ScriptImportRead';
-export type ApiResponse_list_ScriptImportRead__ = {
+import type { DocumentationEvidence } from './DocumentationEvidence';
+export type ApiResponse_DocumentationEvidence_ = {
     /**
      * 与 HTTP 状态码一致
      */
@@ -15,10 +15,9 @@ export type ApiResponse_list_ScriptImportRead__ = {
     /**
      * 实际数据
      */
-    data?: (Array<ScriptImportRead> | null);
+    data?: (DocumentationEvidence | null);
     /**
      * 附加元信息
      */
     meta?: (Record<string, any> | null);
 };
-

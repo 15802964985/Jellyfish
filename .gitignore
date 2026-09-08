@@ -19,9 +19,14 @@ venv/
 .eggs/
 .pytest_cache/
 .test-tmp/
+.test-tmp*/
+.codex-test-tmp/
 .uv-cache/
 .coverage
 htmlcov/
 .jellyfish.db
 jellyfish.db
 .env
+
+# Local recovery snapshots can contain database records and credentials.
+/backups/

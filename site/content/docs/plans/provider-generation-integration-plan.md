@@ -7,6 +7,8 @@ description: 审计模型目录、文本/图片/视频适配器与真实端到�
 
 ## 目标
 
+2026-09-07 待核对（PL-007）：本机火山视频继承 `/api/plan/v3`，提交 `/contents/generations/tasks` 返回 404。需要获得当前 Agent Plan 视频官方调用示例，确认端点、Key 类型和模型权限后适配；不得自动切到标准 API 或默认开启付费重试。场景/道具/服装图片另属 LC-012 槽位身份冲突，已补目标归属、版本与发布约束，不能把它归因于供应商模型连接。
+
 让“供应商可添加”“模型可选择”“任务可执行”与“供应商 API 实际支持”保持一致。供应商注册表不再单独代表业务已打通；只有目录、能力约束、执行适配器、产物发布和验证链全部闭合，页面才展示对应能力。
 
 ## 2026-09-03 审计基线
@@ -15,7 +17,7 @@ description: 审计模型目录、文本/图片/视频适配器与真实端到�
 | --- | --- | --- | --- | --- | --- | --- |
 | OpenAI | text / image / video | OpenAI-compatible `ChatOpenAI` | `OpenAIImageApiAdapter` | `OpenAIVideoApiAdapter` | 实时 `/models` | 三类代码链已注册；图片、视频有 MockTransport 测试，尚未用本机真实账号验收 |
 | 火山引擎 | text / image / video | OpenAI-compatible `ChatOpenAI` | `VolcengineImageApiAdapter` | `VolcengineVideoApiAdapter` | 实时 `/models`，Plan 404/405 时使用内置目录 | 三类代码链已注册；本机文本链可验证，图片、视频仍需最小付费烟雾测试 |
-| 阿里百炼 | text / image / video | OpenAI-compatible `ChatOpenAI` | `AliyunImageApiAdapter` | `AliyunVideoApiAdapter` | 当前读取 Token Plan `/compatible-mode/v1/models` | 三类代码链已注册，但目录只返回文本和图片；视频家族参数映射仍需按官方模型拆分 |
+| 阿里百炼 | text / image / video / audio | OpenAI-compatible `ChatOpenAI` | `AliyunImageApiAdapter` | `AliyunVideoApiAdapter` | 实时目录与内置已接入目录合并 | 文本、图片、视频和非实时 TTS 代码链已接入；真实付费样例仍待人工许可 |
 | Vidu | image / video | 不声明支持 | `ViduImageApiAdapter` | `ViduVideoApiAdapter` | 内置官方目录 | 图片、视频代码链与 MockTransport 测试已存在；尚无本机真实账号验收 |
 | 可灵 AI | image / video | 不声明支持 | `KlingImageApiAdapter` | `KlingVideoApiAdapter` | 内置官方目录 | 图片、视频代码链与 MockTransport 测试已存在；尚无本机真实账号验收 |
 

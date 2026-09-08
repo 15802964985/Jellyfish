@@ -171,7 +171,11 @@ export const TASK_KIND_TITLE_MAP: Record<string, string> = {
   script_costume_info: '服装信息分析',
   image_generation: '图片生成',
   video_generation: '视频生成',
+  video_edit: '视频文字编辑',
+  quality_preflight: '生成质量预检',
   shot_frame_prompt: '分镜提示词生成',
+  shot_tts: 'AI 配音生成',
+  project_video_export: '项目成片导出',
 }
 
 export const RELATION_TYPE_LABEL_MAP: Record<string, string> = {
@@ -195,6 +199,8 @@ export const RELATION_TYPE_LABEL_MAP: Record<string, string> = {
   costume_image: '服装图片',
   character_image: '角色图片',
   shot_frame_image: '分镜图片',
+  shot_tts: '镜头配音',
+  project_video_export: '项目成片',
 }
 
 export function resolveTaskTitle(taskKind?: string | null): string {

@@ -6,11 +6,13 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.core.contracts.documentation import DocumentationEvidence
 from app.models.llm import ModelCategoryKey
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, success_response
 from app.schemas.llm import (
     ImageGenerationOptionsRead,
     ModelCreate,
+    ModelIntegrationAuditRead,
     ModelConnectionTestRead,
     ModelRead,
     ModelSettingsRead,
@@ -49,6 +51,54 @@ from app.services.llm.testing import test_provider_connection as test_provider_c
 from app.services.llm.testing import test_text_model as test_text_model_service
 
 router = APIRouter()
+
+from app.core.contracts.model_recommendations import ModelScenarioRead
+from app.core.contracts.model_recommendations import ModelOverviewRead
+
+
+@router.get("/model-overview", response_model=ApiResponse[ModelOverviewRead])
+async def get_model_overview(
+    domestic_only: bool = Query(True),
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[ModelOverviewRead]:
+    """Read registered model support and saved configurations without inference or remote discovery."""
+    from app.services.llm.model_overview import get_model_overview as overview_service
+    return success_response(await overview_service(db, domestic_only=domestic_only))
+
+
+@router.get("/model-scenarios", response_model=ApiResponse[list[ModelScenarioRead]])
+async def get_model_scenarios(
+    domestic_only: bool = Query(True),
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[list[ModelScenarioRead]]:
+    """Read capability-aware guidance without inference, quota purchase or configuration changes."""
+    from app.services.llm.scenario_recommendations import get_scenario_recommendations
+    return success_response(await get_scenario_recommendations(db, domestic_only=domestic_only))
+
+
+@router.get("/models/{model_id}/official-documentation", response_model=ApiResponse[DocumentationEvidence])
+async def get_model_official_documentation(
+    model_id: str, db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[DocumentationEvidence]:
+    """显式读取注册的官方文档，不向网站发送模型配置、密钥或剧本。"""
+    from app.services.llm.integration_audit import audit_model_integration
+    from app.services.llm.documentation import fetch_official_document
+    model = await get_model_service(db, model_id=model_id)
+    provider = await get_provider_service(db, provider_id=model.provider_id)
+    audit = audit_model_integration(model=model, provider=provider)
+    return success_response(await fetch_official_document(audit.official_documentation))
+
+
+@router.get("/models/{model_id}/integration-audit", response_model=ApiResponse[ModelIntegrationAuditRead])
+async def get_model_integration_audit(
+    model_id: str, db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[ModelIntegrationAuditRead]:
+    """按最新保存配置进行免费接入核查，不外发密钥、剧本或调用生成接口。"""
+    from app.services.llm.integration_audit import audit_model_integration
+
+    model = await get_model_service(db, model_id=model_id)
+    provider = await get_provider_service(db, provider_id=model.provider_id)
+    return success_response(audit_model_integration(model=model, provider=provider))
 
 # 列表排序允许的字段（避免注入）
 PROVIDER_ORDER_FIELDS = {"name", "created_at", "updated_at"}
@@ -90,7 +140,7 @@ async def list_providers(
     summary="列出系统支持的供应商能力",
 )
 async def list_supported_providers(
-    category: ModelCategoryKey | None = Query(None, description="按模型类别过滤：text/image/video"),
+    category: ModelCategoryKey | None = Query(None, description="按模型类别过滤：text/image/video/audio"),
 ) -> ApiResponse[list[ProviderSupportedRead]]:
     items = list_supported_providers_service(category=category)
     return success_response(items)
@@ -118,9 +168,9 @@ async def get_provider_model_catalog(
 async def import_provider_models(
     provider_id: str,
     body: ProviderModelImportRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ProviderModelImportResult]:
-    """批量写入用户选中的目录模型，并返回创建与跳过项。"""
+    """批量导入模型；提交事务后才响应，保证保存后的立即查询可见。"""
     data = await import_provider_models_service(db, provider_id=provider_id, candidates=body.models)
     return success_response(data)
 

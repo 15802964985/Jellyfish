@@ -2,9 +2,13 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_DocumentationEvidence_ } from '../models/ApiResponse_DocumentationEvidence_';
 import type { ApiResponse_ImageGenerationOptionsRead_ } from '../models/ApiResponse_ImageGenerationOptionsRead_';
+import type { ApiResponse_list_ModelScenarioRead__ } from '../models/ApiResponse_list_ModelScenarioRead__';
 import type { ApiResponse_list_ProviderSupportedRead__ } from '../models/ApiResponse_list_ProviderSupportedRead__';
 import type { ApiResponse_ModelConnectionTestRead_ } from '../models/ApiResponse_ModelConnectionTestRead_';
+import type { ApiResponse_ModelIntegrationAuditRead_ } from '../models/ApiResponse_ModelIntegrationAuditRead_';
+import type { ApiResponse_ModelOverviewRead_ } from '../models/ApiResponse_ModelOverviewRead_';
 import type { ApiResponse_ModelRead_ } from '../models/ApiResponse_ModelRead_';
 import type { ApiResponse_ModelSettingsRead_ } from '../models/ApiResponse_ModelSettingsRead_';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
@@ -26,6 +30,94 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class LlmService {
+    /**
+     * Get Model Overview
+     * Read registered model support and saved configurations without inference or remote discovery.
+     * @returns ApiResponse_ModelOverviewRead_ Successful Response
+     * @throws ApiError
+     */
+    public static getModelOverviewApiV1LlmModelOverviewGet({
+        domesticOnly = true,
+    }: {
+        domesticOnly?: boolean,
+    }): CancelablePromise<ApiResponse_ModelOverviewRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/model-overview',
+            query: {
+                'domestic_only': domesticOnly,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Model Scenarios
+     * Read capability-aware guidance without inference, quota purchase or configuration changes.
+     * @returns ApiResponse_list_ModelScenarioRead__ Successful Response
+     * @throws ApiError
+     */
+    public static getModelScenariosApiV1LlmModelScenariosGet({
+        domesticOnly = true,
+    }: {
+        domesticOnly?: boolean,
+    }): CancelablePromise<ApiResponse_list_ModelScenarioRead__> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/model-scenarios',
+            query: {
+                'domestic_only': domesticOnly,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Model Official Documentation
+     * 显式读取注册的官方文档，不向网站发送模型配置、密钥或剧本。
+     * @returns ApiResponse_DocumentationEvidence_ Successful Response
+     * @throws ApiError
+     */
+    public static getModelOfficialDocumentationApiV1LlmModelsModelIdOfficialDocumentationGet({
+        modelId,
+    }: {
+        modelId: string,
+    }): CancelablePromise<ApiResponse_DocumentationEvidence_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/models/{model_id}/official-documentation',
+            path: {
+                'model_id': modelId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Model Integration Audit
+     * 按最新保存配置进行免费接入核查，不外发密钥、剧本或调用生成接口。
+     * @returns ApiResponse_ModelIntegrationAuditRead_ Successful Response
+     * @throws ApiError
+     */
+    public static getModelIntegrationAuditApiV1LlmModelsModelIdIntegrationAuditGet({
+        modelId,
+    }: {
+        modelId: string,
+    }): CancelablePromise<ApiResponse_ModelIntegrationAuditRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/models/{model_id}/integration-audit',
+            path: {
+                'model_id': modelId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * 列出模型供应商（分页）
      * @returns ApiResponse_PaginatedData_ProviderRead__ Successful Response
@@ -103,7 +195,7 @@ export class LlmService {
         category,
     }: {
         /**
-         * 按模型类别过滤：text/image/video
+         * 按模型类别过滤：text/image/video/audio
          */
         category?: (ModelCategoryKey | null),
     }): CancelablePromise<ApiResponse_list_ProviderSupportedRead__> {
@@ -142,7 +234,7 @@ export class LlmService {
     }
     /**
      * 导入已选择的供应商模型
-     * 批量写入用户选中的目录模型，并返回创建与跳过项。
+     * 批量导入模型；提交事务后才响应，保证保存后的立即查询可见。
      * @returns ApiResponse_ProviderModelImportResult_ Successful Response
      * @throws ApiError
      */

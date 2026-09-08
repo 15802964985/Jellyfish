@@ -19,6 +19,10 @@ _SCRIPT_DIVIDER_SYSTEM_PROMPT = """\
 - script_excerpt（镜头对应的剧本摘录/文本）
 - time_of_day
 只输出 JSON，符合 ScriptDivisionResult 结构。
+必须同时输出 shots 数组与 total_shots；total_shots 必须严格等于 shots 数组长度。
+即使输入只包含一个镜头，也必须在 shots 中输出这一条完整镜头，禁止只返回数量或说明。
+script_excerpt 必须保留输入中与该镜头有关的结构标签及内容，例如【画面】、【镜头】、
+【时长】、【配音】、【字幕】和【画面提示词】；不要只摘录其中一类文本，也不要把配音或字幕误写成画面。
 """
 
 SCRIPT_DIVIDER_PROMPT = PromptTemplate(

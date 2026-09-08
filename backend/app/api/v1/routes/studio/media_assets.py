@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -17,6 +17,8 @@ from app.schemas.studio import (
     ShotAudioTrackCreate,
     ShotAudioTrackRead,
     ShotAudioTrackUpdate,
+    ShotTtsTaskCreate,
+    ShotTtsTaskRead,
 )
 from app.services.studio.media_assets import (
     create_asset_file_link,
@@ -32,8 +34,30 @@ from app.services.studio.media_assets import (
     update_audio_asset,
     update_shot_audio_track,
 )
+from app.services.studio.shot_tts import create_shot_tts_task
 
 router = APIRouter()
+
+
+@router.post(
+    "/shots/{shot_id}/tts-tasks",
+    response_model=ApiResponse[ShotTtsTaskRead],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="使用默认或指定语音模型生成镜头配音",
+)
+async def create_shot_tts_task_api(
+    shot_id: str,
+    body: ShotTtsTaskCreate,
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[ShotTtsTaskRead]:
+    """校验请求并创建进入任务中心的异步配音任务。"""
+    try:
+        task_id, task_status, reused = await create_shot_tts_task(db, shot_id=shot_id, body=body)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return success_response(ShotTtsTaskRead(task_id=task_id, status=task_status, reused=reused))
 
 
 @router.get(

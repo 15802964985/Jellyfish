@@ -23,9 +23,6 @@ export function PropsTab() {
         if (!res.data) throw new Error('empty prop')
         return res.data as any
       }}
-      deleteAsset={async (id) => {
-        await StudioEntitiesApi.remove('prop', id)
-      }}
       onEditAsset={(asset) => {
         navigate(`/assets/props/${asset.id}/edit`)
       }}

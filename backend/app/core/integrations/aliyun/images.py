@@ -1,6 +1,7 @@
 """阿里云百炼万相图片生成与编辑 API 适配。"""
 
 from __future__ import annotations
+from app.core.integrations.response_errors import raise_provider_error
 
 import asyncio
 import time
@@ -124,7 +125,7 @@ class AliyunImageApiAdapter:
 
         async with httpx.AsyncClient(timeout=timeout_s) as client:
             response = await client.post(root + path, headers=headers, json=body)
-            response.raise_for_status()
+            raise_provider_error(response, provider=cfg.provider, api_key=cfg.api_key)
             payload = response.json()
             images = _extract_images(payload)
             task_id = str((payload.get("output") or {}).get("task_id") or "")
@@ -135,7 +136,7 @@ class AliyunImageApiAdapter:
                 while time.monotonic() < deadline:
                     await asyncio.sleep(2)
                     poll = await client.get(root + f"/tasks/{task_id}", headers=headers)
-                    poll.raise_for_status()
+                    raise_provider_error(poll, provider=cfg.provider, api_key=cfg.api_key)
                     payload = poll.json()
                     output = payload.get("output") or {}
                     status_value = str(output.get("task_status") or "").upper()

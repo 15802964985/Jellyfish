@@ -42,6 +42,8 @@ _DEFAULT_CAPABILITIES: Mapping[GenerationOperation, frozenset[GenerationDelivery
     GenerationOperation.text_agent: frozenset({GenerationDelivery.async_polling}),
     GenerationOperation.image_generation: frozenset({GenerationDelivery.async_polling}),
     GenerationOperation.video_generation: frozenset({GenerationDelivery.async_polling}),
+    GenerationOperation.video_edit: frozenset({GenerationDelivery.async_polling}),
+    GenerationOperation.quality_preflight: frozenset({GenerationDelivery.async_polling}),
 }
 
 

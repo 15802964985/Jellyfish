@@ -20,6 +20,32 @@ def _patch_httpx_client(monkeypatch: pytest.MonkeyPatch, transport: httpx.MockTr
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["google", "anthropic"])
+async def test_native_catalog_pagination_and_auth(monkeypatch, provider):
+    """Native catalogues use their documented auth and cursor, not Bearer assumptions."""
+    calls = []
+    def handler(request):
+        """Two pages exercise the provider-specific next cursor."""
+        calls.append(request)
+        if provider == "google":
+            assert request.headers["x-goog-api-key"] == "k"
+            if len(calls) == 1:
+                return httpx.Response(200, json={"models": [{"name": "models/gemini-text", "supportedGenerationMethods": ["generateContent"]}], "nextPageToken": "next"})
+            assert request.url.params["pageToken"] == "next"
+            return httpx.Response(200, json={"models": [{"name": "models/gemini-image", "supportedGenerationMethods": ["generateContent"]}]})
+        assert request.headers["x-api-key"] == "k"
+        if len(calls) == 1:
+            return httpx.Response(200, json={"data": [{"id": "claude-one"}], "has_more": True, "last_id": "claude-one"})
+        assert request.url.params["after_id"] == "claude-one"
+        return httpx.Response(200, json={"data": [{"id": "claude-two"}], "has_more": False})
+    _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
+    result = await discover_provider_models(cfg=ProviderConfig(provider=provider, api_key="k", base_url="https://example.invalid/v1"))
+    assert len(calls) == 2
+    assert all(model.category.value == "text" for model in result.models)
+    assert len(result.models) == (1 if provider == "google" else 2)
+
+
+@pytest.mark.asyncio
 async def test_openai_compatible_catalog_reads_models_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     """OpenAI 兼容供应商应在后端使用 Bearer 密钥读取 `/models`。"""
 
@@ -41,10 +67,10 @@ async def test_openai_compatible_catalog_reads_models_endpoint(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_aliyun_catalog_merges_official_video_and_filters_audio(
+async def test_aliyun_catalog_merges_official_video_and_audio(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Token Plan 实时列表应补足 HappyHorse 视频，同时排除未接入的音频模型。"""
+    """Token Plan 实时列表应补足已接入的 HappyHorse 视频和百炼语音模型。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/api/v1/models"):
@@ -72,7 +98,10 @@ async def test_aliyun_catalog_merges_official_video_and_filters_audio(
     assert result.source == "hybrid"
     names = {item.name for item in result.models}
     assert {"happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"} <= names
-    assert "qwen-audio-3.0-tts-plus" not in names
+    assert "qwen-audio-3.0-tts-plus" in names
+    audio = next(item for item in result.models if item.name == "qwen-audio-3.0-tts-plus")
+    assert audio.category.value == "audio"
+    assert audio.capabilities == ["text_to_speech"]
     video = next(item for item in result.models if item.name == "happyhorse-1.1-r2v")
     assert video.source == "provider_catalog"
     assert video.capabilities == ["reference_to_video"]

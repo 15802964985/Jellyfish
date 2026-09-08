@@ -44,6 +44,7 @@ import {
   maskUrl,
 } from './constants'
 import { loadAllPaginated } from '../../../services/loadAllPaginated'
+import DomesticProviderSetup from './DomesticProviderSetup'
 
 export default function ProvidersTab() {
   const requestIdRef = useRef(0)
@@ -64,6 +65,7 @@ export default function ProvidersTab() {
   const [credentialsLoading, setCredentialsLoading] = useState(false)
   const [testConnecting, setTestConnecting] = useState(false)
   const [form] = Form.useForm()
+  const selectedAdapter = Form.useWatch('adapter_key', form)
   const { lg } = Grid.useBreakpoint()
   const isLargeScreen = lg ?? false
 
@@ -115,27 +117,20 @@ export default function ProvidersTab() {
   }, [])
 
   const providerNameOptions = useMemo(() => {
-    const fromApi = supportedSpecs.map((s) => ({
+    return supportedSpecs.map((s) => ({
       label: s.is_experimental ? `${s.display_name}（实验）` : s.display_name,
-      value: s.display_name,
+      value: s.key,
     }))
-    const name = providerEditing?.name?.trim()
-    if (!name) return fromApi
-    const known = supportedSpecs.some(
-      (s) => s.display_name === name || (s.aliases?.length && s.aliases.includes(name)),
-    )
-    if (known) return fromApi
-    return [{ label: `${name}（历史/未在清单内）`, value: name }, ...fromApi]
-  }, [supportedSpecs, providerEditing])
+  }, [supportedSpecs])
 
-  const applyDefaultBaseUrlForDisplayName = (displayName: string) => {
-    const spec = supportedSpecs.find(
-      (s) => s.display_name === displayName || (s.aliases?.length && s.aliases.includes(displayName)),
-    )
+  /** Only fill empty fields; selecting a protocol never replaces a configured plan URL. */
+  const applyDefaultBaseUrlForDisplayName = (key: string) => {
+    const spec = supportedSpecs.find((s) => s.key === key)
+    if (!form.getFieldValue('name') && spec) form.setFieldValue('name', spec.display_name)
     const def = spec?.default_base_url?.trim()
     if (!def) return
     const current = (form.getFieldValue('base_url') as string | undefined)?.trim()
-    if (!providerEditing || !current) {
+    if (!current) {
       form.setFieldsValue({ base_url: def })
     }
   }
@@ -180,6 +175,7 @@ export default function ProvidersTab() {
       if (providerEditing) {
         const requestBody: Parameters<typeof LlmService.updateProviderApiV1LlmProvidersProviderIdPatch>[0]['requestBody'] = {
           name: values.name,
+          adapter_key: values.adapter_key,
           base_url: values.base_url,
           image_base_url: values.image_base_url ?? null,
           video_base_url: values.video_base_url ?? null,
@@ -207,6 +203,7 @@ export default function ProvidersTab() {
           requestBody: {
             id,
             name: values.name,
+            adapter_key: values.adapter_key,
             base_url: values.base_url,
             image_base_url: values.image_base_url ?? null,
             video_base_url: values.video_base_url ?? null,
@@ -226,7 +223,8 @@ export default function ProvidersTab() {
       await load()
     } catch (e) {
       if (e && typeof e === 'object' && 'errorFields' in e) return
-      message.error('保存失败')
+      const body = (e as { body?: { detail?: string; message?: string } })?.body
+      message.error(body?.message || body?.detail || '保存失败')
     }
   }
 
@@ -265,6 +263,7 @@ export default function ProvidersTab() {
     if (p) {
       form.setFieldsValue({
         name: p.name,
+        adapter_key: p.adapter_key || supportedSpecs.find((s) => [s.key, s.display_name, ...(s.aliases || [])].some((name) => name.toLowerCase() === p.name.toLowerCase()))?.key,
         base_url: p.base_url,
         image_base_url: p.image_base_url ?? null,
         video_base_url: p.video_base_url ?? null,
@@ -719,7 +718,10 @@ export default function ProvidersTab() {
         destroyOnClose
       >
         <Form form={form} layout="vertical" className="pt-2">
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请选择供应商' }]}>
+          <Form.Item name="name" label="供应商名称（可自定义）" rules={[{ required: true, whitespace: true, message: '请输入供应商名称' }]}>
+            <Input maxLength={255} placeholder="例如：我的兼容模型服务" />
+          </Form.Item>
+          <Form.Item name="adapter_key" label="调用协议 / 适配器" rules={[{ required: true, message: '请选择实际调用协议' }]} help="自定义兼容接口目前仅支持文本；图片、视频、音频不能仅靠改名启用。已有模型时更换协议请新建供应商。">
             <Select
               showSearch
               optionFilterProp="label"
@@ -730,6 +732,7 @@ export default function ProvidersTab() {
               onChange={(v) => applyDefaultBaseUrlForDisplayName(String(v))}
             />
           </Form.Item>
+          <DomesticProviderSetup providerKey={selectedAdapter} />
           <Form.Item
             name="base_url"
             label="文本/通用 Base URL"

@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -20,13 +21,95 @@ from app.models.studio import (
     ShotDetail,
     ShotDialogLine,
 )
+from app.models.task import GenerationDeliveryMode, GenerationTask, GenerationTaskStatus
+from app.models.task_links import GenerationTaskLink
 from app.schemas.skills.script_import_analysis import ScriptImportAnalysisResult
+from app.schemas.studio.script_imports import ScriptImportReviewUpdate
 from app.services.studio.script_imports import (
     commit_script_import,
     create_script_import,
+    delete_script_import_draft,
+    get_script_import,
+    list_script_imports,
     sanitize_script_import_analysis,
+    update_script_import_review,
     _plan_duration_segments,
 )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("task_status", "expected_status", "task_error", "expected_message"),
+    [
+        (GenerationTaskStatus.cancelled, "parsed", "", "已取消"),
+        (GenerationTaskStatus.failed, "failed", "供应商超时", "供应商超时"),
+    ],
+)
+async def test_get_script_import_reconciles_terminal_analysis_task(
+    task_status: GenerationTaskStatus,
+    expected_status: str,
+    task_error: str,
+    expected_message: str,
+) -> None:
+    """通用任务终态必须释放 analyzing，防止导入弹窗永久加载。"""
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync_connection: Base.metadata.create_all(
+                sync_connection,
+                tables=[
+                    Project.__table__,
+                    FileItem.__table__,
+                    ScriptImport.__table__,
+                    GenerationTask.__table__,
+                    GenerationTaskLink.__table__,
+                ],
+            )
+        )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as db:
+        db.add(Project(id="p-reconcile", name="状态对账", description="", style="drama", visual_style="live_action"))
+        db.add(FileItem(id="f-reconcile", type="document", name="剧本", storage_key="script.txt"))
+        db.add(
+            ScriptImport(
+                id="i-reconcile",
+                project_id="p-reconcile",
+                file_id="f-reconcile",
+                status="analyzing",
+                source_format="txt",
+                content_hash="reconcile-hash",
+                parser_version="test",
+                document_profile="screenplay",
+                parse_result={},
+            )
+        )
+        db.add(
+            GenerationTask(
+                id="task-reconcile",
+                mode=GenerationDeliveryMode.async_polling,
+                task_kind="script_import_analyze",
+                status=task_status,
+                error=task_error,
+                payload={},
+            )
+        )
+        await db.flush()
+        db.add(
+            GenerationTaskLink(
+                task_id="task-reconcile",
+                resource_type="text",
+                relation_type="script_import_analysis",
+                relation_entity_id="i-reconcile",
+            )
+        )
+        await db.commit()
+
+        result = await get_script_import(db, "i-reconcile")
+        assert result.status == expected_status
+        assert expected_message in result.error_message
+
+    await engine.dispose()
 
 
 def test_analysis_sanitizer_rejects_hallucinated_evidence_and_validates_duration() -> None:
@@ -73,6 +156,90 @@ def test_duration_planner_uses_only_model_legal_segments() -> None:
     assert all(item in {5, 10} for item in segments)
     assert sum(segments) == 10
     assert warnings
+
+
+@pytest.mark.asyncio
+async def test_script_import_history_is_paginated_and_only_uncommitted_draft_can_be_deleted() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync_connection: Base.metadata.create_all(
+                sync_connection,
+                tables=[Project.__table__, FileItem.__table__, ScriptImport.__table__],
+            )
+        )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with session_factory() as db:
+        db.add(Project(id="p-history", name="历史", description="", style="drama", visual_style="live_action"))
+        for index, status in enumerate(("parsed", "committed"), start=1):
+            file_id = f"f-history-{index}"
+            db.add(FileItem(id=file_id, type="document", name=f"剧本{index}", storage_key=f"{file_id}.txt", original_name=f"剧本{index}.txt", mime_type="text/plain"))
+            db.add(ScriptImport(id=f"i-history-{index}", project_id="p-history", file_id=file_id, status=status, is_saved=True, source_format="txt", content_hash=f"hash-{index}", parser_version="1.1.0", document_profile="screenplay", parse_result={"chapters": []}, review_state={}, commit_result={"chapter_ids": ["c1"]} if status == "committed" else {}))
+        await db.commit()
+
+        items, total = await list_script_imports(db, project_id="p-history", page=1, page_size=1)
+        assert total == 2
+        assert len(items) == 1
+        assert items[0].file.original_name.endswith(".txt")
+
+        await delete_script_import_draft(db, import_id="i-history-1")
+        await db.commit()
+        assert await db.get(ScriptImport, "i-history-1") is None
+        with pytest.raises(HTTPException, match="不能作为草稿删除"):
+            await delete_script_import_draft(db, import_id="i-history-2")
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_unsaved_import_is_hidden_until_user_explicitly_saves() -> None:
+    """上传解析只形成临时预览，只有 PATCH 审查才进入草稿历史。"""
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync_connection: Base.metadata.create_all(
+                sync_connection,
+                tables=[Project.__table__, FileItem.__table__, ScriptImport.__table__],
+            )
+        )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as db:
+        db.add(Project(id="p-unsaved", name="临时预览", description="", style="drama", visual_style="live_action"))
+        db.add(FileItem(id="f-unsaved", type="document", name="剧本", storage_key="unsaved.txt"))
+        db.add(
+            ScriptImport(
+                id="i-unsaved",
+                project_id="p-unsaved",
+                file_id="f-unsaved",
+                status="parsed",
+                is_saved=False,
+                source_format="txt",
+                content_hash="unsaved-hash",
+                parser_version="test",
+                document_profile="screenplay",
+                parse_result={"chapters": []},
+            )
+        )
+        await db.commit()
+
+        items, total = await list_script_imports(db, project_id="p-unsaved", page=1, page_size=5)
+        assert items == []
+        assert total == 0
+
+        saved = await update_script_import_review(
+            db,
+            import_id="i-unsaved",
+            body=ScriptImportReviewUpdate(review_state={"selected_chapter_indexes": []}),
+        )
+        await db.commit()
+        assert saved.is_saved is True
+        items, total = await list_script_imports(db, project_id="p-unsaved", page=1, page_size=5)
+        assert total == 1
+        assert items[0].id == "i-unsaved"
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

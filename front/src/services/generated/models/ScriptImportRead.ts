@@ -8,6 +8,7 @@ export type ScriptImportRead = {
     project_id: string;
     file_id: string;
     status: string;
+    is_saved?: boolean;
     source_format: string;
     content_hash: string;
     parser_version: string;

@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.db import Base
-from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
+from app.models.llm import Model, ModelCategoryKey, ModelConfigRevision, ModelSettings, Provider
 from app.models.studio import (
     CameraAngle,
     CameraMovement,
@@ -27,6 +27,8 @@ from app.services.studio.generation.video.build_base import VideoBaseDraft
 from app.services.studio.generation.video.build_context import VideoGenerationContext
 from app.services.studio.generation.video import validate_images_count
 from app.services.studio import get_shot_video_readiness
+from app.services.generation.quality_sources import collect_quality_sources
+from app.services.studio.shot_video_prompt_pack import build_shot_video_prompt_pack, enrich_rendered_video_prompt
 
 
 async def _build_session() -> tuple[AsyncSession, object]:
@@ -80,6 +82,61 @@ async def _seed_shot_graph(db: AsyncSession) -> None:
     )
     db.add_all([project, chapter, prev_shot, shot, next_shot, prev_detail, detail, next_detail])
     await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_quality_sources_freeze_exact_chapter_match_and_current_asset_description():
+    """Real local SQL graph: current linked asset details reach prompt and immutable evidence."""
+    from app.models.studio import Prop, ProjectPropLink
+    db, engine = await _build_session()
+    try:
+        async with db:
+            await _seed_shot_graph(db)
+            chapter = await db.get(Chapter, 'c1')
+            chapter.raw_text = '前文。角色推门而入。后文不应整体外发。'
+            prop = Prop(id='prop1', name='门把手', description='适合握持的小型铜把手',
+                style=ProjectStyle.real_people_city)
+            db.add(prop)
+            await db.flush()
+            db.add(ProjectPropLink(project_id='p1', chapter_id='c1', shot_id='s1', prop_id='prop1'))
+            await db.commit()
+            pack = await build_shot_video_prompt_pack(db, shot_id='s1')
+            assert pack.props[0].description == prop.description
+            prompt = enrich_rendered_video_prompt(rendered_prompt='推门', pack=pack)
+            assert prop.description in prompt
+            evidence = await collect_quality_sources(db, shot_id='s1', prompt=prompt)
+            source = next(s for s in evidence.sources if s.kind == 'chapter')
+            assert source.text is None
+            assert source.excerpt_start == 3
+            assert chapter.raw_text[source.excerpt_start:source.excerpt_end] == '角色推门而入。'
+            assert next(s for s in evidence.sources if s.kind == 'prop').literal_in_prompt is True
+            frozen = evidence.model_dump_json()
+            prop.description = ''
+            await db.commit()
+            pack = await build_shot_video_prompt_pack(db, shot_id='s1')
+            assert pack.props[0].description == ''
+            assert evidence.model_dump_json() == frozen
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rewritten_excerpt_is_unknown_not_conflict_and_other_shot_assets_excluded():
+    """Literal matching cannot establish semantic conflict or import neighboring assets."""
+    db, engine = await _build_session()
+    try:
+        async with db:
+            await _seed_shot_graph(db)
+            chapter = await db.get(Chapter, 'c1')
+            chapter.raw_text = '她打开入口。'
+            await db.commit()
+            evidence = await collect_quality_sources(db, shot_id='s1', prompt='自由修改内容')
+            assert evidence.warnings and '不等于剧情冲突' in evidence.warnings[0]
+            assert all(s.kind in {'shot', 'chapter', 'shot_detail', 'project', 'neighbour'} for s in evidence.sources)
+            assert not next(s for s in evidence.sources if s.kind == 'shot').literal_in_prompt
+            assert (await collect_quality_sources(db, shot_id='missing', prompt='')).warnings
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -204,8 +261,21 @@ async def test_shot_video_readiness_reports_ready_for_text_only() -> None:
         shot.last_extracted_at = datetime.now(timezone.utc)
         provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
         model = Model(id="m_video", name="sora-mini", category=ModelCategoryKey.video, provider_id="p1")
+        revision = ModelConfigRevision(
+            id="rev-video-1",
+            model_id="m_video",
+            version_id=1,
+            model_name="sora-mini",
+            category=ModelCategoryKey.video,
+            model_params={},
+            provider_key="openai",
+            endpoint_config={"base_url": "https://api.openai.com/v1"},
+            capability_snapshot={},
+            credential_ref="provider:p1",
+        )
+        model.current_revision_id = revision.id
         settings = ModelSettings(id=1, default_video_model_id="m_video")
-        db.add_all([provider, model, settings])
+        db.add_all([provider, model, revision, settings])
         await db.flush()
 
         readiness = await get_shot_video_readiness(db, shot_id="s1", reference_mode="text_only")
@@ -226,8 +296,21 @@ async def test_shot_video_readiness_reports_missing_reference_frame() -> None:
         shot.last_extracted_at = datetime.now(timezone.utc)
         provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
         model = Model(id="m_video", name="sora-mini", category=ModelCategoryKey.video, provider_id="p1")
+        revision = ModelConfigRevision(
+            id="rev-video-1",
+            model_id="m_video",
+            version_id=1,
+            model_name="sora-mini",
+            category=ModelCategoryKey.video,
+            model_params={},
+            provider_key="openai",
+            endpoint_config={"base_url": "https://api.openai.com/v1"},
+            capability_snapshot={},
+            credential_ref="provider:p1",
+        )
+        model.current_revision_id = revision.id
         settings = ModelSettings(id=1, default_video_model_id="m_video")
-        db.add_all([provider, model, settings])
+        db.add_all([provider, model, revision, settings])
         await db.flush()
 
         readiness = await get_shot_video_readiness(db, shot_id="s1", reference_mode="first")

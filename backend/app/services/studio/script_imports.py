@@ -8,12 +8,15 @@ import re
 from difflib import SequenceMatcher
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core import storage
 from app.core.integrations.video_capabilities import resolve_video_capability
 from app.models.llm import Model, ModelCategoryKey, Provider
+from app.models.task import GenerationTask, GenerationTaskStatus
+from app.models.task_links import GenerationTaskLink
 from app.models.studio import (
     Actor,
     Chapter,
@@ -45,8 +48,11 @@ from app.schemas.studio.script_imports import (
 )
 from app.schemas.skills.script_import_analysis import ScriptImportAnalysisResult, ScriptImportValidation
 from app.services.common import entity_not_found, get_or_404
-from app.services.llm.provider_registry import resolve_provider_key_from_name
+from app.services.llm.provider_registry import resolve_provider_key
 from app.services.studio.script_import_parser import parse_script_document
+
+
+SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE = "script_import_analysis"
 
 
 def sanitize_script_import_analysis(
@@ -159,6 +165,7 @@ async def create_script_import(db: AsyncSession, *, project_id: str, file_id: st
         project_id=project_id,
         file_id=file_id,
         status="parsed",
+        is_saved=False,
         source_format=parsed.source_format,
         content_hash=content_hash,
         parser_version=parsed.parser_version,
@@ -175,17 +182,128 @@ async def create_script_import(db: AsyncSession, *, project_id: str, file_id: st
     return obj
 
 
+async def _latest_script_import_analysis_task(
+    db: AsyncSession, *, import_id: str
+) -> GenerationTask | None:
+    """读取导入批次最近一次深度分析任务，供业务状态与通用任务状态对账。"""
+
+    stmt = (
+        select(GenerationTask)
+        .join(GenerationTaskLink, GenerationTaskLink.task_id == GenerationTask.id)
+        .where(
+            GenerationTaskLink.relation_type == SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE,
+            GenerationTaskLink.relation_entity_id == import_id,
+        )
+        .order_by(GenerationTask.updated_at.desc(), GenerationTask.id.desc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalars().first()
+
+
+async def reconcile_script_import_analysis_state(
+    db: AsyncSession, *, script_import: ScriptImport
+) -> ScriptImport:
+    """修复任务已结束而导入批次仍卡在 analyzing 的跨域状态不一致。"""
+
+    if script_import.status != "analyzing":
+        return script_import
+    task = await _latest_script_import_analysis_task(db, import_id=script_import.id)
+    if task is None:
+        return script_import
+    status_value = task.status.value if hasattr(task.status, "value") else str(task.status)
+    if status_value == GenerationTaskStatus.cancelled.value:
+        script_import.status = "parsed"
+        script_import.error_message = "AI 深度分析已取消，可重新发起"
+    elif status_value == GenerationTaskStatus.failed.value:
+        script_import.status = "failed"
+        script_import.error_message = task.error or "AI 深度分析失败，任务未记录具体原因"
+    elif status_value == GenerationTaskStatus.succeeded.value:
+        # 正常成功会由 Worker 同一事务写入 ready；出现此状态说明结果投影中断，
+        # 明确暴露一致性问题，避免页面无限等待。
+        script_import.status = "failed"
+        script_import.error_message = "AI 深度分析任务已完成，但结果未写入导入草稿，请重新分析"
+    else:
+        return script_import
+    await db.flush()
+    # updated_at 由数据库 on-update 生成，flush 后属性会过期；显式刷新避免
+    # Pydantic 在异步响应序列化时触发 MissingGreenlet 的隐式 IO。
+    await db.refresh(script_import)
+    return script_import
+
+
+async def reconcile_cancelled_script_import_task(
+    db: AsyncSession, *, task_id: str
+) -> None:
+    """任务中心即时取消成功后，同步释放对应剧本导入批次。"""
+
+    link = (
+        await db.execute(
+            select(GenerationTaskLink).where(
+                GenerationTaskLink.task_id == task_id,
+                GenerationTaskLink.relation_type == SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE,
+            )
+        )
+    ).scalars().first()
+    if link is None:
+        return
+    script_import = await db.get(ScriptImport, link.relation_entity_id)
+    if script_import is None or script_import.status != "analyzing":
+        return
+    script_import.status = "parsed"
+    script_import.error_message = "AI 深度分析已取消，可重新发起"
+    await db.flush()
+    await db.refresh(script_import)
+
+
 async def get_script_import(db: AsyncSession, import_id: str) -> ScriptImport:
-    return await get_or_404(db, ScriptImport, import_id, detail=entity_not_found("ScriptImport"))
+    """读取导入批次，并对账异步分析终态，自动恢复历史卡死记录。"""
+
+    obj = await get_or_404(db, ScriptImport, import_id, detail=entity_not_found("ScriptImport"))
+    return await reconcile_script_import_analysis_state(db, script_import=obj)
 
 
-async def list_script_imports(db: AsyncSession, *, project_id: str) -> list[ScriptImport]:
+async def list_script_imports(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    page: int,
+    page_size: int,
+) -> tuple[list[ScriptImport], int]:
+    """分页读取项目导入摘要所需记录，并预加载原始文件名称。"""
+
+    total = int(
+        await db.scalar(
+            select(func.count()).select_from(ScriptImport).where(
+                ScriptImport.project_id == project_id,
+                or_(ScriptImport.is_saved.is_(True), ScriptImport.status == "committed"),
+            )
+        )
+        or 0
+    )
     result = await db.execute(
         select(ScriptImport)
-        .where(ScriptImport.project_id == project_id)
+        .options(selectinload(ScriptImport.file))
+        .where(
+            ScriptImport.project_id == project_id,
+            or_(ScriptImport.is_saved.is_(True), ScriptImport.status == "committed"),
+        )
         .order_by(ScriptImport.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )
-    return list(result.scalars().all())
+    return list(result.scalars().all()), total
+
+
+async def delete_script_import_draft(db: AsyncSession, *, import_id: str) -> None:
+    """删除未提交导入草稿；保留原始文件、任务审计和已导入业务数据。"""
+
+    obj = await get_script_import(db, import_id)
+    if obj.status == "committed":
+        raise HTTPException(status_code=409, detail="已导入记录用于审计，不能作为草稿删除")
+    if obj.status == "analyzing":
+        raise HTTPException(status_code=409, detail="AI 深度分析正在运行，请等待结束或先取消任务")
+    await db.delete(obj)
+    await db.flush()
 
 
 async def update_script_import_review(
@@ -195,6 +313,7 @@ async def update_script_import_review(
     if obj.status == "committed":
         raise HTTPException(status_code=409, detail="已提交的导入批次不可修改预览选择")
     obj.review_state = body.review_state
+    obj.is_saved = True
     await db.flush()
     await db.refresh(obj)
     return obj
@@ -291,7 +410,7 @@ async def plan_script_import_media(
     if model is None or model.category != ModelCategoryKey.video:
         raise HTTPException(status_code=422, detail="请选择有效的视频模型")
     provider = await get_or_404(db, Provider, model.provider_id, detail=entity_not_found("Provider"))
-    provider_key = resolve_provider_key_from_name(provider.name)
+    provider_key = resolve_provider_key(provider)
     capability = resolve_video_capability(provider=provider_key, model=model.name)  # type: ignore[arg-type]
     items: list[ScriptImportMediaPlanItem] = []
     for shot in (obj.analysis_result or {}).get("shots") or []:

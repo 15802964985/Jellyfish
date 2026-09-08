@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 from dataclasses import asdict
+from urllib.parse import urlsplit
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -38,7 +39,7 @@ from app.services.llm.provider_registry import (
     get_provider_spec,
     is_provider_category_supported,
     list_registered_providers,
-    resolve_provider_key_from_name,
+    resolve_provider_key,
 )
 from app.bootstrap import bootstrap_all_registries
 from app.services.llm.provider_resolver import resolve_provider_config_from_provider
@@ -85,12 +86,30 @@ async def list_providers_paginated(
     )
 
 
+def _validate_provider_adapter(provider: Provider) -> str:
+    """保存前核对协议及地址，不联网、不推断额外能力、不替换用户套餐端点。"""
+    bootstrap_all_registries()
+    try:
+        key = resolve_provider_key(provider)
+    except HTTPException as exc:
+        raise HTTPException(status_code=400, detail="请选择已实现的调用协议；自定义供应商可选兼容文本接口") from exc
+    try:
+        parsed = urlsplit(provider.base_url or "")
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("invalid base URL")
+        parsed.port
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Base URL 必须是有效 HTTP(S) 地址，不能包含凭据、查询串或片段") from exc
+    return key
+
+
 async def create_provider(
     db: AsyncSession,
     *,
     body: ProviderCreate,
 ) -> Provider:
     """创建供应商。"""
+    adapter_key = _validate_provider_adapter(Provider(name=body.name, adapter_key=body.adapter_key, base_url=body.base_url))
     await ensure_not_exists(
         db,
         Provider,
@@ -103,6 +122,7 @@ async def create_provider(
         Provider(
             id=body.id,
             name=body.name,
+            adapter_key=adapter_key,
             base_url=body.base_url,
             image_base_url=body.image_base_url,
             video_base_url=body.video_base_url,
@@ -134,16 +154,22 @@ async def _create_model_revision(
             .limit(1)
         )
     ).scalar_one_or_none()
-    provider_key = resolve_provider_key_from_name(provider.name)
+    provider_key = resolve_provider_key(provider)
     capability_snapshot: dict[str, object] = {}
     if model.category == ModelCategoryKey.image:
         capability_snapshot = _json_safe_capability(
             asdict(resolve_image_capability(provider=provider_key, model=model.name))
         )
     elif model.category == ModelCategoryKey.video:
-        capability_snapshot = _json_safe_capability(
-            asdict(resolve_video_capability(provider=provider_key, model=model.name))
-        )
+        from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
+        if provider_key in VIDEO_EDIT_MODELS:
+            if model.name != VIDEO_EDIT_MODELS[provider_key]:
+                raise HTTPException(status_code=400, detail='该供应商目前仅接入目录中的视频编辑型号')
+            capability_snapshot = {'operations': ['video_edit'], 'source_video_required': True,
+                'automatic_adoption': False, 'documentation_checked': '2026-09-08'}
+        else:
+            capability_snapshot = _json_safe_capability(
+                asdict(resolve_video_capability(provider=provider_key, model=model.name)))
     revision = ModelConfigRevision(
         id=uuid4().hex,
         model_id=model.id,
@@ -192,9 +218,16 @@ async def update_provider(
 ) -> Provider:
     """更新供应商。"""
     provider = await get_or_404(db, Provider, provider_id, detail=entity_not_found("Provider"))
-    patch_model(provider, body.model_dump(exclude_unset=True))
-    await db.flush()
+    updates = body.model_dump(exclude_unset=True)
+    candidate = Provider(name=updates.get("name", provider.name), base_url=updates.get("base_url", provider.base_url),
+        adapter_key=updates.get("adapter_key") or resolve_provider_key(provider))
+    adapter_key = _validate_provider_adapter(candidate)
     models = (await db.execute(select(Model).where(Model.provider_id == provider.id))).scalars().all()
+    # 凭据是任务运行时读取的引用，不允许原地改协议而使排队任务拿错认证方式。
+    if models and adapter_key != resolve_provider_key(provider):
+        raise HTTPException(status_code=409, detail="已有模型的供应商不能直接更换调用协议，请新建供应商再迁移模型；名称和同协议端点可修改")
+    patch_model(provider, {**updates, "adapter_key": adapter_key})
+    await db.flush()
     for model in models:
         await _create_model_revision(db, model=model, provider=provider)
     return await flush_and_refresh(db, provider)
@@ -217,7 +250,7 @@ async def get_provider_model_catalog(
     """刷新指定 Provider 的可导入模型目录，密钥仅用于后端出站请求。"""
     provider = await get_or_404(db, Provider, provider_id, detail=entity_not_found("Provider"))
     bootstrap_all_registries()
-    provider_key = resolve_provider_key_from_name(provider.name)
+    provider_key = resolve_provider_key(provider)
     spec = get_provider_spec(provider_key)
     # 使用一个已支持类别触发统一的状态和密钥校验；目录请求始终走通用 Base URL。
     resolved = resolve_provider_config_from_provider(
@@ -424,11 +457,35 @@ async def update_model_settings(
 ) -> ModelSettings:
     """部分更新模型全局设置，保留请求中未出现的模态默认模型。
 
-    前端会按 text、image、video 分别提交默认模型字段。必须只写入显式
+    前端会按 text、image、video、audio 分别提交默认模型字段。必须只写入显式
     提交的字段，避免 Pydantic 的 ``None`` 默认值清空其他模态的已配置模型。
     """
     settings = await get_or_create_settings(db)
-    patch_model(settings, body.model_dump(exclude_unset=True))
+    changes = body.model_dump(exclude_unset=True)
+    category_fields = {
+        "default_text_model_id": ModelCategoryKey.text,
+        "default_image_model_id": ModelCategoryKey.image,
+        "default_video_model_id": ModelCategoryKey.video,
+        "default_audio_model_id": ModelCategoryKey.audio,
+    }
+    for field, category in category_fields.items():
+        model_id = changes.get(field)
+        if not model_id:
+            continue
+        model = await db.get(Model, model_id)
+        if model is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"模型不存在: {model_id}")
+        if model.category != category:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"模型 {model.name} 不是 {category.value} 类别，不能设为该类别默认模型",
+            )
+        if category == ModelCategoryKey.video:
+            provider = await db.get(Provider, model.provider_id)
+            from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
+            if provider and resolve_provider_key(provider) in VIDEO_EDIT_MODELS:
+                raise HTTPException(status_code=400, detail='编辑专用模型不能设为普通视频生成默认模型，请在编辑窗口单独选择')
+    patch_model(settings, changes)
     return await flush_and_refresh(db, settings)
 
 
@@ -458,7 +515,10 @@ async def get_video_generation_options(
 
     model = await get_or_404(db, Model, resolved_model_id, detail=entity_not_found("Model"))
     provider = await get_or_404(db, Provider, model.provider_id, detail=entity_not_found("Provider"))
-    provider_key = resolve_provider_key_from_name(provider.name)
+    provider_key = resolve_provider_key(provider)
+    from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
+    if provider_key in VIDEO_EDIT_MODELS:
+        raise HTTPException(status_code=400, detail='该模型仅支持已有视频编辑，请使用文字编辑视频入口')
     capability = resolve_video_capability(provider=provider_key, model=model.name)
     allowed_ratios = sorted(capability.allowed_ratios or {"16:9"})
     default_ratio = resolve_default_ratio(provider=provider_key, model=model.name) or allowed_ratios[0]
@@ -476,6 +536,7 @@ async def get_video_generation_options(
         supports_last_frame=capability.supports_last_frame,
         max_key_frames=capability.max_key_frames,
         requires_first_frame=capability.requires_first_frame,
+        requires_last_frame=capability.requires_last_frame,
         requires_subject_reference=capability.requires_subject_reference,
         allowed_seconds=sorted(capability.allowed_seconds or []),
         min_seconds=capability.min_seconds,
@@ -511,7 +572,7 @@ async def get_image_generation_options(
 
     model = await get_or_404(db, Model, model_id, detail=entity_not_found("Model"))
     provider = await get_or_404(db, Provider, model.provider_id, detail=entity_not_found("Provider"))
-    provider_key = resolve_provider_key_from_name(provider.name)
+    provider_key = resolve_provider_key(provider)
     capability = resolve_image_capability(provider=provider_key, model=model.name)
     ratio_size_profiles = capability.ratio_size_profiles or DEFAULT_VIDEO_REFERENCE_RATIO_SIZE_MAP
     supported_ratios = sorted(capability.supported_ratios or ratio_size_profiles.keys())
@@ -552,7 +613,7 @@ def _ensure_provider_supports_category(*, provider: Provider, category: ModelCat
         if isinstance(category, ModelCategoryKey)
         else ModelCategoryKey((str(category or "")).strip().lower())
     )
-    provider_key = resolve_provider_key_from_name(provider.name)
+    provider_key = resolve_provider_key(provider)
     if not is_provider_category_supported(provider_key, normalized_category):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

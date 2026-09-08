@@ -3,7 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ApiResponse_AsyncTaskCreateRead_ } from '../models/ApiResponse_AsyncTaskCreateRead_';
-import type { ApiResponse_list_ScriptImportRead__ } from '../models/ApiResponse_list_ScriptImportRead__';
+import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
+import type { ApiResponse_PaginatedData_ScriptImportSummaryRead__ } from '../models/ApiResponse_PaginatedData_ScriptImportSummaryRead__';
 import type { ApiResponse_ScriptImportCommitResult_ } from '../models/ApiResponse_ScriptImportCommitResult_';
 import type { ApiResponse_ScriptImportMatchesRead_ } from '../models/ApiResponse_ScriptImportMatchesRead_';
 import type { ApiResponse_ScriptImportMediaPlanRead_ } from '../models/ApiResponse_ScriptImportMediaPlanRead_';
@@ -39,19 +40,26 @@ export class StudioScriptImportsService {
     }
     /**
      * List Script Imports Api
-     * @returns ApiResponse_list_ScriptImportRead__ Successful Response
+     * Return lightweight, paginated import drafts and committed history for one project.
+     * @returns ApiResponse_PaginatedData_ScriptImportSummaryRead__ Successful Response
      * @throws ApiError
      */
     public static listScriptImportsApiApiV1StudioScriptImportsGet({
         projectId,
+        page = 1,
+        pageSize = 5,
     }: {
         projectId: string,
-    }): CancelablePromise<ApiResponse_list_ScriptImportRead__> {
+        page?: number,
+        pageSize?: number,
+    }): CancelablePromise<ApiResponse_PaginatedData_ScriptImportSummaryRead__> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/studio/script-imports',
             query: {
                 'project_id': projectId,
+                'page': page,
+                'page_size': pageSize,
             },
             errors: {
                 422: `Validation Error`,
@@ -70,6 +78,28 @@ export class StudioScriptImportsService {
     }): CancelablePromise<ApiResponse_ScriptImportRead_> {
         return __request(OpenAPI, {
             method: 'GET',
+            url: '/api/v1/studio/script-imports/{import_id}',
+            path: {
+                'import_id': importId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 删除未提交的剧本导入草稿
+     * Delete an editable import draft while preserving its uploaded source file.
+     * @returns ApiResponse_NoneType_ Successful Response
+     * @throws ApiError
+     */
+    public static deleteScriptImportApiApiV1StudioScriptImportsImportIdDelete({
+        importId,
+    }: {
+        importId: string,
+    }): CancelablePromise<ApiResponse_NoneType_> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
             url: '/api/v1/studio/script-imports/{import_id}',
             path: {
                 'import_id': importId,

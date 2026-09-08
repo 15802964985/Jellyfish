@@ -40,6 +40,8 @@ def register_image_model_capability(
     capability: ImageModelCapability,
 ) -> None:
     """兼容入口：注册模型能力覆盖（按前缀匹配，大小写不敏感）。"""
+    if provider not in {"openai", "vidu", "kling", "aliyun_bailian", "volcengine"}:
+        raise ValueError(f"Image capability overrides are not implemented for {provider}")
     if provider == "openai":
         from app.core.integrations.openai.image_capabilities import register_openai_image_capability
 
@@ -96,6 +98,35 @@ def clear_image_model_capability_overrides(*, provider: ProviderKey | None = Non
 
 
 def resolve_image_capability(*, provider: ProviderKey, model: str | None) -> ImageModelCapability:
+    """Resolve only explicitly implemented image protocols; never inherit another vendor."""
+    if provider == "jimeng":
+        from app.core.integrations.jimeng_media import IMAGE_MODEL, SIZES
+        if model is not None and model != IMAGE_MODEL:
+            raise ValueError("即梦图片型号未核验")
+        return ImageModelCapability(supports_seed=True, supports_watermark=True, max_n=1,
+            supported_ratios=set(SIZES), allowed_sizes=set(SIZES.values()),
+            ratio_size_profiles={r: {"standard": s} for r, s in SIZES.items()})
+    if provider in {"zhipu", "hunyuan"}:
+        from app.core.integrations.domestic_media import IMAGE_MODELS, SIZES, GLM_SIZES
+        if model is not None and model not in IMAGE_MODELS[provider]:
+            raise ValueError("图片型号尚未核验")
+        sizes = GLM_SIZES if model == "glm-image" else SIZES
+        return ImageModelCapability(supports_seed=provider == "hunyuan", supports_watermark=provider == "zhipu",
+            max_n=1, supported_ratios=set(sizes),
+            ratio_size_profiles={r: {"standard": s, **({"high": s} if provider == "zhipu" else {})} for r, s in sizes.items()})
+    if provider == "minimax":
+        from app.core.integrations.minimax_images import IMAGE_MODELS, RATIO_SIZES
+        if model is not None and model not in IMAGE_MODELS:
+            raise ValueError("MiniMax 图片型号未核验")
+        sizes = {r: s for r, s in RATIO_SIZES.items() if model != "image-01-live" or r != "21:9"}
+        return ImageModelCapability(supports_seed=True, supports_watermark=True, max_n=9,
+            allowed_sizes=set(sizes.values()), supported_ratios=set(sizes),
+            ratio_size_profiles={r: {"standard": s} for r, s in sizes.items()})
+    if provider not in {"openai", "vidu", "kling", "aliyun_bailian", "volcengine", "bfl"}:
+        raise ValueError(f"Image generation is not implemented for {provider}")
+    if provider == "bfl":
+        return ImageModelCapability(supports_seed=True, supports_watermark=False, max_n=1,
+            supported_ratios={"16:9", "9:16", "1:1", "4:3", "3:4"})
     if provider == "openai":
         from app.core.integrations.openai.image_capabilities import resolve_openai_image_capability
 

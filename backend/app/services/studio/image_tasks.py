@@ -59,6 +59,7 @@ async def load_provider_config(db: AsyncSession, provider_id: str) -> ProviderCo
     return ProviderConfig(
         provider=resolved.provider_key,  # type: ignore[arg-type]
         api_key=resolved.api_key,
+        api_secret=resolved.api_secret,
         base_url=resolved.base_url,
     )
 

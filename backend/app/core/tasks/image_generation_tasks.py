@@ -358,6 +358,30 @@ class ImageGenerationTask(BaseTask):
             timeout_s=timeout_s,
         )
 
+    @staticmethod
+    def _build_bfl_impl(**kwargs) -> AbstractImageGenerationTask:
+        """Reuse generic result publication with the BFL HTTP adapter."""
+        from app.core.integrations.bfl_images import BflImageApiAdapter
+        return OpenAIImageGenerationTask(adapter=BflImageApiAdapter(), **kwargs)
+
+    @staticmethod
+    def _build_minimax_impl(**kwargs) -> AbstractImageGenerationTask:
+        """Use MiniMax's protocol with the shared result storage and publication contract."""
+        from app.core.integrations.minimax_images import MinimaxImageApiAdapter
+        return OpenAIImageGenerationTask(adapter=MinimaxImageApiAdapter(), **kwargs)
+
+    @staticmethod
+    def _build_domestic_impl(**kwargs) -> AbstractImageGenerationTask:
+        """Route BigModel/TokenHub native media into shared artifact publication."""
+        from app.core.integrations.domestic_media import DomesticImageApiAdapter
+        return OpenAIImageGenerationTask(adapter=DomesticImageApiAdapter(), **kwargs)
+
+    @staticmethod
+    def _build_jimeng_impl(**kwargs) -> AbstractImageGenerationTask:
+        """Use native AK/SK protocol, preserving generic publication and task status."""
+        from app.core.integrations.jimeng_media import JimengImageApiAdapter
+        return OpenAIImageGenerationTask(adapter=JimengImageApiAdapter(), **kwargs)
+
     async def run(self, *args: Any, **kwargs: Any) -> AsyncIterator[Any] | None:  # type: ignore[override]
         return await self._impl.run(*args, **kwargs)
 

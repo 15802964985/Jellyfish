@@ -2,14 +2,126 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AdoptVideoEditRequest } from '../models/AdoptVideoEditRequest';
+import type { ApiResponse_dict_str__str__ } from '../models/ApiResponse_dict_str__str__';
+import type { ApiResponse_dict_str__Union_float__bool___ } from '../models/ApiResponse_dict_str__Union_float__bool___';
 import type { ApiResponse_ExperimentTaskCreated_ } from '../models/ApiResponse_ExperimentTaskCreated_';
 import type { ApiResponse_TaskCreated_ } from '../models/ApiResponse_TaskCreated_';
 import type { GenerationSubmitRequest } from '../models/GenerationSubmitRequest';
+import type { QualityReviewRequest } from '../models/QualityReviewRequest';
 import type { ShotFrameType } from '../models/ShotFrameType';
+import type { VideoEditPreflightRequest } from '../models/VideoEditPreflightRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class StudioGenerationTasksService {
+    /**
+     * Preflight Video Edit
+     * Only inspect local files and configuration; no provider HTTP request or task is created.
+     * @returns ApiResponse_dict_str__Union_float__bool___ Successful Response
+     * @throws ApiError
+     */
+    public static preflightVideoEditApiV1StudioGenerationTasksShotsShotIdVideoEditPreflightPost({
+        shotId,
+        requestBody,
+    }: {
+        shotId: string,
+        requestBody: VideoEditPreflightRequest,
+    }): CancelablePromise<ApiResponse_dict_str__Union_float__bool___> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/video-edit-preflight',
+            path: {
+                'shot_id': shotId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Submit Quality Review
+     * Freeze local evidence with the exact prompt; identical source/model inputs reuse a task.
+     * @returns ApiResponse_TaskCreated_ Successful Response
+     * @throws ApiError
+     */
+    public static submitQualityReviewApiV1StudioGenerationTasksShotsShotIdQualityReviewPost({
+        shotId,
+        requestBody,
+    }: {
+        shotId: string,
+        requestBody: QualityReviewRequest,
+    }): CancelablePromise<ApiResponse_TaskCreated_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/quality-review',
+            path: {
+                'shot_id': shotId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Adopt Shot Video Edit
+     * Adopt only after explicit comparison; preserve source files and edit provenance.
+     * @returns ApiResponse_dict_str__str__ Successful Response
+     * @throws ApiError
+     */
+    public static adoptShotVideoEditApiV1StudioGenerationTasksShotsShotIdVideoEditsTaskIdAdoptPost({
+        shotId,
+        taskId,
+        requestBody,
+    }: {
+        shotId: string,
+        taskId: string,
+        requestBody: AdoptVideoEditRequest,
+    }): CancelablePromise<ApiResponse_dict_str__str__> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/video-edits/{task_id}/adopt',
+            path: {
+                'shot_id': shotId,
+                'task_id': taskId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 提交已有视频文字编辑任务
+     * Bind edit to the shot, require separate consent, preserve source and await manual adoption.
+     * @returns ApiResponse_TaskCreated_ Successful Response
+     * @throws ApiError
+     */
+    public static submitShotVideoEditTaskApiV1StudioGenerationTasksShotsShotIdVideoEditsPost({
+        shotId,
+        requestBody,
+    }: {
+        shotId: string,
+        requestBody: GenerationSubmitRequest,
+    }): CancelablePromise<ApiResponse_TaskCreated_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/video-edits',
+            path: {
+                'shot_id': shotId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * 提交镜头分镜帧图片任务
      * 绑定镜头帧槽位后提交图片任务；最终提示词由客户端先经 render API 确认。

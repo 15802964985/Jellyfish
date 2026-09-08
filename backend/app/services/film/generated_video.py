@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from types import SimpleNamespace
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,12 +16,17 @@ from app.core.contracts.media import VideoMediaInput
 from app.core.contracts.video_generation import VideoGenerationInput, VideoGenerationResult
 from app.core.tasks import VideoGenerationTask
 from app.models.llm import ModelCategoryKey, ModelConfigRevision, Provider, ProviderStatus
+from app.models.generation_artifacts import GenerationArtifact, GenerationArtifactPublishStatus
 from app.models.task import GenerationTask
+from app.models.studio import FileItem
+from app.models.types import FileUsageKind
 from app.models.experiment_sessions import ExperimentMessage
 from app.services.generation.files import FileResolver
 from app.services.generation.publishers import ShotVideoPublisher
 from app.services.generation.runtime import ArtifactStore
 from app.services.studio.shot_status import recompute_shot_status
+from app.services.studio.media_composition import CompositionResult, compose_shot_audio_if_present
+from app.services.studio.file_usages import sync_usage_from_shot_context
 from app.services.worker.async_task_support import cancel_if_requested_async
 from app.services.worker.task_logging import log_task_event, log_task_failure
 
@@ -53,6 +59,7 @@ async def _resolve_snapshot_provider_config(
     return ProviderConfig(
         provider=revision.provider_key,  # type: ignore[arg-type]
         api_key=api_key,
+        api_secret=(provider.api_secret or "").strip(),
         base_url=str(base_url).strip() or None if base_url else None,
     )
 
@@ -146,7 +153,7 @@ async def _run_snapshot_video_generation(
         raise RuntimeError(str(status_payload.get("error") or "Video generation task returned no result"))
     result = VideoGenerationResult.model_validate(raw_result.model_dump())
     headers = {"Authorization": f"Bearer {provider_config.api_key}"} if provider_config.provider == "openai" else None
-    artifact = await ArtifactStore().store_video(
+    raw_artifact = await ArtifactStore().store_video(
         session,
         task_id=task_id,
         result=result,
@@ -155,11 +162,71 @@ async def _run_snapshot_video_generation(
         url_request_headers=headers,
         httpx_timeout=600.0,
     )
-    await ShotVideoPublisher().publish_terminal(session, snapshot=snapshot, artifacts=[artifact])
+    artifact, artifacts, composition = await _compose_video_artifact_if_needed(
+        session,
+        task_id=task_id,
+        shot_id=snapshot.canonical_target.entity_id,
+        raw_artifact=raw_artifact,
+    )
+    await ShotVideoPublisher().publish_terminal(session, snapshot=snapshot, artifacts=artifacts)
+    if artifact.publish_status is GenerationArtifactPublishStatus.published and artifact.file_id:
+        await sync_usage_from_shot_context(
+            session,
+            file_id=artifact.file_id,
+            shot_id=snapshot.canonical_target.entity_id,
+            usage_kind=FileUsageKind.generated_video,
+            source_ref=f"shot:{snapshot.canonical_target.entity_id}:generated_video",
+        )
     result_payload = result.model_dump()
     result_payload["file_id"] = artifact.file_id
     result_payload["publish_status"] = artifact.publish_status.value
+    result_payload["audio_track_count"] = composition.applied_track_count
+    if composition.warning:
+        result_payload["composition_warning"] = composition.warning
     return result_payload
+
+
+async def _compose_video_artifact_if_needed(
+    session: AsyncSession,
+    *,
+    task_id: str,
+    shot_id: str,
+    raw_artifact: GenerationArtifact,
+) -> tuple[GenerationArtifact, list[GenerationArtifact], CompositionResult]:
+    """把镜头音轨混入供应商视频，并同时保留原始视频作为可追溯副产物。"""
+
+    source_file = await session.get(FileItem, raw_artifact.file_id) if raw_artifact.file_id else None
+    if source_file is None:
+        raise RuntimeError("video artifact source file is unavailable")
+    composition = await compose_shot_audio_if_present(
+        session,
+        shot_id=shot_id,
+        source_video=source_file,
+    )
+    if composition.applied_track_count <= 0 or composition.file.id == source_file.id:
+        return raw_artifact, [raw_artifact], composition
+
+    raw_artifact.ordinal = 1
+    raw_artifact.publish_status = GenerationArtifactPublishStatus.skipped
+    raw_artifact.publish_error = "source_video_before_audio_mix"
+    await session.flush()
+    composed_artifact = GenerationArtifact(
+        id=uuid4().hex,
+        task_id=task_id,
+        modality="video",
+        ordinal=0,
+        file_id=composition.file.id,
+        provider_result={
+            **dict(raw_artifact.provider_result or {}),
+            "composition": "shot_audio_mix",
+            "source_file_id": source_file.id,
+        },
+        publish_status=GenerationArtifactPublishStatus.skipped,
+        publish_error="no_target_slot",
+    )
+    session.add(composed_artifact)
+    await session.flush()
+    return composed_artifact, [composed_artifact, raw_artifact], composition
 
 async def run_video_generation_task(
     task_id: str,

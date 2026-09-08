@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.services.generation.quality import quality_for_video_pack
 
 from app.schemas.studio.shots import ShotVideoPromptPackRead, ShotVideoPromptPreviewRead
 from app.services.studio.generation.shared.types import GenerationDerivedPreview
@@ -47,7 +48,7 @@ async def derive_video_preview(
             pack=pack,
             template_id=context.template_id,
             template_name=None,
-            warnings=[],
+            warnings=quality_for_video_pack(pack).warnings,
         )
 
     template = await _resolve_video_prompt_template(db, template_id=context.template_id)
@@ -66,6 +67,8 @@ async def derive_video_preview(
                 pack=pack,
             )
 
+    rendered_prompt = enrich_rendered_video_prompt(rendered_prompt=rendered_prompt, pack=pack)
+    warnings.extend(quality_for_video_pack(pack).warnings)
     return VideoDerivedPreview(
         shot_id=base.shot_id,
         reference_mode=context.reference_mode,

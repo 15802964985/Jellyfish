@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
 from app.models.llm import Model, ModelCategoryKey
-from app.schemas.common import ApiResponse, created_response, success_response
+from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
 from app.schemas.studio.script_imports import (
     ScriptImportCreate,
     ScriptImportAnalyzeRequest,
@@ -16,9 +16,11 @@ from app.schemas.studio.script_imports import (
     ScriptImportMediaPlanRequest,
     ScriptImportRead,
     ScriptImportReviewUpdate,
+    ScriptImportSummaryRead,
 )
 from app.services.studio.script_imports import (
     create_script_import,
+    delete_script_import_draft,
     commit_script_import,
     get_script_import,
     find_script_import_matches,
@@ -40,12 +42,36 @@ async def create_script_import_api(
     return created_response(ScriptImportRead.model_validate(obj, from_attributes=True))
 
 
-@router.get("", response_model=ApiResponse[list[ScriptImportRead]])
+@router.get("", response_model=ApiResponse[PaginatedData[ScriptImportSummaryRead]])
 async def list_script_imports_api(
-    project_id: str = Query(...), db: AsyncSession = Depends(get_db, scope="function")
-) -> ApiResponse[list[ScriptImportRead]]:
-    items = await list_script_imports(db, project_id=project_id)
-    return success_response([ScriptImportRead.model_validate(item, from_attributes=True) for item in items])
+    project_id: str = Query(...),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(5, ge=1, le=50),
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[PaginatedData[ScriptImportSummaryRead]]:
+    """Return lightweight, paginated import drafts and committed history for one project."""
+
+    items, total = await list_script_imports(db, project_id=project_id, page=page, page_size=page_size)
+    summaries = [
+        ScriptImportSummaryRead(
+            id=item.id,
+            project_id=item.project_id,
+            file_id=item.file_id,
+            file_name=item.file.original_name or item.file.name,
+            title=str((item.parse_result or {}).get("title") or item.file.name),
+            status=item.status,
+            is_saved=item.is_saved,
+            source_format=item.source_format,
+            parser_version=item.parser_version,
+            document_profile=item.document_profile,
+            chapter_count=len((item.parse_result or {}).get("chapters") or []),
+            committed_chapter_count=len((item.commit_result or {}).get("chapter_ids") or []),
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+        for item in items
+    ]
+    return paginated_response(summaries, page=page, page_size=page_size, total=total)
 
 
 @router.get("/{import_id}", response_model=ApiResponse[ScriptImportRead])
@@ -54,6 +80,17 @@ async def get_script_import_api(
 ) -> ApiResponse[ScriptImportRead]:
     obj = await get_script_import(db, import_id)
     return success_response(ScriptImportRead.model_validate(obj, from_attributes=True))
+
+
+@router.delete("/{import_id}", response_model=ApiResponse[None], summary="删除未提交的剧本导入草稿")
+async def delete_script_import_api(
+    import_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[None]:
+    """Delete an editable import draft while preserving its uploaded source file."""
+
+    await delete_script_import_draft(db, import_id=import_id)
+    return empty_response()
 
 
 @router.post("/{import_id}/commit", response_model=ApiResponse[ScriptImportCommitResult])

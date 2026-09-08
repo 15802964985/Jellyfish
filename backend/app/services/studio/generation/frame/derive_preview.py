@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.services.generation.quality import append_quality_instructions, quality_for_frame
 
 from app.schemas.studio.shots import FrameGuidanceDecisionRead, RenderedShotFramePromptRead, ShotFramePromptMappingRead
 from app.services.studio.generation.frame.build_base import FrameBaseDraft
@@ -348,6 +349,8 @@ def derive_frame_preview(
         replaced_prompt=enriched_prompt,
         mappings=context.ordered_refs,
     )
+    quality = quality_for_frame(normalized_base_prompt, context.ordered_refs)
+    rendered_prompt = append_quality_instructions(rendered_prompt, quality)
     return FrameDerivedPreview(
         shot_id=base.shot_id,
         frame_type=base.frame_type.value if hasattr(base.frame_type, "value") else str(base.frame_type),

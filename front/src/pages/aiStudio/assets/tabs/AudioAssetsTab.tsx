@@ -266,7 +266,19 @@ export function AudioAssetsTab() {
               <Upload.Dragger
                 accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
                 maxCount={1}
-                beforeUpload={(file) => { setUploadFile(file); return false }}
+                beforeUpload={(file) => {
+                  // accept is only a picker hint: drag/drop can still supply videos.
+                  if (!/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(file.name)) {
+                    message.error('请选择 MP3、WAV、M4A、AAC、OGG 或 FLAC 音频；MP4 视频请先提取音轨后上传')
+                    return Upload.LIST_IGNORE
+                  }
+                  if (file.size > 500 * 1024 * 1024) {
+                    message.error('音频文件不能超过 500MB')
+                    return Upload.LIST_IGNORE
+                  }
+                  setUploadFile(file)
+                  return false
+                }}
                 onRemove={() => setUploadFile(null)}
               >
                 <p className="ant-upload-drag-icon"><InboxOutlined /></p>

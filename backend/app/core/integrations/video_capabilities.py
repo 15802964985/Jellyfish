@@ -63,6 +63,7 @@ class VideoModelCapability:
     supports_last_frame: bool = True
     max_key_frames: int | None = None
     requires_first_frame: bool = False
+    requires_last_frame: bool = False
     requires_subject_reference: bool = False
     allowed_seconds: set[int] | None = None
 
@@ -74,6 +75,8 @@ def register_video_model_capability(
     capability: VideoModelCapability,
 ) -> None:
     """兼容入口：注册模型能力覆盖（按前缀匹配，大小写不敏感）。"""
+    if provider not in {"openai", "vidu", "kling", "aliyun_bailian", "volcengine"}:
+        raise ValueError(f"Video capability overrides are not implemented for {provider}")
     if provider == "openai":
         from app.core.integrations.openai.video_capabilities import register_openai_video_capability
 
@@ -130,6 +133,41 @@ def clear_video_model_capability_overrides(*, provider: ProviderKey | None = Non
 
 
 def resolve_video_capability(*, provider: ProviderKey, model: str | None) -> VideoModelCapability:
+    """Reject unknown protocols instead of silently borrowing Volcengine capabilities."""
+    if provider == "jimeng":
+        from app.core.integrations.jimeng_media import VIDEO_MODEL
+        if model is not None and model != VIDEO_MODEL:
+            raise ValueError("即梦视频型号未核验")
+        return VideoModelCapability(supports_seed=True, supports_watermark=False,
+            allowed_ratios={"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"}, default_ratio="16:9",
+            supports_text_to_video=False, requires_first_frame=True, requires_last_frame=True, max_key_frames=0,
+            allowed_seconds={5, 10}, min_seconds=5, max_seconds=10)
+    if provider in {"zhipu", "hunyuan"}:
+        from app.core.integrations.domestic_media import VIDEO_MODELS
+        if model is None:
+            return VideoModelCapability(supports_seed=False, supports_watermark=False,
+                supports_text_to_video=False, supports_first_frame=False, supports_last_frame=False, max_key_frames=0)
+        if model not in VIDEO_MODELS[provider]:
+            raise ValueError("视频型号尚未核验")
+        return VideoModelCapability(supports_seed=False, supports_watermark=provider == "zhipu",
+            allowed_ratios={"16:9", "9:16", "1:1"} if provider == "zhipu" else {"16:9", "9:16", "1:1", "4:3", "3:4"},
+            default_ratio="16:9", supports_last_frame=provider == "zhipu", max_key_frames=0,
+            allowed_seconds={5, 10} if provider == "zhipu" else {5}, min_seconds=5, max_seconds=10 if provider == "zhipu" else 5)
+    if provider == "minimax":
+        if model is None:
+            return VideoModelCapability(supports_seed=False, supports_watermark=False,
+                supports_text_to_video=False, supports_first_frame=False, supports_last_frame=False, max_key_frames=0)
+        from app.core.integrations.minimax_video import HAILUO_MODELS
+        if model not in HAILUO_MODELS:
+            raise ValueError("海螺型号尚未核验")
+        return VideoModelCapability(supports_seed=False, supports_watermark=True,
+            allowed_ratios={"16:9", "9:16", "1:1", "4:3", "3:4"}, default_ratio="16:9",
+            supports_text_to_video=model != "MiniMax-Hailuo-2.3-Fast",
+            supports_last_frame=model == "MiniMax-Hailuo-02", max_key_frames=0,
+            requires_first_frame=model == "MiniMax-Hailuo-2.3-Fast", allowed_seconds={6, 10},
+            min_seconds=6, max_seconds=10)
+    if provider not in {"openai", "vidu", "kling", "aliyun_bailian", "volcengine"}:
+        raise ValueError(f"Video generation is not implemented for {provider}")
     if provider == "openai":
         from app.core.integrations.openai.video_capabilities import resolve_openai_video_capability
 
@@ -203,8 +241,10 @@ def validate_video_options(
     has_first = bool(frames.first_frame)
     has_last = bool(frames.last_frame)
     key_frame_count = len(frames.key_frames)
+    if cap.requires_last_frame and not has_last:
+        raise ValueError(f"last frame is required by provider={provider} model={model or '<default>'}；请同时提供首帧与尾帧")
     if cap.requires_first_frame and not has_first:
-        raise ValueError(f"first frame is required by provider={provider} model={model or '<default>'}")
+        raise ValueError(f"first frame is required by provider={provider} model={model or '<default>'}；该型号必须输入首帧。请在分镜工作室生成或上传首帧并选择首帧参考；只有文字时请明确选择支持文生视频的型号。资产关联图不会自动等同于镜头首帧。")
     if cap.requires_subject_reference and not subjects:
         raise ValueError(f"reference media is required by provider={provider} model={model or '<default>'}")
     if not (has_first or has_last or key_frame_count or subjects) and not cap.supports_text_to_video:

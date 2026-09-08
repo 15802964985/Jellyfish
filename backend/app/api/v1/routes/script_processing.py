@@ -58,7 +58,7 @@ from app.services.script_extraction_cache import (
     get_cached_script_extract,
     set_cached_script_extract,
 )
-from app.services.studio.script_division import write_division_result_to_chapter
+from app.services.studio.script_division import normalize_generated_division_result, write_division_result_to_chapter
 from app.services.studio import (
     sync_shot_extracted_candidates_from_draft,
     sync_shot_extracted_dialogue_candidates_from_draft,
@@ -147,6 +147,7 @@ async def divide_script(
     try:
         agent = ScriptDividerAgent(llm)
         result = agent.divide_script(script_text=request.script_text)
+        result = normalize_generated_division_result(result, script_text=request.script_text)
 
         if request.write_to_db:
             if not request.chapter_id:

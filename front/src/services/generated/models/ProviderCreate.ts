@@ -12,6 +12,10 @@ export type ProviderCreate = {
      */
     name: string;
     /**
+     * 实际调用适配器，与展示名称分离
+     */
+    adapter_key?: (string | null);
+    /**
      * 文本/通用 API Base URL
      */
     base_url: string;

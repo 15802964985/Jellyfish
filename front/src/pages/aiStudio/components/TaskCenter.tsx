@@ -1,8 +1,9 @@
-import { Badge, Button, Card, Empty, Progress, Segmented, Select, Spin, Tag } from 'antd'
+import { Badge, Button, Card, Empty, message, Modal, Progress, Segmented, Select, Spin, Tag } from 'antd'
 import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
   CloseCircleOutlined,
+  InfoCircleOutlined,
   PushpinOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons'
@@ -19,6 +20,7 @@ import {
 } from './taskUiStore'
 import { useResolvedTaskCenterTasks } from './taskCenterMeta'
 import { TASK_KIND_TITLE_MAP } from './taskCopy'
+import { defaultTaskActionErrorMessage } from './taskActionHelpers'
 
 const TASK_CENTER_OPEN_STORAGE_KEY = 'jellyfish_task_center_open_v1'
 const TASK_CENTER_POSITION_STORAGE_KEY = 'jellyfish_task_center_position_v1'
@@ -110,13 +112,12 @@ function formatStartedAt(startedAtTs?: number | null): string | null {
 }
 
 function taskTone(task: TaskUiItem): { color: string; label: string } {
-  if (task.cancelRequested) return { color: 'orange', label: '取消中' }
   if (task.status === 'cancelled') return { color: 'orange', label: '已取消' }
   if (task.status === 'failed') return { color: 'red', label: '失败' }
   if (task.status === 'succeeded') return { color: 'green', label: '已完成' }
-  if (task.status === 'streaming') return { color: 'cyan', label: '处理中' }
-  if (task.status === 'running') return { color: 'blue', label: '运行中' }
-  return { color: 'default', label: '排队中' }
+  if (task.cancelRequested) return { color: 'orange', label: '取消中' }
+  if (task.status === 'streaming' || task.status === 'running') return { color: 'blue', label: '进行中' }
+  return { color: 'default', label: '等待中' }
 }
 
 export function TaskCenter() {
@@ -391,6 +392,29 @@ export function TaskCenter() {
     toggleOpen()
   }
 
+  const showFailureReason = async (task: TaskUiItem) => {
+    /** 按需读取任务结果，避免任务列表承载大结果或错误堆栈。 */
+    try {
+      const response = await FilmService.getTaskResultApiV1FilmTasksTaskIdResultGet({ taskId: task.taskId })
+      const error = response.data?.error?.trim() || '该任务未记录具体失败原因，请结合服务日志定位。'
+      Modal.error({
+        title: '任务失败原因',
+        width: 620,
+        content: (
+          <div className="space-y-3">
+            <div className="text-sm text-gray-500">{task.title} · {task.taskId}</div>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-gray-50 p-3 text-xs text-gray-700">
+              {error}
+            </pre>
+          </div>
+        ),
+        okText: '关闭',
+      })
+    } catch (error) {
+      message.error(defaultTaskActionErrorMessage(error, '读取任务失败原因失败'))
+    }
+  }
+
   return (
     <div
       className={`fixed z-[1200] pointer-events-none ${dragging ? '' : 'transition-[left,top] duration-200 ease-out'}`}
@@ -434,8 +458,8 @@ export function TaskCenter() {
                       setPage(1)
                     }}
                     options={[
-                      { label: `当前页 ${summaryCounts.current}`, value: 'current' },
-                      { label: `运行中 ${summaryCounts.active}`, value: 'active' },
+                      { label: `当前页面 ${summaryCounts.current}`, value: 'current' },
+                      { label: `未结束 ${summaryCounts.active}`, value: 'active' },
                       {
                         label: `已结束 ${effectiveScopeFilter === 'settled' && usesServerHistory ? historyTotal : summaryCounts.settled}`,
                         value: 'settled',
@@ -456,7 +480,7 @@ export function TaskCenter() {
                     options={taskKindOptions}
                   />
                   <div className="text-[11px] text-gray-400">
-                    默认展示运行中任务；已结束和全部记录按需从历史中加载 · 每页最多 4 条
+                    任务范围：未结束含等待中、进行中、取消中；已结束含已完成、失败、已取消 · 每页最多 4 条
                   </div>
                 </div>
               </div>
@@ -495,6 +519,15 @@ export function TaskCenter() {
                               {startedAt ? <div className="mt-1 text-xs text-gray-400">开始于 {startedAt}</div> : null}
                             </div>
                             <div className="flex flex-col gap-2">
+                              {task.status === 'failed' ? (
+                                <Button
+                                  size="small"
+                                  icon={<InfoCircleOutlined />}
+                                  onClick={() => void showFailureReason(task)}
+                                >
+                                  失败原因
+                                </Button>
+                              ) : null}
                               {task.onNavigate ? (
                                 <Button
                                   size="small"
@@ -507,7 +540,7 @@ export function TaskCenter() {
                                   查看
                                 </Button>
                               ) : null}
-                              {task.onCancel ? (
+                              {['pending', 'running', 'streaming'].includes(task.status) && task.onCancel ? (
                                 <Button
                                   size="small"
                                   danger

@@ -14,6 +14,7 @@ class ProviderBase(BaseModel):
     """供应商通用字段（不含敏感字段）。"""
 
     name: str = Field(..., description="供应商名称")
+    adapter_key: str | None = Field(None, max_length=64, description="实际调用适配器，与展示名称分离")
     base_url: str = Field(..., description="文本/通用 API Base URL")
     image_base_url: str | None = Field(None, description="图片能力 API Base URL（可选覆盖）")
     video_base_url: str | None = Field(None, description="视频能力 API Base URL（可选覆盖）")
@@ -37,6 +38,7 @@ class ProviderUpdate(BaseModel):
     """更新供应商时的可选字段。"""
 
     name: str | None = Field(None, description="供应商名称")
+    adapter_key: str | None = Field(None, max_length=64, description="实际调用适配器，与展示名称分离")
     base_url: str | None = Field(None, description="文本/通用 API Base URL")
     image_base_url: str | None = Field(None, description="图片能力 API Base URL（可选覆盖）")
     video_base_url: str | None = Field(None, description="视频能力 API Base URL（可选覆盖）")
@@ -115,6 +117,7 @@ class VideoGenerationOptionsRead(BaseModel):
     supports_last_frame: bool = Field(True, description="是否支持尾帧参考")
     max_key_frames: int | None = Field(None, description="关键帧数量上限")
     requires_first_frame: bool = Field(False, description="是否必须提供首帧")
+    requires_last_frame: bool = Field(False, description="是否必须同时提供尾帧")
     requires_subject_reference: bool = Field(False, description="是否必须提供主体参考素材")
     allowed_seconds: list[int] = Field(default_factory=list, description="离散时长选项；空表示连续范围")
     min_seconds: int | None = Field(None, description="连续时长下限")
@@ -151,7 +154,7 @@ class ModelBase(BaseModel):
     """模型通用字段。"""
 
     name: str = Field(..., description="模型名称")
-    category: ModelCategoryKey = Field(..., description="模型类别：text/image/video")
+    category: ModelCategoryKey = Field(..., description="模型类别：text/image/video/audio")
     provider_id: str = Field(..., description="所属供应商 ID")
     params: dict[str, Any] = Field(default_factory=dict, description="模型参数（JSON）")
     description: str = Field("", description="说明")
@@ -182,6 +185,23 @@ class ModelRead(ModelBase):
     id: str = Field(..., description="模型 ID")
 
 
+class ModelIntegrationAuditRead(BaseModel):
+    """只读接入核查，不将目录、网络连通或适配器存在等同于业务验收。"""
+
+    model_id: str
+    model_name: str
+    provider_key: str
+    category: ModelCategoryKey
+    checked_at: str
+    adapter_registered: bool
+    endpoint: str
+    official_documentation: str | None = None
+    documentation_status: str = "pending_review"
+    business_verification_status: str = "not_verified"
+    issues: list[str] = Field(default_factory=list)
+    business_checks: list[str] = Field(default_factory=list)
+
+
 class ModelConnectionTestRead(BaseModel):
     """文本模型真实连通性测试结果。"""
 
@@ -200,6 +220,7 @@ class ModelSettingsBase(BaseModel):
     default_text_model_id: str | None = Field(None, description="默认文本模型 ID")
     default_image_model_id: str | None = Field(None, description="默认图片模型 ID")
     default_video_model_id: str | None = Field(None, description="默认视频模型 ID")
+    default_audio_model_id: str | None = Field(None, description="默认语音生成模型 ID")
     api_timeout: int = Field(30, description="API 超时（秒）")
     log_level: LogLevel = Field(LogLevel.info, description="日志级别")
 

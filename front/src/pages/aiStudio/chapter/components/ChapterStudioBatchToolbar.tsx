@@ -13,7 +13,8 @@ type ChapterStudioBatchToolbarProps = {
   generating: boolean
   maintenanceMenuItems: MenuProps['items']
   onBatchInspectVideoReadiness: () => void
-  onBatchGenerate: () => void
+  onBatchGenerateFrames: () => void
+  onBatchGenerateVideos: () => void
 }
 
 export function ChapterStudioBatchToolbar({
@@ -22,7 +23,8 @@ export function ChapterStudioBatchToolbar({
   generating,
   maintenanceMenuItems,
   onBatchInspectVideoReadiness,
-  onBatchGenerate,
+  onBatchGenerateFrames,
+  onBatchGenerateVideos,
 }: ChapterStudioBatchToolbarProps) {
   return (
     <div className="cs-group m-3 mt-0 mb-2">
@@ -49,9 +51,18 @@ export function ChapterStudioBatchToolbar({
           size="small"
           icon={<ThunderboltOutlined />}
           loading={generating}
-          onClick={onBatchGenerate}
+          onClick={onBatchGenerateFrames}
         >
-          批量生成
+          批量关键帧
+        </Button>
+        <Button
+          type="primary"
+          size="small"
+          icon={<ThunderboltOutlined />}
+          loading={generating}
+          onClick={onBatchGenerateVideos}
+        >
+          批量视频
         </Button>
         <Dropdown menu={{ items: maintenanceMenuItems }} trigger={['click']}>
           <Button size="small" icon={<SettingOutlined />}>

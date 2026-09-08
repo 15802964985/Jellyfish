@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.task_manager.types import TaskStatus
 from app.models.types import AudioAssetCategory, ShotAudioTrackType
 from app.schemas.studio.files import FileRead
 
@@ -150,3 +151,21 @@ class ShotAudioTrackRead(BaseModel):
     loop: bool
     sort_index: int
     audio_asset: AudioAssetRead
+
+
+class ShotTtsTaskCreate(BaseModel):
+    """从镜头对白创建可追踪的 AI 配音任务。"""
+
+    model_id: str | None = Field(None, description="语音模型 ID；为空时使用默认语音模型")
+    text: str | None = Field(None, max_length=5000, description="可选覆盖文本；为空时按顺序合并镜头对白")
+    voice: str | None = Field(None, max_length=128, description="音色；为空时使用模型参数 voice")
+    instruction: str | None = Field(None, max_length=500, description="可选语气、语速或情绪指令")
+    language_type: str = Field("Chinese", max_length=64)
+
+
+class ShotTtsTaskRead(BaseModel):
+    """AI 配音异步任务创建结果。"""
+
+    task_id: str
+    status: TaskStatus
+    reused: bool = False

@@ -17,6 +17,8 @@ ModelOperation = Literal[
     "text_to_video",
     "image_to_video",
     "reference_to_video",
+    "video_edit",
+    "text_to_speech",
 ]
 
 

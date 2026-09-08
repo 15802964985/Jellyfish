@@ -13,6 +13,7 @@ from app.schemas.studio.entity_existence import (
     EntityNameExistenceCheckRequest,
     EntityNameExistenceCheckResponse,
 )
+from app.schemas.studio.entity_deletion import EntityDeleteImpactRead
 from app.services.studio import StudioEntitiesService
 
 router = APIRouter()
@@ -95,10 +96,39 @@ async def update_entity(
     return success_response(payload)
 
 
-@router.delete("/{entity_type}/{entity_id}", response_model=ApiResponse[None], summary="统一删除实体")
-async def delete_entity(entity_type: str, entity_id: str, db: AsyncSession = Depends(get_db, scope="function")) -> ApiResponse[None]:
+@router.get(
+    "/{entity_type}/{entity_id}/delete-impact",
+    response_model=ApiResponse[EntityDeleteImpactRead],
+    summary="查询删除实体的具体关联影响",
+)
+async def get_entity_delete_impact(
+    entity_type: str,
+    entity_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[EntityDeleteImpactRead]:
+    """Return named projects, chapters, shots, roles and materials affected by deletion."""
+
     service = StudioEntitiesService(db)
-    await service.delete_entity(entity_type=entity_type, entity_id=entity_id)
+    return success_response(
+        await service.get_entity_delete_impact(entity_type=entity_type, entity_id=entity_id)
+    )
+
+
+@router.delete("/{entity_type}/{entity_id}", response_model=ApiResponse[None], summary="解除关联后删除实体")
+async def delete_entity(
+    entity_type: str,
+    entity_id: str,
+    unlink_relations: bool = Query(False, description="已查看具体关联并确认先解除关联再删除"),
+    db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[None]:
+    """Reject blind linked deletion; confirmed calls unlink and delete atomically."""
+
+    service = StudioEntitiesService(db)
+    await service.delete_entity(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        unlink_relations=unlink_relations,
+    )
     return empty_response()
 
 

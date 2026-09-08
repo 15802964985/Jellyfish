@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Empty, Input, Modal, Pagination, Space, message } from 'antd'
+import { Button, Card, Empty, Input, Pagination, Space, message } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { StudioEntitiesApi } from '../../../../services/studioEntities'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { assetAdapters } from '../assetAdapters'
 import { AssetImageCard } from '../components/AssetImageCard'
 import { ActorEntityFormModal, type ActorEntityLike } from '../components/ActorEntityFormModal'
+import { confirmEntityDeletion } from '../confirmEntityDeletion'
 
 export function ActorsTab() {
   const navigate = useNavigate()
@@ -144,20 +145,12 @@ export function ActorsTab() {
               onEdit={() => openEdit(a)}
               onDetails={() => navigate(`/assets/actors/${a.id}/edit`)}
               onDelete={() => {
-                Modal.confirm({
-                  title: `删除演员「${a.name}」？`,
-                  okText: '删除',
-                  cancelText: '取消',
-                  okButtonProps: { danger: true },
-                  onOk: async () => {
-                    try {
-                      await StudioEntitiesApi.remove('actor', a.id)
-                      message.success('已删除')
-                      void load()
-                    } catch {
-                      message.error('删除失败')
-                    }
-                  },
+                void confirmEntityDeletion({
+                  entityType: 'actor',
+                  entityId: a.id,
+                  entityLabel: '演员',
+                  entityName: a.name,
+                  onDeleted: load,
                 })
               }}
             />

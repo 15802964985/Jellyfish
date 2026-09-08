@@ -13,7 +13,7 @@ from app.core.contracts.generation import (
     GenerationTargetKind,
     ResolvedGenerationSnapshot,
 )
-from app.core.contracts.media import ImageMediaInput, MediaReference, VideoMediaInput
+from app.core.contracts.media import ImageMediaInput, MediaReference, VideoMediaInput, VideoEditMediaInput
 from app.core.integrations.video_capabilities import VideoModelCapability, resolve_video_capability
 from app.models.experiment_sessions import ExperimentSession
 from app.models.llm import Model, ModelCategoryKey, ModelConfigRevision, ModelSettings, Provider, ProviderStatus
@@ -22,6 +22,9 @@ from app.models.studio_asset_images import ActorImage, CharacterImage, CostumeIm
 from app.models.studio_prompts_files_timeline import FileItem
 from app.models.types import FileType
 from app.services.generation.prompt_profiles import apply_generation_prompt_profile
+from app.services.generation.quality import quality_trace_for_execution, build_quality_report, append_quality_instructions
+from app.core.contracts.generation_quality import QualityFact
+from app.services.generation.quality_sources import collect_quality_sources, quality_source_fingerprint
 from app.services.studio.asset_reference_context import resolve_shot_reference_bundle
 
 
@@ -38,6 +41,8 @@ def _iter_media(media: ImageMediaInput | VideoMediaInput | None) -> list[MediaRe
     """以稳定顺序摊平媒体结构，分组语义仍由原始强类型结构保留。"""
     if media is None:
         return []
+    if isinstance(media, VideoEditMediaInput):
+        return [media.source, *media.references]
     if isinstance(media, ImageMediaInput):
         return list(media.references)
     items = [reference for reference in [media.frames.first, media.frames.last] if reference]
@@ -54,12 +59,27 @@ class GenerationEntityGate:
         """将可验证的提交命令冻结为不含 ORM/凭据的执行快照。"""
         await self._validate_target(db, command)
         model, revision = await self._resolve_model(db, command)
+        if command.operation.value == 'quality_preflight' and command.request.media is not None:
+            from app.services.generation.quality_vision import supports_quality_vision
+            if not isinstance(command.request.media, ImageMediaInput) or not supports_quality_vision(revision.provider_key, revision.model_name):
+                raise HTTPException(status_code=422, detail='该预检模型尚未接入视觉检查，请取消图片选择或改用已核验的百炼 Qwen 视觉型号')
+        if command.operation.value == 'video_edit':
+            from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
+            if revision.model_name != VIDEO_EDIT_MODELS.get(revision.provider_key):
+                raise HTTPException(status_code=400, detail='当前模型未实现视频编辑，请选择已接入的编辑模型')
+            if not isinstance(command.request.media, VideoEditMediaInput):
+                raise HTTPException(status_code=422, detail='video edit source media required')
+        elif revision.provider_key in ('fal', 'runway'):
+            raise HTTPException(status_code=400, detail='当前供应商仅实现视频编辑，请使用编辑入口')
         media, execution_prompt = await self._resolve_asset_references(
             db,
             command=command,
             revision=revision,
         )
         await self._validate_media(db, media)
+        from app.services.generation.domestic_preflight import validate_domestic_submission
+        validate_domestic_submission(provider=revision.provider_key, model=revision.model_name,
+            operation=command.request.operation_input, media=media)
         prompt_profile = apply_generation_prompt_profile(
             prompt=execution_prompt,
             modality=command.modality,
@@ -68,6 +88,26 @@ class GenerationEntityGate:
             model_name=revision.model_name,
             media=media,
         )
+        quality_sources = None
+        if command.target.kind in {GenerationTargetKind.shot_video, GenerationTargetKind.shot_frame_slot}:
+            quality_sources = await collect_quality_sources(db, shot_id=command.target.entity_id, prompt=prompt_profile.prompt)
+            if command.request.quality_source_fingerprint and command.request.quality_source_fingerprint != quality_source_fingerprint(quality_sources):
+                raise HTTPException(status_code=409, detail='章节或关联资产已在预览后变化，请重新预览确认再生成')
+            if not command.request.quality_source_fingerprint:
+                # Legacy/batch callers bypass render; compile scoped rules here. Reviewed drafts
+                # carry a fingerprint and must not have intentionally removed rules reinserted.
+                facts = [QualityFact(source=f'{s.kind}:{s.entity_id}:{s.field}', text=s.text)
+                    for s in quality_sources.sources if s.text]
+                facts.append(QualityFact(source='submission.prompt', text=prompt_profile.prompt or ''))
+                kinds = {s.kind for s in quality_sources.sources}
+                report = build_quality_report(facts=facts, characters='character' in kinds,
+                    props='prop' in kinds, costumes='costume' in kinds, video=command.modality == GenerationModality.video)
+                from app.services.generation.prompt_profiles import PromptProfileResult
+                compiled = append_quality_instructions(prompt_profile.prompt or '', report)
+                prompt_profile = PromptProfileResult(prompt=compiled, applied_rules=prompt_profile.applied_rules)
+        from app.services.generation.prompt_budget import require_prompt_budget
+        budget = require_prompt_budget(provider=revision.provider_key, model=revision.model_name,
+            prompt=prompt_profile.prompt or '', modality=command.modality.value) if prompt_profile.prompt else None
         return ResolvedGenerationSnapshot(
             model_id=model.id,
             model_revision_id=revision.id,
@@ -78,6 +118,14 @@ class GenerationEntityGate:
             execution_prompt=prompt_profile.prompt,
             prompt_profile_rules=list(prompt_profile.applied_rules),
             credential_ref=revision.credential_ref,
+            quality_sources=quality_sources,
+            prompt_budget=budget,
+            quality_trace=(
+                quality_trace_for_execution(prompt_profile.prompt)
+                if command.target.kind in {
+                    GenerationTargetKind.shot_video, GenerationTargetKind.shot_frame_slot,
+                } else None
+            ),
         )
 
     async def _resolve_asset_references(
@@ -141,6 +189,26 @@ class GenerationEntityGate:
         revision = await db.get(ModelConfigRevision, model.current_revision_id) if model.current_revision_id else None
         if revision is None or revision.model_id != model.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="model_unavailable")
+        if revision.provider_key in {"minimax", "zhipu", "hunyuan", "jimeng"} and expected_category in {ModelCategoryKey.image, ModelCategoryKey.video}:
+            from app.core.contracts.provider import ProviderConfig
+            endpoints = revision.endpoint_config or {}
+            base = endpoints.get(f"{expected_category.value}_base_url") or endpoints.get("base_url")
+            cfg = ProviderConfig(provider=revision.provider_key, base_url=base,
+                api_key=provider.api_key or "", api_secret=provider.api_secret or "")
+            try:
+                if not cfg.api_key:
+                    raise ValueError("供应商 API 凭据未配置")
+                if revision.provider_key == "minimax":
+                    from app.core.integrations.minimax_video import api_base
+                    api_base(cfg)
+                elif revision.provider_key == "jimeng":
+                    from app.core.integrations.jimeng_media import signed_request
+                    signed_request(cfg, "CVSync2AsyncSubmitTask", {})  # local signature only, no request
+                else:
+                    from app.core.integrations.domestic_media import official_base
+                    official_base(cfg)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         return model, revision
 
     async def _default_model_id(self, db: AsyncSession, modality: GenerationModality) -> str | None:
@@ -176,11 +244,14 @@ class GenerationEntityGate:
             exists = await db.get(ExperimentSession, target.entity_id) is not None
         elif target.kind == GenerationTargetKind.shot_video:
             exists = await db.get(Shot, target.entity_id) is not None
+        elif target.kind == GenerationTargetKind.shot_video_edit:
+            exists = await db.get(Shot, target.entity_id) is not None
         elif target.kind == GenerationTargetKind.shot_detail:
             exists = await db.get(ShotDetail, target.entity_id) is not None
         elif target.kind == GenerationTargetKind.shot_frame_slot:
             try:
-                exists = target.slot_id is not None and await db.get(ShotFrameImage, int(target.slot_id)) is not None
+                row = await db.get(ShotFrameImage, int(target.slot_id)) if target.slot_id is not None else None
+                exists = row is not None and row.shot_detail_id == target.entity_id
             except ValueError:
                 exists = False
         elif target.kind == GenerationTargetKind.asset_image_slot:
@@ -209,8 +280,8 @@ class GenerationEntityGate:
         )
         for model, parent_field in parent_field_by_model:
             row = await db.get(model, numeric_id)
-            if row is not None:
-                return getattr(row, parent_field) == entity_id
+            if row is not None and getattr(row, parent_field) == entity_id:
+                return True
         return False
 
     async def _target_version(self, db: AsyncSession, command: GenerationCommand) -> int | None:
@@ -227,8 +298,12 @@ class GenerationEntityGate:
             return row.version_id if row else None
         if target.kind == GenerationTargetKind.asset_image_slot and target.slot_id:
             numeric_id = int(target.slot_id)
-            for model in (ActorImage, CharacterImage, SceneImage, PropImage, CostumeImage):
+            # Each table has its own numeric sequence; slot ID alone is not identity.
+            for model, parent_field in (
+                (ActorImage, "actor_id"), (CharacterImage, "character_id"),
+                (SceneImage, "scene_id"), (PropImage, "prop_id"), (CostumeImage, "costume_id"),
+            ):
                 row = await db.get(model, numeric_id)
-                if row is not None:
+                if row is not None and getattr(row, parent_field) == target.entity_id:
                     return row.version_id
         return None

@@ -152,8 +152,14 @@ class AbstractWorkerTaskExecutor(ABC):
         if not ctx.store.is_cancel_requested(ctx.task_id):
             return False
         ctx.store.mark_cancelled(ctx.task_id)
+        self.on_cancel(ctx)
         ctx.db.commit()
         return True
+
+    def on_cancel(self, ctx: WorkerTaskContext) -> None:  # noqa: ARG002
+        """在任务进入已取消终态时投影业务状态；默认任务无需额外处理。"""
+
+        return None
 
     def load_run_args(self, ctx: WorkerTaskContext) -> dict[str, Any]:
         return dict((ctx.task.payload or {}).get("run_args") or {})

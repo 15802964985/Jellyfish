@@ -29,10 +29,13 @@ from app.schemas.studio.shots import (
 from app.services.common import entity_not_found
 from app.services.studio.action_beats import infer_action_beat_sequence
 from app.services.studio.shot_assets_overview import get_shot_assets_overview
+from app.services.generation.quality import append_quality_instructions, quality_for_video_pack
+from app.services.generation.quality_sources import read_linked_asset_descriptions
+from types import SimpleNamespace
 
 
 DEFAULT_VIDEO_NEGATIVE_PROMPT = (
-    "不要新增无关人物；不要改变角色身份、服装颜色和场景地点；"
+    "不要新增无关人物；除剧情明确要求的变化外，保持角色身份、服装颜色和场景地点；"
     "不要出现文字水印、肢体畸形、镜头跳变和画面闪烁。"
 )
 
@@ -129,26 +132,14 @@ def enrich_rendered_video_prompt(
     避免这类信息只停留在 preview pack 中却没有真正进入最终 prompt。
     """
     text = str(rendered_prompt or "").strip()
-    suffix = _build_guidance_suffix(pack)
-    if not suffix:
-        return text
-
-    normalized = text.replace(" ", "")
-    if any(
-        marker in normalized
-        for marker in (
-            "动作节拍：",
-            "上一镜头承接：",
-            "连续性要求：",
-            "构图锚点：",
-            "朝向与视线：",
-        )
-    ):
-        return text
-
-    if not text:
-        return suffix
-    return f"{text}\n\n{suffix}".strip()
+    # Check full lines independently: one existing heading must not hide the other constraints.
+    lines = [line for line in _build_guidance_suffix(pack).splitlines() if line not in text]
+    report = quality_for_video_pack(pack)
+    # Asset facts are input evidence, not extra characters or guessed measurements.
+    for fact in report.facts:
+        if fact.text not in text:
+            lines.append(f'镜头依据（{fact.source}）：{fact.text}')
+    return append_quality_instructions('\n'.join([text, *lines]), report)
 
 
 def _split_beats(*values: str) -> list[str]:
@@ -402,6 +393,15 @@ async def build_shot_video_prompt_pack(
     detail = shot.detail
     project = getattr(getattr(shot, "chapter", None), "project", None)
     overview = await get_shot_assets_overview(db, shot_id=shot_id)
+    # Current asset data is authoritative; an old extraction candidate must not overwrite edits.
+    descriptions = await read_linked_asset_descriptions(db, [
+        SimpleNamespace(type=item.type, id=item.linked_entity_id)
+        for item in overview.items if item.is_linked and item.linked_entity_id
+    ])
+    for item in overview.items:
+        key = (item.type, item.linked_entity_id)
+        if item.is_linked and key in descriptions:
+            item.description = descriptions[key]
     neighbors_stmt = (
         select(Shot)
         .options(selectinload(Shot.detail).selectinload(ShotDetail.scene))

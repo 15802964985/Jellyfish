@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.contracts.generation import GenerationTargetKind, ResolvedGenerationSnapshot
 from app.models.generation_artifacts import GenerationArtifact, GenerationArtifactPublishStatus
+from app.models.task_links import GenerationTaskLink
 
 
 class GenerationResultPublisher(ABC):
@@ -49,6 +51,12 @@ class GenerationResultPublisher(ABC):
         if published:
             primary.publish_status = GenerationArtifactPublishStatus.published
             primary.publish_error = None
+            if primary.task_id:
+                await db.execute(
+                    update(GenerationTaskLink)
+                    .where(GenerationTaskLink.task_id == primary.task_id)
+                    .values(file_id=primary.file_id)
+                )
         else:
             primary.publish_status = GenerationArtifactPublishStatus.conflicted
             primary.publish_error = "target_version_conflict"

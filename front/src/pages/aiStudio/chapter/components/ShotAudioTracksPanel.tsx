@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Button, Empty, InputNumber, Modal, Select, Slider, Space, Switch, Tag, message } from 'antd'
-import { DeleteOutlined, PlusOutlined, SoundOutlined } from '@ant-design/icons'
+import { Button, Empty, Input, InputNumber, Modal, Select, Slider, Space, Switch, Tag, message } from 'antd'
+import { DeleteOutlined, PlusOutlined, SoundOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import type { AudioAssetRead, ShotAudioCuePlan, ShotAudioTrackRead, ShotAudioTrackType } from '../../../../services/generated'
-import { StudioMediaAssetsService, StudioShotDetailsService } from '../../../../services/generated'
+import { FilmService, StudioMediaAssetsService, StudioShotDetailsService } from '../../../../services/generated'
 import { buildFileDownloadUrl } from '../../assets/utils'
 
 const TRACK_OPTIONS: Array<{ value: ShotAudioTrackType; label: string; color: string }> = [
@@ -45,6 +45,11 @@ export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
   const [modalOpen, setModalOpen] = useState(false)
   const [audioAssetId, setAudioAssetId] = useState<string>()
   const [trackType, setTrackType] = useState<ShotAudioTrackType>('sfx')
+  const [ttsOpen, setTtsOpen] = useState(false)
+  const [ttsVoice, setTtsVoice] = useState('')
+  const [ttsInstruction, setTtsInstruction] = useState('')
+  const [ttsSubmitting, setTtsSubmitting] = useState(false)
+  const [ttsTaskId, setTtsTaskId] = useState<string>()
 
   const load = useCallback(async () => {
     if (!shotId) {
@@ -68,6 +73,64 @@ export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
   }, [shotId])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!ttsTaskId) return
+    let disposed = false
+    let timer: number | undefined
+    const poll = async () => {
+      try {
+        const response = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId: ttsTaskId })
+        const status = response.data?.status
+        if (status === 'succeeded') {
+          if (!disposed) {
+            setTtsTaskId(undefined)
+            message.success('AI 配音已生成并加入当前镜头音轨')
+            await load()
+          }
+          return
+        }
+        if (status === 'failed' || status === 'cancelled') {
+          if (!disposed) {
+            setTtsTaskId(undefined)
+            message.error(status === 'cancelled' ? 'AI 配音任务已取消' : 'AI 配音生成失败，请在任务中心查看原因')
+          }
+          return
+        }
+      } catch {
+        // 短暂查询失败不丢弃任务，沿用任务中心的持久状态继续轮询。
+      }
+      if (!disposed) timer = window.setTimeout(() => void poll(), 8000)
+    }
+    void poll()
+    return () => {
+      disposed = true
+      if (timer) window.clearTimeout(timer)
+    }
+  }, [load, ttsTaskId])
+
+  const createTts = async () => {
+    if (!shotId) return
+    setTtsSubmitting(true)
+    try {
+      const response = await StudioMediaAssetsService.createShotTtsTaskApiApiV1StudioMediaAssetsShotsShotIdTtsTasksPost({
+        shotId,
+        requestBody: {
+          voice: ttsVoice.trim() || null,
+          instruction: ttsInstruction.trim() || null,
+          language_type: 'Chinese',
+        },
+      })
+      if (!response.data?.task_id) throw new Error('任务创建结果缺少 task_id')
+      setTtsTaskId(response.data.task_id)
+      setTtsOpen(false)
+      message.success(response.data.reused ? '已有配音任务正在执行' : '配音任务已提交，可在任务中心查看')
+    } catch {
+      message.error('配音任务创建失败，请确认已配置默认语音模型和模型参数')
+    } finally {
+      setTtsSubmitting(false)
+    }
+  }
 
   const openPicker = async (type: ShotAudioTrackType) => {
     setTrackType(type)
@@ -128,10 +191,18 @@ export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
       <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-xs text-slate-600">
         音轨是可选增强：不添加也可继续生成视频；已添加的音频会保存为当前镜头的后期合成配置。
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
         <Button onClick={() => void openPicker('bgm')}><PlusOutlined />配乐 {groupedCount.music || ''}</Button>
         <Button onClick={() => void openPicker('narration')}><PlusOutlined />配音 {groupedCount.voice || ''}</Button>
         <Button onClick={() => void openPicker('sfx')}><PlusOutlined />音效 {groupedCount.effect || ''}</Button>
+        <Button
+          type="primary"
+          ghost
+          loading={Boolean(ttsTaskId)}
+          onClick={() => setTtsOpen(true)}
+        >
+          <ThunderboltOutlined />对白转配音
+        </Button>
       </div>
 
       {cues.length ? (
@@ -228,6 +299,29 @@ export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
             options={assets.map((item) => ({ value: item.id, label: `${item.name} · ${trackMeta((item.category === 'voice' ? 'dialogue' : item.category === 'transition' ? 'sfx' : item.category) as ShotAudioTrackType).label}` }))}
           />
           <div className="text-xs text-slate-500">没有合适素材时，请先到“资产管理 → 配音音效”上传。</div>
+        </div>
+      </Modal>
+
+      <Modal
+        title="用镜头对白生成 AI 配音"
+        open={ttsOpen}
+        okText="确认调用并生成"
+        confirmLoading={ttsSubmitting}
+        onOk={() => void createTts()}
+        onCancel={() => setTtsOpen(false)}
+      >
+        <div className="space-y-4 pt-3">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+            将按顺序朗读当前镜头已确认对白，并调用默认语音模型；该操作可能产生供应商费用。生成结果会立即保存到 RustFS、资产管理和当前镜头音轨。
+          </div>
+          <div>
+            <div className="mb-1 text-sm text-slate-600">音色（可选）</div>
+            <Input value={ttsVoice} onChange={(event) => setTtsVoice(event.target.value)} placeholder="留空使用模型参数 voice；Qwen3-TTS 默认 Cherry" />
+          </div>
+          <div>
+            <div className="mb-1 text-sm text-slate-600">表演指令（可选）</div>
+            <Input.TextArea rows={3} value={ttsInstruction} onChange={(event) => setTtsInstruction(event.target.value)} placeholder="例如：温柔、语速稍慢，带一点紧张感" />
+          </div>
         </div>
       </Modal>
     </div>

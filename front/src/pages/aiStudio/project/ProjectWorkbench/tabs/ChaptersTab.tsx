@@ -21,6 +21,7 @@ import {
   StudioFilesService,
   StudioScriptImportsService,
   type ScriptImportRead,
+  type ScriptImportSummaryRead,
   type ScriptImportCandidateDecision,
   type ScriptImportEntityMatch,
   type ScriptImportMediaPlanRead,
@@ -74,6 +75,14 @@ const IMPORT_ENTITY_LABELS: Record<ImportEntityCandidate['entity_type'], string>
   costume: '服装',
 }
 
+const IMPORT_STATUS_META: Record<string, { label: string; color: string }> = {
+  parsed: { label: '待审核', color: 'blue' },
+  analyzing: { label: '分析中', color: 'processing' },
+  ready: { label: '待确认', color: 'cyan' },
+  failed: { label: '分析失败', color: 'error' },
+  committed: { label: '已导入', color: 'success' },
+}
+
 export function ChaptersTab() {
   const taskCopy = TASK_COPY.chapterDivision
   const navigate = useNavigate()
@@ -101,6 +110,11 @@ export function ChaptersTab() {
   const [includeImportedShots, setIncludeImportedShots] = useState(false)
   const [includeImportedDialogue, setIncludeImportedDialogue] = useState(false)
   const [importMediaPlan, setImportMediaPlan] = useState<ScriptImportMediaPlanRead | null>(null)
+  const [importHistory, setImportHistory] = useState<ScriptImportSummaryRead[]>([])
+  const [importHistoryLoading, setImportHistoryLoading] = useState(false)
+  const [importHistoryPage, setImportHistoryPage] = useState(1)
+  const [importHistoryTotal, setImportHistoryTotal] = useState(0)
+  const [importHistoryReloadKey, setImportHistoryReloadKey] = useState(0)
   const [autoDivideAfterImport, setAutoDivideAfterImport] = useState(false)
   const [chapterFlowMap, setChapterFlowMap] = useState<Record<string, ChapterFlowStats>>({})
   const [chapterDivisionActionId, setChapterDivisionActionId] = useState<string | null>(null)
@@ -116,6 +130,31 @@ export function ChaptersTab() {
   )
   const parsedImportChapters = importBatch?.parse_result.chapters ?? []
   const importAnalysis = (importBatch?.analysis_result ?? {}) as ImportAnalysis
+  const importReadOnly = importBatch?.status === 'committed'
+
+  useEffect(() => {
+    if (importOpen) setImportHistoryPage(1)
+  }, [importOpen, projectId])
+
+  useEffect(() => {
+    if (!importOpen || !projectId) return
+    let cancelled = false
+    setImportHistoryLoading(true)
+    void StudioScriptImportsService.listScriptImportsApiApiV1StudioScriptImportsGet({
+      projectId,
+      page: importHistoryPage,
+      pageSize: 5,
+    }).then((response) => {
+      if (cancelled) return
+      setImportHistory(response.data?.items ?? [])
+      setImportHistoryTotal(response.data?.pagination.total ?? 0)
+    }).catch(() => {
+      if (!cancelled) message.error('加载导入草稿失败')
+    }).finally(() => {
+      if (!cancelled) setImportHistoryLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [importHistoryPage, importHistoryReloadKey, importOpen, projectId])
 
   const updateCandidateDecision = (
     candidateId: string,
@@ -522,6 +561,7 @@ export function ChaptersTab() {
         },
       })
       if (response.data) setImportBatch(response.data)
+      setImportHistoryReloadKey((current) => current + 1)
       message.success('导入预览草稿已保存')
     } catch (error) {
       message.error(error instanceof Error ? error.message : '保存导入预览失败')
@@ -551,29 +591,249 @@ export function ChaptersTab() {
     }
   }
 
+  /** 把后端导入批次恢复到当前审核工作区，包括用户已保存的编辑与选项。 */
+  const restoreScriptImportBatch = async (batch: ScriptImportRead) => {
+    const parsedChapters = batch.parse_result.chapters ?? []
+    const savedOverrides = (batch.review_state?.chapter_overrides ?? {}) as Record<string, Partial<ImportChapterEdit>>
+    const savedDecisions = (batch.review_state?.candidate_decisions ?? {}) as Record<string, ScriptImportCandidateDecision>
+    const savedSelection = batch.review_state?.selected_chapter_indexes
+    setImportBatch(batch)
+    setSelectedImportChapters(Array.isArray(savedSelection)
+      ? savedSelection.filter((value): value is number => typeof value === 'number')
+      : parsedChapters.map((chapter) => chapter.index))
+    setImportChapterEdits(Object.fromEntries(parsedChapters.map((chapter) => {
+      const saved = savedOverrides[String(chapter.index)] ?? {}
+      return [chapter.index, {
+        title: saved.title ?? chapter.title,
+        theme: saved.theme ?? chapter.theme ?? '',
+        screenplay_text: saved.screenplay_text ?? chapter.screenplay_text,
+      }]
+    })))
+    setCandidateDecisions(savedDecisions)
+    setIncludeImportedShots(Boolean(batch.review_state?.include_shots))
+    setIncludeImportedDialogue(Boolean(batch.review_state?.include_audio_dialogue))
+    const savedMediaPlanModelId = batch.review_state?.media_plan_model_id
+    if (typeof savedMediaPlanModelId === 'string' && savedMediaPlanModelId) {
+      try {
+        const planned = await StudioScriptImportsService.planScriptImportMediaApiApiV1StudioScriptImportsImportIdPlanMediaPost({
+          importId: batch.id,
+          requestBody: { model_id: savedMediaPlanModelId },
+        })
+        setImportMediaPlan(planned.data ?? null)
+      } catch {
+        setImportMediaPlan(null)
+        message.warning('此前选择的视频模型已不可用，请重新规划片段时长')
+      }
+    } else {
+      setImportMediaPlan(null)
+    }
+  }
+
+  /** 从历史摘要读取完整草稿，并恢复到导入审核区。 */
+  const handleOpenImportHistory = async (item: ScriptImportSummaryRead) => {
+    setImporting(true)
+    try {
+      const response = await StudioScriptImportsService.getScriptImportApiApiV1StudioScriptImportsImportIdGet({
+        importId: item.id,
+      })
+      if (!response.data) throw new Error('草稿详情不存在')
+      await restoreScriptImportBatch(response.data)
+      message.success(item.status === 'committed' ? '已打开导入记录' : '已恢复导入草稿')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '打开导入草稿失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  /** 删除未提交草稿；原始文件仍保留在文件管理中。 */
+  const handleDeleteImportDraft = (item: ScriptImportSummaryRead) => {
+    Modal.confirm({
+      title: '删除导入草稿？',
+      content: '只删除预览、编辑和候选选择；原始文件仍保留在文件管理中。',
+      okText: '删除草稿',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await StudioScriptImportsService.deleteScriptImportApiApiV1StudioScriptImportsImportIdDelete({
+            importId: item.id,
+          })
+          if (importBatch?.id === item.id) {
+            setImportBatch(null)
+            setSelectedImportChapters([])
+            setImportChapterEdits({})
+            setCandidateDecisions({})
+            setEntityMatches({})
+            setImportMediaPlan(null)
+          }
+          if (importHistory.length === 1 && importHistoryPage > 1) {
+            setImportHistoryPage((current) => current - 1)
+          } else {
+            setImportHistoryReloadKey((current) => current + 1)
+          }
+          message.success('导入草稿已删除，原始文件未删除')
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : '删除导入草稿失败')
+          throw error
+        }
+      },
+    })
+  }
+
+  /** 清空当前导入工作区；仅处理前端状态，不改变已保存草稿。 */
+  const resetScriptImportWorkspace = () => {
+    setImportOpen(false)
+    setImportBatch(null)
+    setSelectedImportChapters([])
+    setImportChapterEdits({})
+    setCandidateDecisions({})
+    setEntityMatches({})
+    setImportMediaPlan(null)
+  }
+
+  /** 关闭临时预览时主动丢弃未保存批次，避免“上传即自动保存草稿”。 */
+  const handleCloseScriptImport = async () => {
+    if (importing) return
+    if (importBatch?.status === 'analyzing') {
+      message.warning('AI 深度分析仍在进行，请先到任务中心取消后再关闭')
+      return
+    }
+    if (importBatch && !importBatch.is_saved && importBatch.status !== 'committed') {
+      try {
+        await StudioScriptImportsService.deleteScriptImportApiApiV1StudioScriptImportsImportIdDelete({
+          importId: importBatch.id,
+        })
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : '丢弃临时预览失败')
+        return
+      }
+    }
+    resetScriptImportWorkspace()
+  }
+
+  /** 展示格式无关的导入建议，帮助用户在低识别质量时修订原文件。 */
+  const showScriptImportGuide = () => {
+    Modal.info({
+      title: '剧本文件与内容规范',
+      width: 720,
+      okText: '知道了',
+      content: (
+        <div className="mt-4 space-y-3 text-sm leading-6">
+          <Alert
+            type="info"
+            showIcon
+            message="格式不是硬性模板"
+            description="系统会保留未识别原文，并把可识别内容规范成业务标签。字段缺失或结构差异较大时会提示核对，也可以在明确同意外发后使用 AI 深度分析。"
+          />
+          <div><strong>支持文件：</strong>TXT、MD/Markdown、带文字层的 PDF、DOCX，单文件最大 25MB。</div>
+          <div>
+            <strong>格式说明：</strong>TXT 支持 UTF-8/GB18030、方括号标签或“字段：内容”；Markdown 支持标题、列表、引用和表格；扫描版 PDF 需先 OCR；DOCX 读取正文，不保证还原文本框、图片文字和复杂排版。
+          </div>
+          <div><strong>推荐每章包含：</strong>章节标题、时间范围或时长、画面/场景、镜头/运镜；配音/对白、字幕、画面提示词、音效和制作备注按实际需要填写。</div>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-xs">{`章节一｜雨夜车站（0-8 秒）
+【画面】
+阿青推门走进空旷车站。
+【镜头】
+中景跟拍，缓慢推进。
+【时长】
+8 秒
+【配音】
+那晚，我回到了起点。
+【字幕】
+雨夜归来`}</pre>
+          <div className="text-amber-700">看到“结构差异较大”时，请重点检查章节边界、标题、画面、镜头和时长；不要在未核对预览时直接确认导入。</div>
+        </div>
+      ),
+    })
+  }
+
   const scriptImportModal = (
     <Modal
       title="导入剧本"
       open={importOpen}
-      onCancel={() => {
-        if (importing) return
-        setImportOpen(false)
-        setImportBatch(null)
-        setSelectedImportChapters([])
-        setImportChapterEdits({})
-        setCandidateDecisions({})
-        setEntityMatches({})
-        setImportMediaPlan(null)
-      }}
+      onCancel={() => void handleCloseScriptImport()}
       onOk={() => void handleImportScripts()}
-      okText={`确认导入${selectedImportChapters.length ? ` ${selectedImportChapters.length} 个章节` : ''}`}
-      okButtonProps={{ disabled: !selectedImportChapters.length }}
+      okText={importReadOnly ? '已导入' : `确认导入${selectedImportChapters.length ? ` ${selectedImportChapters.length} 个章节` : ''}`}
+      okButtonProps={{ disabled: !selectedImportChapters.length || importReadOnly }}
       confirmLoading={importing}
       closable={!importing}
       maskClosable={!importing}
       width={900}
     >
       <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3 rounded border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
+          <span>支持自由格式智能解析；推荐结构可提高章节、画面、镜头和声音识别准确度。</span>
+          <Button type="link" size="small" onClick={showScriptImportGuide}>查看格式与内容规范</Button>
+        </div>
+        <Card
+          size="small"
+          title={`导入草稿与历史（${importHistoryTotal}）`}
+          extra={(
+            <Button
+              type="link"
+              size="small"
+              loading={importHistoryLoading}
+              onClick={() => setImportHistoryReloadKey((current) => current + 1)}
+            >
+              刷新
+            </Button>
+          )}
+        >
+          {importHistoryLoading && !importHistory.length ? (
+            <div className="py-3 text-center text-gray-500">正在加载草稿…</div>
+          ) : importHistory.length ? (
+            <div className="divide-y">
+              {importHistory.map((item) => {
+                const statusMeta = IMPORT_STATUS_META[item.status] ?? { label: item.status, color: 'default' }
+                const canDelete = !['committed', 'analyzing'].includes(item.status)
+                return (
+                  <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-medium">{item.file_name || item.title}</span>
+                        <Tag color={statusMeta.color}>{statusMeta.label}</Tag>
+                        <Tag>{item.source_format.toUpperCase()}</Tag>
+                        <Tag>解析器 {item.parser_version}</Tag>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">
+                        {item.chapter_count ?? 0} 个识别章节
+                        {item.status === 'committed' ? `；已导入 ${item.committed_chapter_count ?? 0} 个章节` : ''}
+                        ；更新于 {new Date(item.updated_at).toLocaleString('zh-CN')}
+                      </div>
+                    </div>
+                    <Space size={4}>
+                      <Button size="small" onClick={() => void handleOpenImportHistory(item)}>
+                        {item.status === 'committed' ? '查看' : '继续编辑'}
+                      </Button>
+                      <Button
+                        size="small"
+                        danger
+                        disabled={!canDelete}
+                        onClick={() => handleDeleteImportDraft(item)}
+                      >
+                        删除草稿
+                      </Button>
+                    </Space>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无导入草稿" />
+          )}
+          {importHistoryTotal > 5 ? (
+            <Pagination
+              className="mt-3 text-right"
+              size="small"
+              current={importHistoryPage}
+              pageSize={5}
+              total={importHistoryTotal}
+              showSizeChanger={false}
+              onChange={setImportHistoryPage}
+            />
+          ) : null}
+        </Card>
         <Upload.Dragger
           accept=".txt,.md,.markdown,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           maxCount={1}
@@ -595,39 +855,7 @@ export function ChaptersTab() {
               })
               if (!created.data) throw new Error('解析成功但未返回导入预览')
               const parsedChapters = created.data.parse_result.chapters ?? []
-              const savedOverrides = (created.data.review_state?.chapter_overrides ?? {}) as Record<string, Partial<ImportChapterEdit>>
-              const savedDecisions = (created.data.review_state?.candidate_decisions ?? {}) as Record<string, ScriptImportCandidateDecision>
-              const savedSelection = created.data.review_state?.selected_chapter_indexes
-              setImportBatch(created.data)
-              setSelectedImportChapters(Array.isArray(savedSelection)
-                ? savedSelection.filter((value): value is number => typeof value === 'number')
-                : parsedChapters.map((chapter) => chapter.index))
-              setImportChapterEdits(Object.fromEntries(parsedChapters.map((chapter) => {
-                const saved = savedOverrides[String(chapter.index)] ?? {}
-                return [chapter.index, {
-                  title: saved.title ?? chapter.title,
-                  theme: saved.theme ?? chapter.theme ?? '',
-                  screenplay_text: saved.screenplay_text ?? chapter.screenplay_text,
-                }]
-              })))
-              setCandidateDecisions(savedDecisions)
-              setIncludeImportedShots(Boolean(created.data.review_state?.include_shots))
-              setIncludeImportedDialogue(Boolean(created.data.review_state?.include_audio_dialogue))
-              const savedMediaPlanModelId = created.data.review_state?.media_plan_model_id
-              if (typeof savedMediaPlanModelId === 'string' && savedMediaPlanModelId) {
-                try {
-                  const planned = await StudioScriptImportsService.planScriptImportMediaApiApiV1StudioScriptImportsImportIdPlanMediaPost({
-                    importId: created.data.id,
-                    requestBody: { model_id: savedMediaPlanModelId },
-                  })
-                  setImportMediaPlan(planned.data ?? null)
-                } catch {
-                  setImportMediaPlan(null)
-                  message.warning('此前选择的视频模型已不可用，请重新规划片段时长')
-                }
-              } else {
-                setImportMediaPlan(null)
-              }
+              await restoreScriptImportBatch(created.data)
               message.success(`本地解析完成：识别到 ${parsedChapters.length} 个章节`)
             } catch (error) {
               setImportBatch(null)
@@ -678,7 +906,15 @@ export function ChaptersTab() {
                 </Button>
               </div>
               {importBatch.status === 'analyzing' ? (
-                <Alert type="info" showIcon message="AI 正在分析，任务完成后本窗口会自动更新，也可在任务中心查看。" />
+                <Alert
+                  type="info"
+                  showIcon
+                  message="模型请求已发送，正在等待结构化分析结果"
+                  description="深度分析是一次完整模型调用，结果返回前进度只表示当前阶段，不会逐字增长；长剧本可能需要数分钟。可在任务中心取消，取消后本窗口会自动恢复操作。"
+                />
+              ) : null}
+              {importBatch.status === 'parsed' && importBatch.error_message ? (
+                <Alert type="warning" showIcon message={importBatch.error_message} />
               ) : null}
               {importBatch.status === 'failed' && importBatch.error_message ? (
                 <Alert type="error" showIcon message="AI 深度分析失败" description={importBatch.error_message} />
@@ -725,6 +961,7 @@ export function ChaptersTab() {
                             </div>
                             <Select
                               size="small"
+                              disabled={importReadOnly}
                               value={action}
                               style={{ width: 150 }}
                               onChange={(value: ScriptImportCandidateDecision['action']) => updateCandidateDecision(
@@ -748,6 +985,7 @@ export function ChaptersTab() {
                           {action === 'link' ? (
                             <Select
                               className="mt-2 w-full"
+                              disabled={importReadOnly}
                               showSearch
                               placeholder={matches.length ? '选择已有资产' : '未找到相似资产，请改为新建或忽略'}
                               value={decision?.existing_entity_id}
@@ -762,12 +1000,14 @@ export function ChaptersTab() {
                             <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                               <Input
                                 size="small"
+                                disabled={importReadOnly}
                                 addonBefore="名称"
                                 value={decision?.edited_name ?? candidate.name}
                                 onChange={(event) => updateCandidateDecision(candidate.candidate_id, { edited_name: event.target.value })}
                               />
                               <Input
                                 size="small"
+                                disabled={importReadOnly}
                                 addonBefore="说明"
                                 value={decision?.edited_description ?? candidate.description ?? ''}
                                 onChange={(event) => updateCandidateDecision(candidate.candidate_id, { edited_description: event.target.value })}
@@ -785,6 +1025,7 @@ export function ChaptersTab() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Checkbox
                       checked={includeImportedShots}
+                      disabled={importReadOnly}
                       onChange={(event) => {
                         setIncludeImportedShots(event.target.checked)
                         if (event.target.checked) setAutoDivideAfterImport(false)
@@ -792,7 +1033,7 @@ export function ChaptersTab() {
                     >
                       导入已审核镜头草稿（{importAnalysis.shots?.length ?? 0} 个，不调用图片/视频模型）
                     </Checkbox>
-                    <Button size="small" loading={importing} onClick={() => void handlePlanImportMedia()}>
+                    <Button size="small" disabled={importReadOnly} loading={importing} onClick={() => void handlePlanImportMedia()}>
                       按默认视频模型规划时长
                     </Button>
                   </div>
@@ -823,7 +1064,7 @@ export function ChaptersTab() {
               {(importAnalysis.audio?.length ?? 0) > 0 ? (
                 <Checkbox
                   checked={includeImportedDialogue}
-                  disabled={!includeImportedShots}
+                  disabled={!includeImportedShots || importReadOnly}
                   onChange={(event) => setIncludeImportedDialogue(event.target.checked)}
                 >
                   同时导入对白/旁白到镜头（声音候选共 {importAnalysis.audio?.length ?? 0} 条）
@@ -832,6 +1073,7 @@ export function ChaptersTab() {
             </div>
             <div className="flex items-center justify-between gap-3">
               <Checkbox
+                disabled={importReadOnly}
                 checked={selectedImportChapters.length === parsedImportChapters.length}
                 indeterminate={selectedImportChapters.length > 0 && selectedImportChapters.length < parsedImportChapters.length}
                 onChange={(event) => setSelectedImportChapters(
@@ -840,14 +1082,15 @@ export function ChaptersTab() {
               >
                 全选识别到的章节
               </Checkbox>
-              <Button size="small" loading={importing} onClick={() => void handleSaveImportReview()}>
-                保存预览草稿
+              <Button size="small" disabled={importReadOnly} loading={importing} onClick={() => void handleSaveImportReview()}>
+                保存并稍后继续
               </Button>
             </div>
             <div className="max-h-[42vh] overflow-auto rounded border border-gray-200 divide-y">
               {parsedImportChapters.map((chapter) => (
                 <div key={chapter.index} className="px-3 py-3">
                   <Checkbox
+                    disabled={importReadOnly}
                     checked={selectedImportChapters.includes(chapter.index)}
                     onChange={(event) => setSelectedImportChapters((current) => event.target.checked
                       ? [...current, chapter.index].sort((a, b) => a - b)
@@ -859,6 +1102,7 @@ export function ChaptersTab() {
                   </Checkbox>
                   <div className="mt-2 ml-6 grid grid-cols-1 md:grid-cols-2 gap-2">
                     <Input
+                      disabled={importReadOnly}
                       size="small"
                       addonBefore="标题"
                       value={importChapterEdits[chapter.index]?.title ?? chapter.title}
@@ -868,6 +1112,7 @@ export function ChaptersTab() {
                       }))}
                     />
                     <Input
+                      disabled={importReadOnly}
                       size="small"
                       addonBefore="主题"
                       value={importChapterEdits[chapter.index]?.theme ?? chapter.theme ?? ''}
@@ -878,6 +1123,7 @@ export function ChaptersTab() {
                     />
                   </div>
                   <TextArea
+                    disabled={importReadOnly}
                     className="mt-2 ml-6"
                     style={{ width: 'calc(100% - 24px)' }}
                     autoSize={{ minRows: 2, maxRows: 6 }}
@@ -887,6 +1133,16 @@ export function ChaptersTab() {
                       [chapter.index]: { ...current[chapter.index], screenplay_text: event.target.value },
                     }))}
                   />
+                  {chapter.warnings?.length ? (
+                    <Alert
+                      className="mt-2 ml-6"
+                      style={{ width: 'calc(100% - 24px)' }}
+                      type={chapter.warnings.some((warning) => warning.includes('结构差异较大')) ? 'warning' : 'info'}
+                      showIcon
+                      message="解析质量提示"
+                      description={chapter.warnings.map((warning) => <div key={warning}>{warning}</div>)}
+                    />
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -895,7 +1151,7 @@ export function ChaptersTab() {
 
         <Checkbox
           checked={autoDivideAfterImport}
-          disabled={!selectedImportChapters.length || importing || includeImportedShots}
+          disabled={!selectedImportChapters.length || importing || includeImportedShots || importReadOnly}
           onChange={(event) => setAutoDivideAfterImport(event.target.checked)}
         >
           导入后自动启动 AI 分镜提取

@@ -18,6 +18,7 @@ import {
 import { useProjectStyleOptions } from '../../../project/useProjectStyleOptions'
 import { notifyProjectDataChanged } from '../projectDataEvents'
 import { loadAllPaginated } from '../../../../../services/loadAllPaginated'
+import { confirmEntityDeletion } from '../../../assets/confirmEntityDeletion'
 
 type ActorLike = {
   id: string
@@ -384,20 +385,14 @@ export function RolesTab() {
                       size="small"
                       danger
                       onClick={() => {
-                        Modal.confirm({
-                          title: `删除角色「${c.name}」？`,
-                          okText: '删除',
-                          cancelText: '取消',
-                          okButtonProps: { danger: true },
-                          onOk: async () => {
-                            try {
-                              await StudioEntitiesApi.remove('character', c.id)
-                              message.success('已删除')
-                              await refresh()
-                              notifyProjectDataChanged({ projectId, resources: ['project', 'characters'] })
-                            } catch {
-                              message.error('删除失败')
-                            }
+                        void confirmEntityDeletion({
+                          entityType: 'character',
+                          entityId: c.id,
+                          entityLabel: '角色',
+                          entityName: c.name,
+                          onDeleted: async () => {
+                            await refresh()
+                            notifyProjectDataChanged({ projectId, resources: ['project', 'characters'] })
                           },
                         })
                       }}

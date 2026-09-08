@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Protocol
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
+import hashlib
+import json
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +15,7 @@ from app.core.contracts.generation import (
     GenerationDelivery,
     ResolvedGenerationSnapshot,
 )
-from app.core.contracts.media import ImageMediaInput, MediaReference, VideoMediaInput
+from app.core.contracts.media import ImageMediaInput, MediaReference, VideoMediaInput, VideoEditMediaInput
 from app.models.generation_artifacts import GenerationDispatchOutbox, GenerationTaskMediaReference
 from app.models.task import GenerationDeliveryMode, GenerationTask, GenerationTaskStatus, GenerationTaskVisibility
 from app.models.task_links import GenerationTaskLink
@@ -65,6 +67,22 @@ class GenerationSubmitter:
     ) -> GenerationAccepted:
         """在调用方的同一数据库事务中写入任务、关联、媒体快照和 Outbox。"""
         task_id = uuid4().hex
+        if command.operation.value == 'quality_preflight':
+            media_versions = [(await FileResolver(db).snapshot(reference)).model_dump(mode='json')
+                for _, reference in _iter_media_references(snapshot.media)]
+            material = json.dumps({'revision': snapshot.model_revision_id,
+                'command': command.model_dump(mode='json'), 'media_versions': media_versions,
+                'version': 'quality-review-v2'}, sort_keys=True, ensure_ascii=False)
+            task_id = hashlib.sha256(material.encode('utf-8')).hexdigest()
+            if await db.get(GenerationTask, task_id) is not None:
+                return GenerationAccepted(task_id=task_id)
+        if command.operation.value == 'video_edit':
+            task_id = uuid5(NAMESPACE_URL, f'jellyfish-edit:{command.target.entity_id}:{command.request.operation_input.client_request_id}').hex
+            existing = await db.get(GenerationTask, task_id)
+            if existing is not None:
+                if existing.payload.get('command') != command.model_dump(mode='json'):
+                    raise ValueError('编辑请求编号已用于不同内容，请重新确认后提交')
+                return GenerationAccepted(task_id=task_id)
         task = GenerationTask(
             id=task_id,
             mode=GenerationDeliveryMode.async_polling,
@@ -74,6 +92,10 @@ class GenerationSubmitter:
             payload=_task_payload(command=command, snapshot=snapshot),
         )
         db.add(task)
+        # GenerationTask 与其 Link/媒体快照/Outbox 之间没有 ORM relationship 可供
+        # SQLAlchemy 推导插入顺序。先刷入父任务，避免 MySQL 在同一 flush 中先插入
+        # Outbox 时触发 generation_dispatch_outbox.task_id 外键错误。
+        await db.flush()
         db.add(
             GenerationTaskLink(
                 task_id=task_id,
@@ -113,6 +135,8 @@ def _iter_media_references(media: ImageMediaInput | VideoMediaInput | None) -> l
     """将强类型媒体树投影为持久化媒体快照所需的稳定 group_path。"""
     if media is None:
         return []
+    if isinstance(media, VideoEditMediaInput):
+        return [('source', media.source), *[('references', r) for r in media.references]]
     if isinstance(media, ImageMediaInput):
         return [("references", reference) for reference in media.references]
 

@@ -37,7 +37,10 @@ from app.services.script_extraction_cache import (
     set_cached_script_extract,
 )
 from app.services.llm.runtime import build_default_text_llm_sync, build_text_llm_revision_sync
-from app.services.studio.script_division import write_division_result_to_chapter_sync
+from app.services.studio.script_division import (
+    normalize_generated_division_result,
+    write_division_result_to_chapter_sync,
+)
 from app.services.studio.shot_extracted_candidates import (
     sync_from_extraction_draft_sync as sync_shot_extracted_candidates_from_draft_sync,
 )
@@ -64,7 +67,9 @@ class DivideResultGenerator(AbstractLLMResultGenerator):
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> ScriptDivisionResult:
         agent = ScriptDividerAgent(llm)
-        return agent.divide_script(script_text=str(run_args.get("script_text") or ""))
+        script_text = str(run_args.get("script_text") or "")
+        result = agent.divide_script(script_text=script_text)
+        return normalize_generated_division_result(result, script_text=script_text)
 
 
 class _ScriptProcessingTaskExecutor(AbstractWorkerTaskExecutor):
@@ -219,7 +224,10 @@ class ScriptImportAnalysisResultGenerator(AbstractLLMResultGenerator):
         result = agent.analyze(
             parsed_document_json=json.dumps(run_args.get("parsed_document") or {}, ensure_ascii=False)
         )
-        return sanitize_script_import_analysis(result, dict(run_args.get("parsed_document") or {}))
+        checked = sanitize_script_import_analysis(result, dict(run_args.get("parsed_document") or {}))
+        if not (checked.entities or checked.shots or checked.audio):
+            raise ValueError("模型返回的候选均未通过原文证据/章节归属校验；未写入项目，请检查分析输出")
+        return checked
 
 
 class DivideTaskExecutor(_ScriptProcessingTaskExecutor):
@@ -359,6 +367,7 @@ class ScriptSimplificationTaskExecutor(_SimpleLLMTaskExecutor):
 class ScriptImportAnalysisTaskExecutor(_SimpleLLMTaskExecutor):
     task_kind = "script_import_analyze"
     generator_class = ScriptImportAnalysisResultGenerator
+    running_progress = 15
 
     def should_apply(self, ctx: WorkerTaskContext, run_args: dict[str, Any], result: Any) -> bool:
         return True
@@ -373,6 +382,16 @@ class ScriptImportAnalysisTaskExecutor(_SimpleLLMTaskExecutor):
         row.analysis_result = result.model_dump(mode="json")
         row.status = "ready"
         row.error_message = ""
+
+    def on_cancel(self, ctx: WorkerTaskContext) -> None:
+        """取消深度分析时恢复可编辑态，避免导入弹窗永久保持加载。"""
+
+        run_args = ((ctx.task.payload or {}).get("snapshot") or {}).get("run_args") or {}
+        import_id = str(run_args.get("import_id") or "")
+        row = ctx.db.get(ScriptImport, import_id) if import_id else None
+        if row is not None and row.status == "analyzing":
+            row.status = "parsed"
+            row.error_message = "AI 深度分析已取消，可重新发起"
 
     def _mark_failed(self, task_id: str, error: str) -> None:
         super()._mark_failed(task_id, error)

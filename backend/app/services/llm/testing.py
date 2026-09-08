@@ -76,6 +76,9 @@ async def test_provider_connection(db: AsyncSession, *, provider_id: str) -> Mod
     provider = await db.get(Provider, provider_id)
     if provider is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=entity_not_found("Provider"))
+    from app.services.llm.provider_registry import resolve_provider_key, get_provider_spec
+    if get_provider_spec(resolve_provider_key(provider)).video_operations == ('video_edit',):
+        raise HTTPException(status_code=400, detail='此供应商是视频编辑专用适配器。请在分镜工作台“文字编辑视频”中先免费检查输入，再明确确认费用后测试；不会用文本请求或自动收费生成伪造连接测试。')
     stmt = (
         select(Model)
         .where(Model.provider_id == provider.id, Model.category == ModelCategoryKey.text)

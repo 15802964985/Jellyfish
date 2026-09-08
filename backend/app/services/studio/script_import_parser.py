@@ -24,7 +24,7 @@ from app.schemas.studio.script_imports import (
 )
 
 
-PARSER_VERSION = "1.0.0"
+PARSER_VERSION = "1.1.0"
 _NUM = r"(?:\d+|[一二三四五六七八九十百零〇两]+)"
 _CHAPTER = re.compile(
     rf"^(?:(?:第\s*{_NUM}\s*[集章节幕回])|(?:(?:章节?|集|episode|chapter|ep\.?)\s*{_NUM}))"
@@ -37,6 +37,7 @@ _TIME_RANGE = re.compile(
     re.IGNORECASE,
 )
 _KEY_VALUE = re.compile(r"^\s*([^：:]{1,24})\s*[：:]\s*(.+?)\s*$")
+_BRACKET_LABEL = re.compile(r"^\s*[【\[](?P<label>[^】\]]{1,40})[】\]]\s*(?P<value>.*?)\s*$")
 _MD_HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 _SEPARATOR = re.compile(r"^\s*(?:(?:[-*_=]\s*){3,})$")
 
@@ -58,6 +59,16 @@ _ALIASES: dict[str, set[str]] = {
 }
 _AUXILIARY = {
     "prompt_summary", "voiceover_summary", "audio_plan", "production_note", "asset_bible"
+}
+_CANONICAL_LABELS: dict[str, str] = {
+    "theme": "主题",
+    "scene_description": "画面",
+    "camera": "镜头",
+    "duration": "时长",
+    "voiceover": "配音",
+    "subtitle": "字幕",
+    "prompt_hint_zh": "画面提示词 · 中文",
+    "prompt_hint_en": "画面提示词 · 英文",
 }
 
 
@@ -81,8 +92,9 @@ def _semantic_kind(text: str, *, is_heading: bool = False) -> tuple[str, float]:
     clean = text.strip().strip("[]【】")
     if _CHAPTER.search(clean):
         return "chapter", 0.99
+    bracket_match = _BRACKET_LABEL.match(text.strip())
     key_match = _KEY_VALUE.match(clean)
-    candidate = key_match.group(1) if key_match else clean
+    candidate = bracket_match.group("label") if bracket_match else key_match.group(1) if key_match else clean
     normalized = _normalize_label(candidate)
     for kind, aliases in _ALIASES.items():
         if normalized in {_normalize_label(alias) for alias in aliases}:
@@ -131,7 +143,8 @@ def _tokenize_markdown(text: str) -> list[_RawBlock]:
         elif stripped.startswith("|") and stripped.endswith("|"):
             flush(line_no - 1)
             # Emit every meaningful table row as an independent semantic block.
-            if not _is_table_separator(stripped):
+            next_is_separator = index + 1 < len(lines) and _is_table_separator(lines[index + 1].strip())
+            if not _is_table_separator(stripped) and not next_is_separator:
                 clean = _table_row_value(stripped)
                 if clean:
                     blocks.append(_RawBlock("table", line, clean, line_no, line_no))
@@ -176,9 +189,23 @@ def _tokenize_text(text: str) -> list[_RawBlock]:
 
     for index, line in enumerate(lines, start=1):
         stripped = line.strip()
+        bracket_match = _BRACKET_LABEL.match(stripped)
         if _SEPARATOR.match(stripped):
             flush(index - 1)
             blocks.append(_RawBlock("separator", line, "", index, index))
+        elif bracket_match or _KEY_VALUE.match(stripped):
+            flush(index - 1)
+            is_empty_bracket_heading = bool(bracket_match and not bracket_match.group("value").strip())
+            blocks.append(
+                _RawBlock(
+                    "heading" if is_empty_bracket_heading else "paragraph",
+                    line,
+                    stripped,
+                    index,
+                    index,
+                    1 if is_empty_bracket_heading else None,
+                )
+            )
         elif _looks_like_txt_heading(stripped) and not _KEY_VALUE.match(stripped):
             flush(index - 1)
             blocks.append(_RawBlock("heading", line, stripped.strip("[]【】 "), index, index, 1))
@@ -272,14 +299,66 @@ for _extension, _adapter in {
 
 
 def _extract_labeled_value(text: str) -> str:
+    bracket_match = _BRACKET_LABEL.match(text.strip())
+    if bracket_match:
+        return bracket_match.group("value").strip()
     match = _KEY_VALUE.match(text.strip())
     return match.group(2).strip() if match else text.strip()
 
 
 def _chapter_title(text: str) -> str:
+    """移除章节编号和时间范围，避免预览标题残留半个括号。"""
+
     match = _TIME_RANGE.search(text)
-    title = text[: match.start()].strip(" ｜|:：._—-") if match else text.strip()
+    if match:
+        title = f"{text[:match.start()]}{text[match.end():]}"
+        title = re.sub(r"[（(]\s*[）)]", "", title)
+    else:
+        title = text
+    title = title.strip(" （）()｜|:：._—-")
     return title or text.strip()
+
+
+def _canonical_section_text(semantic: str, value: str, *, include_label: bool) -> str:
+    """把多种文档格式统一成保留业务语义的标准剧本段落。"""
+
+    clean_value = value.strip()
+    label = _CANONICAL_LABELS.get(semantic)
+    if not include_label or not label:
+        return clean_value
+    return f"【{label}】\n{clean_value}" if clean_value else f"【{label}】"
+
+
+def _chapter_structure_warnings(
+    section_block_ids: dict[str, list[str]],
+    *,
+    target_duration_seconds: float | None,
+) -> list[str]:
+    """按通用生产字段评估章节解析质量，只提示、不阻断自由格式剧本。"""
+
+    recognized = {kind for kind, block_ids in section_block_ids.items() if block_ids}
+    warnings: list[str] = []
+    if "scene_description" not in recognized:
+        warnings.append("未明确识别画面/场景描述；请核对正文，或补充【画面】标签。")
+    if "camera" not in recognized:
+        warnings.append("未明确识别镜头/运镜信息；可继续导入，但后续需由 AI 推断或人工补充。")
+    if "duration" not in recognized and target_duration_seconds is None:
+        warnings.append("未识别章节时间范围或【时长】；视频分段前需要补充目标时长。")
+    if not ({"voiceover", "subtitle"} & recognized):
+        warnings.append("未识别配音、对白或字幕；如果本章是无对白镜头可忽略此提示。")
+
+    production_signals = sum(
+        1
+        for present in (
+            "scene_description" in recognized,
+            "camera" in recognized,
+            "duration" in recognized or target_duration_seconds is not None,
+        )
+        if present
+    )
+    if production_signals < 2:
+        warnings.insert(0, "本章与推荐剧本结构差异较大，请先核对标题、正文和字段归类。")
+    return warnings
 
 
 def _build_blocks(raw_blocks: list[_RawBlock]) -> list[ScriptDocumentBlock]:
@@ -348,6 +427,7 @@ def _assemble(blocks: list[ScriptDocumentBlock], source_format: str, encoding: s
     current: dict[str, object] | None = None
     active_section = "unknown"
     active_global = "project"
+    active_section_has_content = False
     title: str | None = None
 
     def flush_chapter() -> None:
@@ -356,6 +436,10 @@ def _assemble(blocks: list[ScriptDocumentBlock], source_format: str, encoding: s
             return
         content: list[str] = current.pop("content")  # type: ignore[assignment]
         current["screenplay_text"] = "\n\n".join(part for part in content if part).strip()
+        current["warnings"] = _chapter_structure_warnings(
+            current["section_block_ids"],  # type: ignore[arg-type]
+            target_duration_seconds=current.get("target_duration_seconds"),  # type: ignore[arg-type]
+        )
         chapters.append(ParsedScriptChapter(**current))
         current = None
 
@@ -365,6 +449,7 @@ def _assemble(blocks: list[ScriptDocumentBlock], source_format: str, encoding: s
             flush_chapter()
             active_global = "project"
             active_section = "unknown"
+            active_section_has_content = False
             time_match = _TIME_RANGE.search(block.clean_text)
             start = float(time_match.group("start")) if time_match else None
             end = float(time_match.group("end")) if time_match else None
@@ -408,6 +493,7 @@ def _assemble(blocks: list[ScriptDocumentBlock], source_format: str, encoding: s
 
         if block.kind == "heading" and semantic != "unknown":
             active_section = semantic
+            active_section_has_content = False
             current["block_ids"].append(block.id)  # type: ignore[union-attr]
             current["section_block_ids"].setdefault(semantic, []).append(block.id)  # type: ignore[union-attr]
             continue
@@ -415,22 +501,39 @@ def _assemble(blocks: list[ScriptDocumentBlock], source_format: str, encoding: s
         # Markdown authors often use bold standalone labels instead of real
         # headings.  Treat such blocks as section boundaries, but keep their
         # source evidence rather than leaking the label into generated text.
-        if semantic != "unknown" and not _KEY_VALUE.match(block.clean_text.strip()):
+        inline_bracket = _BRACKET_LABEL.match(block.clean_text.strip())
+        has_inline_bracket_value = bool(inline_bracket and inline_bracket.group("value").strip())
+        if (
+            semantic != "unknown"
+            and not _KEY_VALUE.match(block.clean_text.strip())
+            and not has_inline_bracket_value
+        ):
             active_section = semantic
+            active_section_has_content = False
             current["block_ids"].append(block.id)  # type: ignore[union-attr]
             current["section_block_ids"].setdefault(semantic, []).append(block.id)  # type: ignore[union-attr]
             continue
 
         effective = semantic if semantic != "unknown" else active_section
         value = _extract_labeled_value(block.clean_text) if semantic != "unknown" else block.clean_text
+        if semantic != "unknown":
+            active_section = semantic
+            active_section_has_content = False
         current["block_ids"].append(block.id)  # type: ignore[union-attr]
         current["section_block_ids"].setdefault(effective, []).append(block.id)  # type: ignore[union-attr]
         if effective == "theme" and not current["theme"]:
             current["theme"] = value
-        elif effective in {"prompt_hint_zh", "prompt_hint_en"}:
+        if effective in {"prompt_hint_zh", "prompt_hint_en"}:
             current["author_prompt_hints"].setdefault(effective, []).append(value)  # type: ignore[union-attr]
-        elif block.kind != "separator" and effective not in _AUXILIARY:
-            current["content"].append(value)  # type: ignore[union-attr]
+        if block.kind != "separator" and effective not in _AUXILIARY:
+            current["content"].append(  # type: ignore[union-attr]
+                _canonical_section_text(
+                    effective,
+                    value,
+                    include_label=not active_section_has_content,
+                )
+            )
+            active_section_has_content = True
     flush_chapter()
 
     warnings: list[str] = []
@@ -438,6 +541,14 @@ def _assemble(blocks: list[ScriptDocumentBlock], source_format: str, encoding: s
         warnings.append("未识别到明确章节；原文已完整保留，需在预览阶段手动确认或使用 AI 语义切分。")
     if encoding == "utf-8-replacement":
         warnings.append("部分字符无法按常见编码解码，请在预览中核对原文。")
+    low_confidence_count = sum(
+        1 for chapter in chapters if any("结构差异较大" in item for item in chapter.warnings)
+    )
+    if low_confidence_count:
+        warnings.append(
+            f"有 {low_confidence_count} 个章节与推荐结构差异较大；系统已保留原文，请核对后再导入，"
+            "或在明确同意后使用 AI 深度分析。"
+        )
     return ScriptDocumentParseResult(
         source_format=source_format,
         encoding=encoding,

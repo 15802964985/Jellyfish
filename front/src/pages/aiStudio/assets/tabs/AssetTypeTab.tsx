@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Input, Row, Col, Button, message, Modal, Space, Pagination } from 'antd'
+import { Card, Input, Row, Col, Button, message, Space, Pagination } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
 import { assetAdapters } from '../assetAdapters'
@@ -9,6 +9,7 @@ import {
   normalizeStudioAsset,
   type StudioAssetLike,
 } from '../components/StudioAssetTypeFormModal'
+import { confirmEntityDeletion } from '../confirmEntityDeletion'
 
 export type { StudioAssetLike }
 
@@ -35,7 +36,6 @@ export function AssetTypeTab({
   listAssets,
   createAsset,
   updateAsset,
-  deleteAsset,
   onEditAsset,
 }: {
   label: string
@@ -43,7 +43,6 @@ export function AssetTypeTab({
   listAssets: (params: { q?: string; page: number; pageSize: number }) => Promise<{ items: StudioAssetLike[]; total: number }>
   createAsset: (payload: AssetCreatePayload) => Promise<StudioAssetLike>
   updateAsset: (id: string, payload: AssetMutationPayload) => Promise<StudioAssetLike>
-  deleteAsset: (id: string) => Promise<void>
   onEditAsset?: (asset: StudioAssetLike) => void
 }) {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -166,21 +165,12 @@ export function AssetTypeTab({
   }
 
   const handleDelete = (asset: StudioAssetLike) => {
-    Modal.confirm({
-      title: `删除${label}资产？`,
-      content: `将删除「${asset.name}」。`,
-      okText: '删除',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          await deleteAsset(asset.id)
-          message.success('已删除')
-          await load()
-        } catch {
-          message.error('删除失败')
-        }
-      },
+    void confirmEntityDeletion({
+      entityType: tabKey,
+      entityId: asset.id,
+      entityLabel: `${label}资产`,
+      entityName: asset.name,
+      onDeleted: load,
     })
   }
 

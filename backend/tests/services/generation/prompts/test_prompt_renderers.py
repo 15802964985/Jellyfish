@@ -39,8 +39,11 @@ def test_render_request_rejects_target_and_renderer_override() -> None:
 
 
 @pytest.mark.asyncio
-async def test_shot_frame_renderer_returns_prompt_snapshot_and_ordered_media() -> None:
+async def test_shot_frame_renderer_returns_prompt_snapshot_and_ordered_media(monkeypatch) -> None:
     """分镜帧 Renderer 复用既有预览逻辑，并冻结映射和推荐媒体顺序。"""
+    from unittest.mock import AsyncMock
+    from app.core.contracts.generation_quality import QualitySourceBundle
+    monkeypatch.setattr('app.services.generation.prompts.renderers.collect_quality_sources', AsyncMock(return_value=QualitySourceBundle()))
     request = PromptRenderRequest(
         input=ShotFramePromptRenderInput(
             shot_id="shot-1",
@@ -57,7 +60,9 @@ async def test_shot_frame_renderer_returns_prompt_snapshot_and_ordered_media() -
     snapshot = await prompt_renderer_registry.resolve(PromptRendererName.shot_frame).render(None, request)  # type: ignore[arg-type]
 
     assert snapshot.renderer == PromptRendererName.shot_frame
-    assert snapshot.execution_prompt.endswith("图1看向图2")
+    assert "图1看向图2" in snapshot.execution_prompt
+    assert snapshot.variables_snapshot['quality_report']['visual_verified'] is False
+    assert '质量约束' in snapshot.execution_prompt
     assert snapshot.variables_snapshot["reference_mappings"][0]["file_id"] == "file-1"
     assert snapshot.recommended_media is not None
     assert [item.file_id for item in snapshot.recommended_media.references] == ["file-1", "file-2"]

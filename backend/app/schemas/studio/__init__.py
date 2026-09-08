@@ -19,12 +19,20 @@ from app.schemas.studio.media_assets import (
     ShotAudioTrackCreate,
     ShotAudioTrackRead,
     ShotAudioTrackUpdate,
+    ShotTtsTaskCreate,
+    ShotTtsTaskRead,
 )
 from app.schemas.studio.prompts import (
     PromptCategoryOptionRead,
     PromptTemplateCreate,
     PromptTemplateRead,
     PromptTemplateUpdate,
+)
+from app.schemas.studio.timeline import (
+    ProjectTimelineClipRead,
+    ProjectTimelineRead,
+    ProjectVideoExportRequest,
+    ProjectVideoExportTaskRead,
 )
 from app.schemas.studio.script_imports import (
     ParsedScriptChapter,

@@ -6,10 +6,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.studio.entity_crud import (
     create_entity as create_entity_service,
-    delete_entity as delete_entity_service,
     get_entity as get_entity_service,
     list_entities_paginated,
     update_entity as update_entity_service,
+)
+from app.schemas.studio.entity_deletion import EntityDeleteImpactRead
+from app.services.studio.entity_deletion import (
+    get_entity_delete_impact as get_entity_delete_impact_service,
+    unlink_and_delete_entity,
 )
 from app.services.studio.entity_existence import check_names_existence as check_names_existence_service
 from app.services.studio.entity_images import (
@@ -90,8 +94,26 @@ class StudioEntitiesService:
             body=body,
         )
 
-    async def delete_entity(self, *, entity_type: str, entity_id: str) -> None:
-        await delete_entity_service(self._db, entity_type=entity_type, entity_id=entity_id)
+    async def get_entity_delete_impact(
+        self, *, entity_type: str, entity_id: str
+    ) -> EntityDeleteImpactRead:
+        """Return concrete relationships that a delete confirmation must disclose."""
+
+        return await get_entity_delete_impact_service(
+            self._db, entity_type=entity_type, entity_id=entity_id
+        )
+
+    async def delete_entity(
+        self, *, entity_type: str, entity_id: str, unlink_relations: bool
+    ) -> None:
+        """Require explicit consent, unlink relationships, then delete the entity."""
+
+        await unlink_and_delete_entity(
+            self._db,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            unlink_relations=unlink_relations,
+        )
 
     async def list_entity_images(
         self,

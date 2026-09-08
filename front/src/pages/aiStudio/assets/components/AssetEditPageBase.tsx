@@ -17,7 +17,7 @@ import {
   message,
 } from 'antd'
 import { ArrowLeftOutlined, CloseCircleOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons'
-import { FilmService, ScriptProcessingService } from '../../../../services/generated'
+import { ScriptProcessingService } from '../../../../services/generated'
 import type { TaskStatus } from '../../../../services/generated'
 import { listTaskLinksNormalized } from '../../../../services/filmTaskLinks'
 import { buildFileDownloadUrl } from '../utils'
@@ -28,6 +28,7 @@ import { defaultTaskActionErrorMessage, executeAsyncTaskCreate, executeTaskCance
 import { handleTaskResultSafely } from '../../components/taskResultHelpers'
 import { useRelationTaskNotification } from '../../components/taskNotificationHelpers'
 import { useTaskPageContext } from '../../components/taskPageContext'
+import { useGenerationCompletion } from '../../components/useGenerationCompletion'
 import { TASK_COPY } from '../../components/taskCopy'
 import { useLocation } from 'react-router-dom'
 import { AssetAttachmentsPanel } from './AssetAttachmentsPanel'
@@ -130,14 +131,6 @@ function normalizeTags(input: string): string[] {
 function clampViewCount(value?: number | null): number {
   const next = Number.isFinite(value as number) ? Number(value) : 1
   return Math.max(1, Math.min(MAX_VIEW_COUNT, Math.trunc(next)))
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms))
-}
-
-function isTerminalStatus(status: TaskStatus): boolean {
-  return status === 'succeeded' || status === 'failed' || status === 'cancelled'
 }
 
 function getSmartDetectRelationType(relationType: string): string | null {
@@ -361,6 +354,20 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   useEffect(() => {
     void loadData()
   }, [loadData])
+
+  useGenerationCompletion(generationTask?.taskId, (status) => {
+    setGenerationTask(toRelationTaskStateFromStatusRead(status))
+  }, async (status) => {
+    if (status.status === 'succeeded' && assetId) {
+      // Refresh only image slots: do not overwrite unsaved asset form edits.
+      setImages(await listImages(assetId))
+      setPromptPreviewOpen(false)
+      setPromptPreviewImage(null)
+    }
+    setGenerationSettledTask(toRelationTaskStateFromStatusRead(status))
+    setGenerationTask(null)
+    setGeneratingByImageId({})
+  })
 
   const slotItems = useMemo(() => {
     const count = clampViewCount(formViewCount)
@@ -592,6 +599,10 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   }
 
   const confirmGenerateWithPrompt = async () => {
+    if (generationTask) {
+      message.info('当前图片仍在生成，请等待完成或在任务中心取消')
+      return
+    }
     if (!assetId || !promptPreviewImage) return
     const prompt = (promptPreviewDraft || '').trim()
     if (!prompt) {
@@ -615,32 +626,6 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       })
       setGenerationSettledTask(null)
 
-      let finalStatus: TaskStatus = 'pending'
-      let finalTaskState: RelationTaskState | null = null
-      for (let i = 0; i < 30; i += 1) {
-        await sleep(2000)
-        const statusRes = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
-        const status = statusRes.data?.status
-        if (!status) continue
-        finalStatus = status
-        if (statusRes.data) {
-          finalTaskState = toRelationTaskStateFromStatusRead(statusRes.data)
-          setGenerationTask(finalTaskState)
-        }
-        if (isTerminalStatus(status)) break
-      }
-      if (finalTaskState && isTerminalStatus(finalTaskState.status)) {
-        setGenerationTask(null)
-        setGenerationSettledTask(finalTaskState)
-      }
-
-      if (finalStatus === 'succeeded') {
-        setPromptPreviewOpen(false)
-        setPromptPreviewImage(null)
-        await loadData()
-      } else if (finalStatus !== 'failed' && finalStatus !== 'cancelled') {
-        message.warning('生成任务仍在执行，请稍后刷新')
-      }
     } catch {
       message.error('发起生成失败')
     } finally {
@@ -868,7 +853,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
                           <Button
                             type="primary"
                             size="small"
-                            disabled={!slot.image}
+                            disabled={!slot.image || !!generationTask}
                             loading={Boolean(slot.image && generatingByImageId[slot.image.id])}
                             onClick={() => slot.image && void openPromptPreview(slot.image)}
                           >

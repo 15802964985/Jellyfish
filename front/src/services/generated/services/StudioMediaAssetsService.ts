@@ -9,16 +9,44 @@ import type { ApiResponse_list_ShotAudioTrackRead__ } from '../models/ApiRespons
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
 import type { ApiResponse_PaginatedData_AudioAssetRead__ } from '../models/ApiResponse_PaginatedData_AudioAssetRead__';
 import type { ApiResponse_ShotAudioTrackRead_ } from '../models/ApiResponse_ShotAudioTrackRead_';
+import type { ApiResponse_ShotTtsTaskRead_ } from '../models/ApiResponse_ShotTtsTaskRead_';
 import type { AssetFileLinkCreate } from '../models/AssetFileLinkCreate';
 import type { AssetFileLinkUpdate } from '../models/AssetFileLinkUpdate';
 import type { AudioAssetCreate } from '../models/AudioAssetCreate';
 import type { AudioAssetUpdate } from '../models/AudioAssetUpdate';
 import type { ShotAudioTrackCreate } from '../models/ShotAudioTrackCreate';
 import type { ShotAudioTrackUpdate } from '../models/ShotAudioTrackUpdate';
+import type { ShotTtsTaskCreate } from '../models/ShotTtsTaskCreate';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class StudioMediaAssetsService {
+    /**
+     * 使用默认或指定语音模型生成镜头配音
+     * 校验请求并创建进入任务中心的异步配音任务。
+     * @returns ApiResponse_ShotTtsTaskRead_ Successful Response
+     * @throws ApiError
+     */
+    public static createShotTtsTaskApiApiV1StudioMediaAssetsShotsShotIdTtsTasksPost({
+        shotId,
+        requestBody,
+    }: {
+        shotId: string,
+        requestBody: ShotTtsTaskCreate,
+    }): CancelablePromise<ApiResponse_ShotTtsTaskRead_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/media-assets/shots/{shot_id}/tts-tasks',
+            path: {
+                'shot_id': shotId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * 列出资产的可选参考素材
      * @returns ApiResponse_list_AssetFileLinkRead__ Successful Response

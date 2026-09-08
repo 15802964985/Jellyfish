@@ -1,6 +1,7 @@
 """阿里云百炼万相异步视频生成 API 适配。"""
 
 from __future__ import annotations
+from app.core.integrations.response_errors import raise_provider_error
 
 from typing import Any
 
@@ -121,7 +122,7 @@ class AliyunVideoApiAdapter:
                 headers=headers,
                 json=_build_video_body(input_),
             )
-            response.raise_for_status()
+            raise_provider_error(response, provider=cfg.provider, api_key=cfg.api_key)
             payload: dict[str, Any] = response.json()
         task_id = str((payload.get("output") or {}).get("task_id") or "")
         if not task_id:
@@ -145,7 +146,7 @@ class AliyunVideoApiAdapter:
         headers = {"Authorization": f"Bearer {cfg.api_key}"}
         async with httpx.AsyncClient(timeout=timeout_s) as client:
             response = await client.get(root + f"/tasks/{task_id}", headers=headers)
-            response.raise_for_status()
+            raise_provider_error(response, provider=cfg.provider, api_key=cfg.api_key)
             return response.json()
 
     async def cancel_video_task(
@@ -167,5 +168,5 @@ class AliyunVideoApiAdapter:
                 root + f"/tasks/{task_id}/cancel",
                 headers={"Authorization": f"Bearer {cfg.api_key}"},
             )
-            response.raise_for_status()
+            raise_provider_error(response, provider=cfg.provider, api_key=cfg.api_key)
             return response.json()

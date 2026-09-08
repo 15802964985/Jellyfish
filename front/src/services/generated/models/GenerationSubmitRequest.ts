@@ -6,6 +6,8 @@ import type { ImageGenerationOperationInput } from './ImageGenerationOperationIn
 import type { ImageMediaInput } from './ImageMediaInput';
 import type { ScriptOperationInput } from './ScriptOperationInput';
 import type { TextChatInput } from './TextChatInput';
+import type { VideoEditMediaInput } from './VideoEditMediaInput';
+import type { VideoEditOperationInput } from './VideoEditOperationInput';
 import type { VideoGenerationOperationInput } from './VideoGenerationOperationInput';
 import type { VideoMediaInput_Input } from './VideoMediaInput_Input';
 /**
@@ -14,8 +16,10 @@ import type { VideoMediaInput_Input } from './VideoMediaInput_Input';
 export type GenerationSubmitRequest = {
     model_id?: (string | null);
     execution_prompt?: (string | null);
-    media?: (ImageMediaInput | VideoMediaInput_Input | null);
+    media?: (ImageMediaInput | VideoMediaInput_Input | VideoEditMediaInput | null);
     render_id?: (string | null);
-    operation_input: (TextChatInput | ScriptOperationInput | ImageGenerationOperationInput | VideoGenerationOperationInput);
+    quality_source_fingerprint?: (string | null);
+    quality_review_retry_id?: (string | null);
+    operation_input: (TextChatInput | ScriptOperationInput | ImageGenerationOperationInput | VideoGenerationOperationInput | VideoEditOperationInput);
 };
 

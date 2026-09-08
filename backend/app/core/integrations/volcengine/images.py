@@ -1,6 +1,7 @@
 """火山方舟 ImageGenerations。"""
 
 from __future__ import annotations
+from app.core.integrations.response_errors import raise_provider_error
 
 import time
 from typing import Any
@@ -77,7 +78,7 @@ class VolcengineImageApiAdapter:
                 resp_headers=dict(r.headers),
                 resp_text=resp_text,
             )
-            r.raise_for_status()
+            raise_provider_error(r, provider=cfg.provider, api_key=cfg.api_key)
             data = r.json()
 
         return _parse_volcengine_images_payload(data)

@@ -10,7 +10,10 @@ backend/.venv
 **/__pycache__
 backend/.pytest_cache
 .test-tmp
+**/.test-tmp*
+**/.codex-test-tmp
 .uv-cache
 **/.codegraph
 .git
 **/.env
+backups/

@@ -15,4 +15,11 @@ def test_builtin_provider_execution_matrix_is_closed() -> None:
         if ModelCategoryKey.image in spec.supported_categories:
             assert ("image_generation", spec.key) in adapters
         if ModelCategoryKey.video in spec.supported_categories:
-            assert ("video_generation", spec.key) in adapters
+            if spec.video_operations == ('video_edit',):
+                from app.core.integrations.video_edit_registry import VIDEO_EDIT_ADAPTERS
+                assert spec.key in VIDEO_EDIT_ADAPTERS
+                assert ("video_generation", spec.key) not in adapters
+            else:
+                assert ("video_generation", spec.key) in adapters
+        if ModelCategoryKey.audio in spec.supported_categories:
+            assert spec.key in {"aliyun_bailian", "minimax"}

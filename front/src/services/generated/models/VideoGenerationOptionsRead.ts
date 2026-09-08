@@ -47,6 +47,10 @@ export type VideoGenerationOptionsRead = {
      */
     requires_first_frame?: boolean;
     /**
+     * 是否必须同时提供尾帧
+     */
+    requires_last_frame?: boolean;
+    /**
      * 是否必须提供主体参考素材
      */
     requires_subject_reference?: boolean;

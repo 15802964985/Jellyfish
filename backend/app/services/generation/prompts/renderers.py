@@ -1,6 +1,17 @@
 """复用 studio 渲染链的统一 PromptRenderer 实现。"""
 
 from __future__ import annotations
+from app.services.generation.quality import quality_for_frame, quality_for_video_pack
+from app.services.generation.quality_sources import collect_quality_sources, quality_source_fingerprint
+
+
+def _quality_preview_report(report, evidence, prompt: str) -> dict:
+    """Expose local source warnings and text size without pretending an unknown model was checked."""
+    data = report.model_dump(mode='json')
+    data['warnings'] = list(dict.fromkeys([*data['warnings'], *evidence.warnings,
+        f'最终渲染文本 {len(prompt)} 字符；已核验的型号长度限制在提交前检查，未知型号不自动截断。']))
+    data['sources'] = evidence.model_dump(mode='json')['sources']
+    return data
 
 from uuid import uuid4
 
@@ -132,6 +143,7 @@ class ShotFramePromptRenderer:
             items=render_input.images,
         )
         preview = derive_frame_preview(base=base, context=context)
+        evidence = await collect_quality_sources(db, shot_id=render_input.shot_id, prompt=preview.rendered_prompt)
         variables_snapshot = {
             "shot_id": render_input.shot_id,
             "frame_type": preview.frame_type,
@@ -139,6 +151,9 @@ class ShotFramePromptRenderer:
             "reference_mappings": [item.model_dump(mode="json") for item in preview.mappings],
             "selected_guidance": preview.selected_guidance,
             "dropped_guidance": preview.dropped_guidance,
+            "quality_report": _quality_preview_report(quality_for_frame(preview.base_prompt, preview.mappings), evidence, preview.rendered_prompt),
+            'quality_sources': evidence.model_dump(mode='json'),
+            'quality_source_fingerprint': quality_source_fingerprint(evidence),
         }
         if rendered_template is not None:
             variables_snapshot["template_variables"] = rendered_template.merged_variables
@@ -179,6 +194,7 @@ class ShotVideoPromptRenderer:
             template_id=render_input.template_id,
         )
         preview = await derive_video_preview(db, base=base, context=context)
+        evidence = await collect_quality_sources(db, shot_id=render_input.shot_id, prompt=preview.rendered_prompt)
         return RenderedPromptSnapshot(
             render_id=_render_id(),
             renderer=self.name,
@@ -187,6 +203,9 @@ class ShotVideoPromptRenderer:
                 "shot_id": preview.shot_id,
                 "reference_mode": preview.reference_mode,
                 "pack": preview.pack.model_dump(mode="json"),
+                "quality_report": _quality_preview_report(quality_for_video_pack(preview.pack), evidence, preview.rendered_prompt),
+                'quality_sources': evidence.model_dump(mode='json'),
+                'quality_source_fingerprint': quality_source_fingerprint(evidence),
             },
             template_id=preview.template_id,
             recommended_media=_image_media(preview.images),

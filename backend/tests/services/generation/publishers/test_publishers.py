@@ -58,20 +58,21 @@ def _artifact(ordinal: int, *, status: GenerationArtifactPublishStatus = Generat
 @pytest.mark.asyncio
 async def test_asset_publisher_publishes_primary_and_keeps_secondary_as_history() -> None:
     """资产主产物 CAS 成功，非主产物不自动覆盖同一个槽位。"""
-    db = RecordingSession(1)
+    db = RecordingSession(1, 1)
     primary, secondary = _artifact(0), _artifact(1)
 
     await AssetImagePublisher().publish_terminal(
         db, snapshot=_snapshot(GenerationTargetKind.asset_image_slot), artifacts=[secondary, primary]  # type: ignore[arg-type]
     )
 
-    assert len(db.statements) == 1
+    assert len(db.statements) == 2
     assert primary.publish_status is GenerationArtifactPublishStatus.published
     assert primary.publish_error is None
     assert secondary.publish_status is GenerationArtifactPublishStatus.skipped
     assert secondary.publish_error == "non_primary_artifact"
     assert "version_id" in str(db.statements[0])
     assert "file_id" in str(db.statements[0])
+    assert "generation_task_links" in str(db.statements[1])
 
 
 @pytest.mark.asyncio
@@ -93,7 +94,7 @@ async def test_shot_frame_publisher_marks_conflict_without_overwriting_slot() ->
 @pytest.mark.asyncio
 async def test_shot_video_publisher_uses_dedicated_video_version_and_is_idempotent() -> None:
     """视频发布不改 shot.status，重复调用不会对已发布 Artifact 再执行 CAS。"""
-    db = RecordingSession(1)
+    db = RecordingSession(1, 1)
     primary = _artifact(0)
     publisher = ShotVideoPublisher()
     snapshot = _snapshot(GenerationTargetKind.shot_video, entity_id="shot-42", slot_id=None)
@@ -101,9 +102,10 @@ async def test_shot_video_publisher_uses_dedicated_video_version_and_is_idempote
     await publisher.publish_terminal(db, snapshot=snapshot, artifacts=[primary])  # type: ignore[arg-type]
     await publisher.publish_terminal(db, snapshot=snapshot, artifacts=[primary])  # type: ignore[arg-type]
 
-    assert len(db.statements) == 1
+    assert len(db.statements) == 2
     assert primary.publish_status is GenerationArtifactPublishStatus.published
     statement = str(db.statements[0])
     assert "generated_video_file_id" in statement
     assert "generated_video_version_id" in statement
+    assert "generation_task_links" in str(db.statements[1])
 

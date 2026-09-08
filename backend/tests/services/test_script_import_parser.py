@@ -119,6 +119,41 @@ def test_sample_variants_find_only_real_chapters(filename: str, text: str) -> No
     assert "制作备注" not in result.chapters[-1].screenplay_text
     assert result.auxiliary_block_ids
     assert all("|" not in chapter.screenplay_text for chapter in result.chapters)
+    first = result.chapters[0]
+    assert first.title == "章节一｜出门前的忐忑"
+    assert "（" not in first.title
+    assert "【主题】\n不安中的告别" in first.screenplay_text
+    assert "【画面】\n玄关，女孩穿着新园服，抱着毛绒兔。" in first.screenplay_text
+    assert "【镜头】\n低机位特写，缓慢横移。" in first.screenplay_text
+    assert "【配音】\n妈妈蹲下" in first.screenplay_text
+    assert "【字幕】\n第一天上幼儿园" in first.screenplay_text
+    assert "【画面提示词 · 中文】\n清晨玄关" in first.screenplay_text
+    assert "项目：内容" not in first.screenplay_text
+
+
+def test_txt_inline_camera_and_duration_keep_their_business_labels() -> None:
+    text = """章节一｜不肯松手的鞋（0-12 秒）
+主题：出发前的抗拒
+
+【画面】
+玄关，女孩不肯穿鞋。
+
+【镜头】低机位特写，缓慢横移
+【时长】12 秒
+
+【配音】
+她第一次一个人出门。
+"""
+
+    result = parse_script_document(text.encode("utf-8"), "script.txt")
+    chapter = result.chapters[0]
+
+    assert result.document_profile == "shot_list"
+    assert chapter.title == "章节一｜不肯松手的鞋"
+    assert "【画面】\n玄关，女孩不肯穿鞋。" in chapter.screenplay_text
+    assert "【镜头】\n低机位特写，缓慢横移" in chapter.screenplay_text
+    assert "【时长】\n12 秒" in chapter.screenplay_text
+    assert "【配音】\n她第一次一个人出门。" in chapter.screenplay_text
 
 
 def test_markdown_non_chapter_headings_do_not_create_fake_chapters() -> None:
@@ -141,6 +176,16 @@ def test_heading_free_novel_is_preserved_for_later_semantic_partition() -> None:
     assert result.chapters == []
     assert result.blocks[0].clean_text == original
     assert "AI 语义切分" in result.warnings[0]
+
+
+def test_freeform_chapter_is_preserved_and_warns_when_structure_differs() -> None:
+    original = "第一章 雨夜\n阿青推门走进车站，远处传来汽笛声。"
+
+    result = parse_script_document(original.encode(), "freeform.txt")
+
+    assert result.chapters[0].screenplay_text == "阿青推门走进车站，远处传来汽笛声。"
+    assert any("结构差异较大" in warning for warning in result.chapters[0].warnings)
+    assert any("系统已保留原文" in warning for warning in result.warnings)
 
 
 def test_gb18030_text_is_decoded_without_losing_content() -> None:

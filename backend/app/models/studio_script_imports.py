@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -22,6 +22,13 @@ class ScriptImport(Base, TimestampMixin):
         String(64), ForeignKey("files.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="parsed", index=True)
+    is_saved: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        index=True,
+        comment="用户是否明确点击保存草稿；临时预览不进入草稿历史",
+    )
     source_format: Mapped[str] = mapped_column(String(32), nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     parser_version: Mapped[str] = mapped_column(String(32), nullable=False)

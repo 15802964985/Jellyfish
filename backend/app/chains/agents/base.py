@@ -246,6 +246,11 @@ class AgentBase(ABC, Generic[T]):
         - 若当前环境未安装 langchain，则降级为：RunnableLambda(render_user_prompt) | model（structured 时用 with_structured_output）
         """
 
+        if getattr(self._model, "supports_tool_calls", True) is False:
+            # Native text-only adapters preserve system instructions without pretending
+            # to support tool calling. Schema is a prompt contract, not a provider guarantee.
+            return RunnableLambda(lambda inputs: self.render_prompt(**inputs)) | self._model
+
         # --- preferred path: langchain create_agent + ToolStrategy ---
         try:
             from langchain.agents import create_agent as _lc_create_agent  # type: ignore
@@ -312,6 +317,9 @@ class AgentBase(ABC, Generic[T]):
 
     def extract(self, **kwargs: Any) -> T:
         """执行：优先 with_structured_output，否则 run + format_output。"""
+        if getattr(self._model, "supports_tool_calls", True) is False:
+            prompt = self.render_prompt(**kwargs) + "\nReturn only JSON matching this schema:\n" + json.dumps(self.output_model.model_json_schema(), ensure_ascii=False)
+            return self.format_output(self._last_message_content(self._model.invoke(prompt)))
         chain = self._get_structured_chain()
         if chain is not None:
             try:
@@ -328,6 +336,9 @@ class AgentBase(ABC, Generic[T]):
 
     async def aextract(self, **kwargs: Any) -> T:
         """异步执行。"""
+        if getattr(self._model, "supports_tool_calls", True) is False:
+            prompt = self.render_prompt(**kwargs) + "\nReturn only JSON matching this schema:\n" + json.dumps(self.output_model.model_json_schema(), ensure_ascii=False)
+            return self.format_output(self._last_message_content(await self._model.ainvoke(prompt)))
         chain = self._get_structured_chain()
         if chain is not None:
             try:

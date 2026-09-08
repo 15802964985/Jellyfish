@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
-ProviderKey = Literal["openai", "volcengine", "vidu", "kling", "aliyun_bailian"]
+ProviderKey = Literal["openai", "volcengine", "vidu", "kling", "aliyun_bailian", "deepseek", "google", "anthropic", "minimax", "bfl", "custom_openai_text", "fal", "runway", "zhipu", "hunyuan", "jimeng"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,5 +13,6 @@ class ProviderConfig:
     """执行生成任务时需要的供应商配置。"""
 
     provider: ProviderKey
-    api_key: str
+    api_key: str = field(repr=False)
     base_url: str | None = None
+    api_secret: str = field(default="", repr=False)

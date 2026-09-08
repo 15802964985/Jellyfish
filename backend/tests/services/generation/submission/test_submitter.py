@@ -35,6 +35,7 @@ class RecordingSession:
     def __init__(self) -> None:
         self.added: list[object] = []
         self.flush_count = 0
+        self.flush_snapshots: list[list[object]] = []
         self.files = {
             "file-1": FileItem(
                 id="file-1",
@@ -59,6 +60,7 @@ class RecordingSession:
     async def flush(self) -> None:
         """模拟同一事务内的 flush。"""
         self.flush_count += 1
+        self.flush_snapshots.append(list(self.added))
 
 
 class FixedGate:
@@ -112,7 +114,9 @@ async def test_async_submit_persists_task_link_media_and_outbox_without_secrets(
     accepted = await GenerationSubmitter(entity_gate=FixedGate()).submit_async(db, _image_command())  # type: ignore[arg-type]
 
     assert accepted.task_id
-    assert db.flush_count == 1
+    assert db.flush_count == 2
+    assert len(db.flush_snapshots[0]) == 1
+    assert isinstance(db.flush_snapshots[0][0], GenerationTask)
     task = next(item for item in db.added if isinstance(item, GenerationTask))
     link = next(item for item in db.added if isinstance(item, GenerationTaskLink))
     media = next(item for item in db.added if isinstance(item, GenerationTaskMediaReference))

@@ -19,7 +19,9 @@ def _settings_model_id(settings_row: ModelSettings | None, category: ModelCatego
         return settings_row.default_text_model_id
     if category == ModelCategoryKey.image:
         return settings_row.default_image_model_id
-    return settings_row.default_video_model_id
+    if category == ModelCategoryKey.video:
+        return settings_row.default_video_model_id
+    return settings_row.default_audio_model_id
 
 
 async def get_provider_by_id_or_obj(db: AsyncSession, provider_or_id: Provider | str) -> Provider:
@@ -196,6 +198,17 @@ def _build_chat_openai_model(
     thinking: bool,
     import_error_detail: str,
 ) -> BaseChatModel:
+    from app.bootstrap import bootstrap_all_registries
+    from app.services.llm.provider_registry import get_provider_spec, resolve_provider_key
+    bootstrap_all_registries()
+    spec = get_provider_spec(resolve_provider_key(provider))
+    if spec.text_protocol in {"google_generate_content", "anthropic_messages"}:
+        from app.core.integrations.native_chat import NativeTextChat
+        if not provider.api_key:
+            raise HTTPException(status_code=503, detail="供应商未配置 API Key")
+        return NativeTextChat(protocol=spec.text_protocol, model_name=model.name, api_key=provider.api_key,
+            base_url=resolve_effective_base_url(provider=provider, category=ModelCategoryKey.text) or "",
+            options=dict(model.params or {}))
     api_key = (provider.api_key or "").strip()
     if not api_key:
         raise HTTPException(
@@ -212,6 +225,8 @@ def _build_chat_openai_model(
         ) from e
 
     kwargs: dict[str, Any] = dict(model.params or {})
+    if spec.key == "minimax":
+        kwargs["extra_body"] = {**dict(kwargs.get("extra_body") or {}), "reasoning_split": True}
     kwargs["model"] = model.name
     kwargs["api_key"] = api_key
     kwargs.setdefault("temperature", 0)
@@ -220,7 +235,9 @@ def _build_chat_openai_model(
     if base_url:
         kwargs.setdefault("base_url", base_url)
 
-    if not thinking:
+    from app.services.llm.provider_registry import resolve_provider_key
+    # Do not send DashScope-specific options to other OpenAI-compatible endpoints.
+    if not thinking and resolve_provider_key(provider) == "aliyun_bailian":
         extra_body = dict(kwargs.get("extra_body") or {})
         extra_body["enable_thinking"] = False
         kwargs["extra_body"] = extra_body

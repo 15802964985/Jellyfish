@@ -15,9 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core import storage
-from app.models.studio import AudioAsset, FileItem, FileType, Shot, ShotAudioTrack
-from app.models.types import FileUsageKind
-from app.services.studio.file_usages import sync_usage_from_shot_context
+from app.models.studio import AudioAsset, FileItem, FileType, ShotAudioTrack
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,16 +162,6 @@ async def compose_shot_audio_if_present(
             )
             db.add(result_file)
             await db.flush()
-            shot = await db.get(Shot, shot_id)
-            if shot is not None:
-                shot.generated_video_file_id = result_file.id
-            await sync_usage_from_shot_context(
-                db,
-                file_id=result_file.id,
-                shot_id=shot_id,
-                usage_kind=FileUsageKind.generated_video,
-                source_ref=f"shot:{shot_id}:composed_video",
-            )
             return CompositionResult(
                 file=result_file,
                 applied_track_count=len(valid_tracks),

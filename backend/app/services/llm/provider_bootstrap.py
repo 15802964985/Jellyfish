@@ -7,8 +7,43 @@ from app.services.llm.provider_registry import ProviderSpec, register_many
 def bootstrap_builtin_providers() -> None:
     register_many(
         [
+            ProviderSpec(key="jimeng", display_name="即梦（独立视觉 API）", aliases=("jimeng", "即梦"),
+                supported_categories=(ModelCategoryKey.image, ModelCategoryKey.video), requires_api_secret=True,
+                default_base_url="https://visual.volcengineapi.com",
+                official_documentation="https://www.volcengine.com/docs/85621/1863351"),
+            ProviderSpec(key="zhipu", display_name="智谱 BigModel", aliases=("zhipu", "智谱", "bigmodel"),
+                supported_categories=(ModelCategoryKey.text, ModelCategoryKey.image, ModelCategoryKey.video),
+                default_base_url="https://open.bigmodel.cn/api/paas/v4", text_protocol="openai_chat",
+                official_documentation="https://docs.bigmodel.cn/api-reference/模型-api/对话补全"),
+            ProviderSpec(key="hunyuan", display_name="腾讯混元（TokenHub）", aliases=("hunyuan", "腾讯混元", "tokenhub"),
+                supported_categories=(ModelCategoryKey.text, ModelCategoryKey.image, ModelCategoryKey.video),
+                default_base_url="https://tokenhub.tencentmaas.com/v1", text_protocol="openai_chat",
+                official_documentation="https://cloud.tencent.com/document/product/1823/130078"),
+            ProviderSpec(key='runway', display_name='Runway（视频编辑）', aliases=('runway',),
+                supported_categories=(ModelCategoryKey.video,), video_operations=('video_edit',),
+                default_base_url='https://api.dev.runwayml.com', official_documentation='https://docs.dev.runwayml.com/guides/models/'),
+            ProviderSpec(key='fal', display_name='fal.ai（视频编辑）', aliases=('fal', 'fal.ai'),
+                supported_categories=(ModelCategoryKey.video,), video_operations=('video_edit',), default_base_url='https://queue.fal.run',
+                official_documentation='https://fal.ai/models/fal-ai/kling-video/o3/pro/video-to-video/edit/api'),
+            ProviderSpec(key="custom_openai_text", display_name="自定义兼容接口（仅文本）",
+                aliases=("custom_openai_text",), supported_categories=(ModelCategoryKey.text,),
+                text_protocol="openai_chat"),
+            ProviderSpec(key="bfl", display_name="Black Forest Labs", aliases=("bfl", "flux", "black forest labs"),
+                supported_categories=(ModelCategoryKey.image,), default_base_url="https://api.bfl.ai/v1",
+                official_documentation="https://docs.bfl.ai/flux_2/flux2_text_to_image"),
+            ProviderSpec(key="google", display_name="Google Gemini", aliases=("google", "gemini", "google gemini"),
+                supported_categories=(ModelCategoryKey.text,), default_base_url="https://generativelanguage.googleapis.com/v1beta",
+                official_documentation="https://ai.google.dev/api/generate-content", text_protocol="google_generate_content"),
+            ProviderSpec(key="anthropic", display_name="Anthropic Claude", aliases=("anthropic", "claude", "anthropic claude"),
+                supported_categories=(ModelCategoryKey.text,), default_base_url="https://api.anthropic.com/v1",
+                official_documentation="https://platform.claude.com/docs/en/build-with-claude/working-with-messages", text_protocol="anthropic_messages"),
+            ProviderSpec(key="minimax", display_name="MiniMax", aliases=("minimax", "海螺"),
+                supported_categories=(ModelCategoryKey.text, ModelCategoryKey.audio, ModelCategoryKey.video, ModelCategoryKey.image), default_base_url="https://api.minimax.io/v1",
+                official_documentation="https://platform.minimaxi.com/docs/api-reference/api-overview", text_protocol="openai_chat"),
             ProviderSpec(
                 key="openai",
+                text_protocol="openai_chat",
+                official_documentation="https://developers.openai.com/api/docs/",
                 display_name="OpenAI",
                 aliases=("openai",),
                 supported_categories=(
@@ -20,6 +55,8 @@ def bootstrap_builtin_providers() -> None:
             ),
             ProviderSpec(
                 key="volcengine",
+                text_protocol="openai_chat",
+                official_documentation="https://www.volcengine.com/docs/82379",
                 display_name="火山引擎",
                 aliases=("火山引擎", "volcengine", "volc", "doubao", "bytedance", "ark"),
                 supported_categories=(
@@ -31,6 +68,7 @@ def bootstrap_builtin_providers() -> None:
             ),
             ProviderSpec(
                 key="vidu",
+                official_documentation="https://platform.vidu.com/docs/introduction",
                 display_name="Vidu",
                 aliases=("vidu", "vidu ai", "生数科技"),
                 supported_categories=(ModelCategoryKey.image, ModelCategoryKey.video),
@@ -38,6 +76,7 @@ def bootstrap_builtin_providers() -> None:
             ),
             ProviderSpec(
                 key="kling",
+                official_documentation="https://kling.ai/document-api/quickStart/productIntroduction/overview",
                 display_name="可灵 AI",
                 aliases=("可灵", "可灵 ai", "kling", "kling ai", "klingai"),
                 supported_categories=(ModelCategoryKey.image, ModelCategoryKey.video),
@@ -45,14 +84,24 @@ def bootstrap_builtin_providers() -> None:
             ),
             ProviderSpec(
                 key="aliyun_bailian",
+                text_protocol="openai_chat",
+                official_documentation="https://help.aliyun.com/zh/model-studio/",
                 display_name="阿里百炼",
                 aliases=("阿里百炼", "aliyun", "bailian", "dashscope"),
                 supported_categories=(
                     ModelCategoryKey.text,
                     ModelCategoryKey.image,
                     ModelCategoryKey.video,
+                    ModelCategoryKey.audio,
                 ),
                 default_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            ),
+            ProviderSpec(
+                key="deepseek", display_name="DeepSeek", aliases=("deepseek", "深度求索"),
+                supported_categories=(ModelCategoryKey.text,),
+                default_base_url="https://api.deepseek.com",
+                official_documentation="https://api-docs.deepseek.com/guides/json_mode/",
+                text_protocol="openai_chat",
             ),
         ]
     )

@@ -19,7 +19,9 @@ def _default_model_id(settings_row: ModelSettings | None, category: ModelCategor
         return settings_row.default_text_model_id
     if category == ModelCategoryKey.image:
         return settings_row.default_image_model_id
-    return settings_row.default_video_model_id
+    if category == ModelCategoryKey.video:
+        return settings_row.default_video_model_id
+    return settings_row.default_audio_model_id
 
 
 def _require_provider_and_model_sync(
@@ -90,6 +92,7 @@ def build_text_llm_revision_sync(
     return _build_text_llm_config(
         provider=provider,
         model_name=revision.model_name,
+        provider_key=revision.provider_key,
         model_params=dict(revision.model_params or {}),
         base_url=str((revision.endpoint_config or {}).get("base_url") or ""),
         thinking=thinking,
@@ -114,7 +117,19 @@ def _build_text_llm_config(
     model_params: dict[str, Any],
     base_url: str | None,
     thinking: bool,
+    provider_key: str | None = None,
 ) -> BaseChatModel:
+
+    from app.bootstrap import bootstrap_all_registries
+    from app.services.llm.provider_registry import get_provider_spec, resolve_provider_key
+    bootstrap_all_registries()
+    spec = get_provider_spec(provider_key or resolve_provider_key(provider))
+    if spec.text_protocol in {"google_generate_content", "anthropic_messages"}:
+        from app.core.integrations.native_chat import NativeTextChat
+        if not provider.api_key:
+            raise HTTPException(status_code=503, detail="供应商未配置 API Key")
+        return NativeTextChat(protocol=spec.text_protocol, model_name=model_name, api_key=provider.api_key,
+            base_url=base_url or spec.default_base_url or "", options=dict(model_params))
 
     api_key = (provider.api_key or "").strip()
     if not api_key:
@@ -126,6 +141,8 @@ def _build_text_llm_config(
         raise HTTPException(status_code=503, detail="Install langchain-openai to enable script-processing tasks") from e
 
     kwargs: dict[str, Any] = dict(model_params)
+    if spec.key == "minimax":
+        kwargs["extra_body"] = {**dict(kwargs.get("extra_body") or {}), "reasoning_split": True}
     kwargs["model"] = model_name
     kwargs["api_key"] = api_key
     kwargs.setdefault("temperature", 0)
@@ -133,7 +150,9 @@ def _build_text_llm_config(
     if base_url:
         kwargs.setdefault("base_url", base_url)
 
-    if not thinking:
+    from app.services.llm.provider_registry import resolve_provider_key
+    # Unknown provider-specific thinking controls remain explicit model configuration.
+    if not thinking and spec.key == "aliyun_bailian":
         extra_body = dict(kwargs.get("extra_body") or {})
         extra_body["enable_thinking"] = False
         kwargs["extra_body"] = extra_body

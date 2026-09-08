@@ -23,9 +23,6 @@ export function CostumesTab() {
         if (!res.data) throw new Error('empty costume')
         return res.data as any
       }}
-      deleteAsset={async (id) => {
-        await StudioEntitiesApi.remove('costume', id)
-      }}
       onEditAsset={(asset) => {
         navigate(`/assets/costumes/${asset.id}/edit`)
       }}

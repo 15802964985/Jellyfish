@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ApiResponse_dict_str__Any__ } from '../models/ApiResponse_dict_str__Any__';
+import type { ApiResponse_EntityDeleteImpactRead_ } from '../models/ApiResponse_EntityDeleteImpactRead_';
 import type { ApiResponse_EntityNameExistenceCheckResponse_ } from '../models/ApiResponse_EntityNameExistenceCheckResponse_';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
 import type { ApiResponse_PaginatedData_dict_str__Any___ } from '../models/ApiResponse_PaginatedData_dict_str__Any___';
@@ -162,20 +163,54 @@ export class StudioEntitiesService {
         });
     }
     /**
-     * 统一删除实体
+     * 解除关联后删除实体
+     * Reject blind linked deletion; confirmed calls unlink and delete atomically.
      * @returns ApiResponse_NoneType_ Successful Response
      * @throws ApiError
      */
     public static deleteEntityApiV1StudioEntitiesEntityTypeEntityIdDelete({
         entityType,
         entityId,
+        unlinkRelations = false,
     }: {
         entityType: string,
         entityId: string,
+        /**
+         * 已查看具体关联并确认先解除关联再删除
+         */
+        unlinkRelations?: boolean,
     }): CancelablePromise<ApiResponse_NoneType_> {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/v1/studio/entities/{entity_type}/{entity_id}',
+            path: {
+                'entity_type': entityType,
+                'entity_id': entityId,
+            },
+            query: {
+                'unlink_relations': unlinkRelations,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 查询删除实体的具体关联影响
+     * Return named projects, chapters, shots, roles and materials affected by deletion.
+     * @returns ApiResponse_EntityDeleteImpactRead_ Successful Response
+     * @throws ApiError
+     */
+    public static getEntityDeleteImpactApiV1StudioEntitiesEntityTypeEntityIdDeleteImpactGet({
+        entityType,
+        entityId,
+    }: {
+        entityType: string,
+        entityId: string,
+    }): CancelablePromise<ApiResponse_EntityDeleteImpactRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/entities/{entity_type}/{entity_id}/delete-impact',
             path: {
                 'entity_type': entityType,
                 'entity_id': entityId,

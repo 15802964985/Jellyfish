@@ -170,7 +170,8 @@ async def test_build_chat_model_from_provider_builds_chatopenai_with_model_param
 
 
 @pytest.mark.asyncio
-async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("provider_name", ["OpenAI", "DeepSeek", "阿里百炼"])
+async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pytest.MonkeyPatch, provider_name: str) -> None:
     class FakeChatOpenAI:
         def __init__(self, **kwargs):  # noqa: ANN003, ANN204
             self.kwargs = kwargs
@@ -185,7 +186,7 @@ async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pyte
         await conn.run_sync(Base.metadata.create_all)
 
     async with session_local() as db:
-        provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
+        provider = Provider(id="p1", name=provider_name, base_url="https://example.invalid/v1", api_key="k")
         model = Model(
             id="m_text",
             name="gpt-4o-mini",
@@ -203,7 +204,10 @@ async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pyte
         assert isinstance(thinking_llm, FakeChatOpenAI)
         assert "extra_body" not in thinking_llm.kwargs
         assert isinstance(nothinking_llm, FakeChatOpenAI)
-        assert nothinking_llm.kwargs["extra_body"]["enable_thinking"] is False
+        if provider_name == "阿里百炼":
+            assert nothinking_llm.kwargs["extra_body"]["enable_thinking"] is False
+        else:
+            assert "enable_thinking" not in nothinking_llm.kwargs.get("extra_body", {})
 
     await engine.dispose()
 

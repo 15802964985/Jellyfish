@@ -25,6 +25,8 @@ from app.services.script_processing_worker import (
     VariantTaskExecutor,
 )
 from app.services.studio.image_task_runner import run_image_generation_task
+from app.services.studio.project_video_export import run_project_video_export_task
+from app.services.studio.shot_tts import run_shot_tts_task
 from app.services.worker.task_executor import AbstractAsyncDelegatingExecutor, AbstractWorkerTaskExecutor
 
 
@@ -43,6 +45,16 @@ class TaskExecutorRegistry:
 
 
 task_executor_registry = TaskExecutorRegistry()
+from app.services.generation.quality_review import run_quality_review_task
+task_executor_registry.register('quality_preflight', AbstractAsyncDelegatingExecutor(
+    task_kind='quality_preflight', runner=run_quality_review_task, timeout_seconds=300,
+    require_generation_snapshot=True))
+
+# Editing archives a new result and deliberately does not invoke the automatic video publisher.
+from app.services.generation.video_edit_runtime import run_video_edit_task
+task_executor_registry.register('video_edit', AbstractAsyncDelegatingExecutor(
+    task_kind='video_edit', runner=run_video_edit_task, timeout_seconds=3600,
+    require_generation_snapshot=True))
 
 task_executor_registry.register("script_divide", DivideTaskExecutor())
 task_executor_registry.register("script_extract", ExtractTaskExecutor())
@@ -81,5 +93,21 @@ task_executor_registry.register(
         runner=run_image_generation_task,
         timeout_seconds=1800.0,
         require_generation_snapshot=True,
+    ),
+)
+task_executor_registry.register(
+    "project_video_export",
+    AbstractAsyncDelegatingExecutor(
+        task_kind="project_video_export",
+        runner=run_project_video_export_task,
+        timeout_seconds=7200.0,
+    ),
+)
+task_executor_registry.register(
+    "shot_tts",
+    AbstractAsyncDelegatingExecutor(
+        task_kind="shot_tts",
+        runner=run_shot_tts_task,
+        timeout_seconds=900.0,
     ),
 )

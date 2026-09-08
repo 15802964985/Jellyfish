@@ -97,3 +97,19 @@ class VideoMediaInput(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("subject names must be unique")
         return self
+
+
+class VideoEditMediaInput(BaseModel):
+    """Source video and optional images are editing inputs, never frame/subject substitutes."""
+    model_config = ConfigDict(extra='forbid')
+    source: MediaReference
+    references: list[MediaReference] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode='after')
+    def validate_roles(self) -> 'VideoEditMediaInput':
+        """Reject unsupported audio/video attachments instead of silently dropping them."""
+        if self.source.media_kind != 'video' or any(r.media_kind != 'image' for r in self.references):
+            raise ValueError('video edit requires one source video and optional reference images')
+        if len({r.ordinal for r in self.references}) != len(self.references):
+            raise ValueError('reference image ordinals must be unique')
+        return self

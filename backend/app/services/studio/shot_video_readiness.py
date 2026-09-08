@@ -5,7 +5,8 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
+from app.models.llm import Model, ModelCategoryKey, ModelConfigRevision, ModelSettings, Provider
+from app.core.integrations.video_capabilities import resolve_video_capability
 from app.models.studio import (
     Shot,
     ShotCandidateStatus,
@@ -67,7 +68,7 @@ async def _has_active_video_task(db: AsyncSession, *, shot_id: str) -> bool:
         .select_from(GenerationTaskLink)
         .join(GenerationTask, GenerationTask.id == GenerationTaskLink.task_id)
         .where(GenerationTaskLink.resource_type == "video")
-        .where(GenerationTaskLink.relation_type == "video")
+        .where(GenerationTaskLink.relation_type.in_(("video", "shot_video")))
         .where(GenerationTaskLink.relation_entity_id == shot_id)
         .where(GenerationTask.status.in_(_ACTIVE_TASK_STATUSES))
     )
@@ -98,6 +99,32 @@ async def _reference_frames_ready(
     return _check("reference_frames_ready", True, "参考帧已就绪")
 
 
+async def _model_reference_mode_ready(db: AsyncSession, reference_mode: str) -> ShotVideoReadinessCheck:
+    """Readiness must validate selected frame mode against the actual default model, not just file existence."""
+    settings = await db.get(ModelSettings, 1)
+    model = await db.get(Model, settings.default_video_model_id) if settings and settings.default_video_model_id else None
+    revision = await db.get(ModelConfigRevision, model.current_revision_id) if model and model.current_revision_id else None
+    if revision is None:
+        return _check("model_reference_mode", False, "视频模型缺少可执行配置版本")
+    cap = resolve_video_capability(provider=revision.provider_key, model=revision.model_name)
+    frames = REQUIRED_FRAMES_BY_MODE.get(reference_mode)
+    if frames is None:
+        return _check("model_reference_mode", False, "未知参考模式")
+    if cap.requires_first_frame and ShotFrameType.first not in frames:
+        return _check("model_reference_mode", False, "该视频型号必须使用首帧，请先生成/上传镜头首帧并选择首帧模式")
+    if cap.requires_subject_reference:
+        return _check("model_reference_mode", False, "该视频型号必须提供主体参考；当前镜头入口未提交主体素材，请使用支持该输入的入口")
+    if not frames and not cap.supports_text_to_video:
+        return _check("model_reference_mode", False, "当前型号不支持纯文本生成视频")
+    if ShotFrameType.last in frames and not cap.supports_last_frame:
+        return _check("model_reference_mode", False, "当前型号不支持尾帧，请改选支持的参考模式")
+    if ShotFrameType.first in frames and not cap.supports_first_frame:
+        return _check("model_reference_mode", False, "当前型号不支持首帧参考")
+    if ShotFrameType.key in frames and cap.max_key_frames == 0:
+        return _check("model_reference_mode", False, "当前型号不支持关键帧参考，请选择首帧或其他支持的模式")
+    return _check("model_reference_mode", True, "参考模式符合当前视频型号要求")
+
+
 async def _video_model_and_provider_ready(db: AsyncSession) -> tuple[ShotVideoReadinessCheck, ShotVideoReadinessCheck]:
     settings = await db.get(ModelSettings, 1)
     model_id = settings.default_video_model_id if settings else None
@@ -116,6 +143,12 @@ async def _video_model_and_provider_ready(db: AsyncSession) -> tuple[ShotVideoRe
         return (
             _check("video_model_ready", False, f"默认模型不是视频类别：{model_id}"),
             _check("provider_ready", False, "默认模型不是视频类别，无法检查供应商"),
+        )
+    revision = await db.get(ModelConfigRevision, model.current_revision_id) if model.current_revision_id else None
+    if revision is None or revision.model_id != model.id or revision.category != ModelCategoryKey.video:
+        return (
+            _check("video_model_ready", False, "默认视频模型缺少可执行配置版本，请重新保存模型或执行修复迁移"),
+            _check("provider_ready", False, "模型配置版本不可用，暂不提交付费任务"),
         )
     provider = await db.get(Provider, model.provider_id)
     if provider is None:
@@ -189,6 +222,7 @@ async def get_shot_video_readiness(
         duration_check,
         _check("prompt_ready", prompt_ok, prompt_message),
         await _reference_frames_ready(db, shot_id=shot_id, reference_mode=reference_mode),
+        await _model_reference_mode_ready(db, reference_mode),
         model_check,
         provider_check,
         _check(

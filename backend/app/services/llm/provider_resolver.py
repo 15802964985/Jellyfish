@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,15 +11,16 @@ from app.bootstrap import bootstrap_all_registries
 from app.services.llm.provider_registry import (
     get_provider_spec,
     is_provider_category_supported,
-    resolve_provider_key_from_name,
+    resolve_provider_key,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedProviderConfig:
     provider_key: str
-    api_key: str
+    api_key: str = field(repr=False)
     base_url: str | None
+    api_secret: str = field(default="", repr=False)
 
 
 def _status_value(value: ProviderStatus | str | None) -> str:
@@ -58,7 +59,7 @@ def resolve_provider_config_from_provider(
 ) -> ResolvedProviderConfig:
     bootstrap_all_registries()
     _validate_provider_status(provider)
-    provider_key = resolve_provider_key_from_name(provider.name)
+    provider_key = resolve_provider_key(provider)
     if not is_provider_category_supported(provider_key, category):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -66,6 +67,8 @@ def resolve_provider_config_from_provider(
         )
 
     spec = get_provider_spec(provider_key)
+    if spec.requires_api_secret and not (provider.api_secret or "").strip():
+        raise HTTPException(status_code=400, detail="该供应商需要 API Secret，请使用独立 AK/SK，不能复用套餐 Key")
     api_key = (provider.api_key or "").strip()
     if spec.requires_api_key and not api_key:
         raise HTTPException(
@@ -82,6 +85,7 @@ def resolve_provider_config_from_provider(
         provider_key=provider_key,
         api_key=api_key,
         base_url=base_url,
+        api_secret=(provider.api_secret or "").strip(),
     )
 
 
@@ -93,7 +97,7 @@ def resolve_effective_base_url(
 ) -> str | None:
     """按类别解析 Provider 实际 base_url：类别覆盖 > 通用 > 内置默认。"""
     bootstrap_all_registries()
-    key = provider_key or resolve_provider_key_from_name(provider.name)
+    key = provider_key or resolve_provider_key(provider)
     spec = get_provider_spec(key)
     common_base = (provider.base_url or "").strip()
     image_base = (provider.image_base_url or "").strip()

@@ -14,7 +14,10 @@ class AssetImagePublisher(GenerationResultPublisher):
     """以 CAS 将图片 Artifact 自动采用到五类资产图片槽位。"""
 
     target_kind = GenerationTargetKind.asset_image_slot
-    _slot_models = (ActorImage, CharacterImage, SceneImage, PropImage, CostumeImage)
+    _slot_models = (
+        (ActorImage, "actor_id"), (CharacterImage, "character_id"),
+        (SceneImage, "scene_id"), (PropImage, "prop_id"), (CostumeImage, "costume_id"),
+    )
 
     async def _publish_file(
         self,
@@ -33,10 +36,14 @@ class AssetImagePublisher(GenerationResultPublisher):
         except ValueError as error:
             raise ValueError("asset image slot_id must be numeric") from error
 
-        for model in self._slot_models:
+        for model, parent_field in self._slot_models:
             result = await db.execute(
                 update(model)
-                .where(model.id == numeric_slot_id, model.version_id == expected_version_id)
+                .where(
+                    model.id == numeric_slot_id,
+                    getattr(model, parent_field) == snapshot.canonical_target.entity_id,
+                    model.version_id == expected_version_id,
+                )
                 .values(file_id=file_id, version_id=model.version_id + 1)
             )
             if result.rowcount:

@@ -23,9 +23,6 @@ export function ScenesTab() {
         if (!res.data) throw new Error('empty scene')
         return res.data as any
       }}
-      deleteAsset={async (id) => {
-        await StudioEntitiesApi.remove('scene', id)
-      }}
       onEditAsset={(asset) => {
         navigate(`/assets/scenes/${asset.id}/edit`)
       }}

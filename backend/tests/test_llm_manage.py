@@ -124,9 +124,19 @@ async def test_update_model_settings_persists_latest_values() -> None:
 
 @pytest.mark.asyncio
 async def test_update_model_settings_preserves_other_modality_defaults() -> None:
-    """分别设置三种模态时，部分更新不得清空先前已保存的默认模型。"""
+    """分别设置四种模态时，部分更新不得清空先前已保存的默认模型。"""
     db, engine = await _build_session()
     async with db:
+        db.add(Provider(id="p-defaults", name="阿里百炼", base_url="https://example.invalid", api_key="k"))
+        db.add_all(
+            [
+                Model(id="m-text", name="text", category=ModelCategoryKey.text, provider_id="p-defaults"),
+                Model(id="m-image", name="image", category=ModelCategoryKey.image, provider_id="p-defaults"),
+                Model(id="m-video", name="video", category=ModelCategoryKey.video, provider_id="p-defaults"),
+                Model(id="m-audio", name="audio", category=ModelCategoryKey.audio, provider_id="p-defaults"),
+            ]
+        )
+        await db.flush()
         await update_model_settings(
             db,
             body=ModelSettingsUpdate(default_text_model_id="m-text"),
@@ -139,10 +149,15 @@ async def test_update_model_settings_preserves_other_modality_defaults() -> None
             db,
             body=ModelSettingsUpdate(default_video_model_id="m-video"),
         )
+        updated = await update_model_settings(
+            db,
+            body=ModelSettingsUpdate(default_audio_model_id="m-audio"),
+        )
 
         assert updated.default_text_model_id == "m-text"
         assert updated.default_image_model_id == "m-image"
         assert updated.default_video_model_id == "m-video"
+        assert updated.default_audio_model_id == "m-audio"
     await engine.dispose()
 
 

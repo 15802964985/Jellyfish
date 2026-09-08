@@ -5,9 +5,21 @@ from __future__ import annotations
 from app.core.tasks.image_generation_tasks import ImageGenerationTask
 from app.core.tasks.registry import register_task_adapter
 from app.core.tasks.video_generation_tasks import VideoGenerationTask
+from app.core.tasks.video_generation_tasks import MinimaxVideoGenerationTask
+from app.core.tasks.video_generation_tasks import DomesticVideoGenerationTask
+from app.core.tasks.video_generation_tasks import JimengVideoGenerationTask
 
 
 TASK_ADAPTER_SPECS = (
+    ("image_generation", "jimeng", ImageGenerationTask._build_jimeng_impl),
+    ("video_generation", "jimeng", JimengVideoGenerationTask),
+    ("image_generation", "zhipu", ImageGenerationTask._build_domestic_impl),
+    ("video_generation", "zhipu", DomesticVideoGenerationTask),
+    ("image_generation", "hunyuan", ImageGenerationTask._build_domestic_impl),
+    ("video_generation", "hunyuan", DomesticVideoGenerationTask),
+    ("image_generation", "minimax", ImageGenerationTask._build_minimax_impl),
+    ("video_generation", "minimax", MinimaxVideoGenerationTask),
+    ("image_generation", "bfl", ImageGenerationTask._build_bfl_impl),
     ("image_generation", "openai", ImageGenerationTask._build_openai_impl),
     ("image_generation", "volcengine", ImageGenerationTask._build_volcengine_impl),
     ("image_generation", "vidu", ImageGenerationTask._build_vidu_impl),

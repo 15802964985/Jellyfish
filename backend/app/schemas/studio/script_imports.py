@@ -175,6 +175,7 @@ class ScriptImportRead(BaseModel):
     project_id: str
     file_id: str
     status: str
+    is_saved: bool = False
     source_format: str
     content_hash: str
     parser_version: str
@@ -184,5 +185,24 @@ class ScriptImportRead(BaseModel):
     review_state: dict[str, Any] = Field(default_factory=dict)
     commit_result: dict[str, Any] = Field(default_factory=dict)
     error_message: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class ScriptImportSummaryRead(BaseModel):
+    """导入草稿/历史列表摘要，避免列表接口返回完整解析正文。"""
+
+    id: str
+    project_id: str
+    file_id: str
+    file_name: str
+    title: str
+    status: str
+    is_saved: bool = False
+    source_format: str
+    parser_version: str
+    document_profile: ScriptDocumentProfile
+    chapter_count: int = 0
+    committed_chapter_count: int = 0
     created_at: datetime
     updated_at: datetime

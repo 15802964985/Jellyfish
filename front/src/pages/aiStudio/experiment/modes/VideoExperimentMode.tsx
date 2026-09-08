@@ -4,6 +4,7 @@
  * 页面壳负责会话选择和布局；本组件只保留视频特有的帧输入、异步任务轮询和结果展示。
  */
 import { useEffect, useMemo, useState } from 'react'
+import { isVideoEditOnlyModel } from '../../components/modelPurpose'
 import type { ReactNode } from 'react'
 import { Button, Dropdown, Empty, Input, Modal, Select, Spin, Table, Tag, Tooltip, Upload, message } from 'antd'
 import { CloseOutlined, FolderOpenOutlined, PictureOutlined, UploadOutlined, VideoCameraOutlined } from '@ant-design/icons'
@@ -48,7 +49,7 @@ type RestoredSubjectReference = SnapshotSubjectReference | NonNullable<VideoMess
 type VideoCapability = {
   allowed_ratios?: string[]; default_ratio?: string
   supports_text_to_video?: boolean; supports_first_frame?: boolean; supports_last_frame?: boolean
-  max_key_frames?: number | null; requires_first_frame?: boolean; requires_subject_reference?: boolean
+  max_key_frames?: number | null; requires_first_frame?: boolean; requires_last_frame?: boolean; requires_subject_reference?: boolean
   allowed_seconds?: number[]; min_seconds?: number | null; max_seconds?: number | null
   supports_subject_image_reference?: boolean; supports_subject_video_reference?: boolean
   supports_subject_audio_reference?: boolean
@@ -249,7 +250,7 @@ export function VideoExperimentMode({ sessionId, ensureSession, clearSessionMess
     setModelsLoading(true)
     try {
       const response = await LlmService.listModelsApiV1LlmModelsGet({ category: 'video', page: 1, pageSize: 100, order: 'updated_at', isDesc: true })
-      const items = response.data?.items ?? []; setModels(items)
+      const items = (response.data?.items ?? []).filter(model => !isVideoEditOnlyModel(model)); setModels(items)
       if (items.length === 1) { setModelId(items[0].id); void loadCapability(items[0].id) }
     } catch { message.error('加载视频模型失败') } finally { setModelsLoading(false) }
   }
@@ -367,6 +368,10 @@ export function VideoExperimentMode({ sessionId, ensureSession, clearSessionMess
     if (!selectedTemplate) setDraft('')
     if (!hasFrameReferences && !hasSubjectReferences && capability?.supports_text_to_video === false) {
       return message.warning('当前模型不支持纯文本生成，请选择参考素材')
+    }
+    if (capability?.requires_last_frame && !frameFileIds.last) {
+      message.warning('当前型号必须同时提供首帧和尾帧，请补齐后提交')
+      return
     }
     if (capability?.requires_first_frame && !frameFileIds.first) {
       return message.warning('当前模型必须选择首帧图片')

@@ -5,7 +5,7 @@ from threading import RLock
 
 from fastapi import HTTPException, status
 
-from app.models.llm import ModelCategoryKey
+from app.models.llm import ModelCategoryKey, Provider
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +18,9 @@ class ProviderSpec:
     requires_api_key: bool = True
     requires_api_secret: bool = False
     is_experimental: bool = False
+    official_documentation: str | None = None
+    text_protocol: str | None = None
+    video_operations: tuple[str, ...] = ('video_generation',)
 
 
 _SPECS_BY_KEY: dict[str, ProviderSpec] = {}
@@ -46,6 +49,9 @@ def register_provider(spec: ProviderSpec) -> None:
         requires_api_key=bool(spec.requires_api_key),
         requires_api_secret=bool(spec.requires_api_secret),
         is_experimental=bool(spec.is_experimental),
+        official_documentation=spec.official_documentation,
+        text_protocol=spec.text_protocol,
+        video_operations=spec.video_operations,
     )
 
     with _LOCK:
@@ -99,6 +105,14 @@ def resolve_provider_key_from_name(name: str) -> str:
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=f"Unsupported provider name: {name!r}",
     )
+
+
+def resolve_provider_key(provider: Provider) -> str:
+    """优先使用显式适配器；仅历史配置通过名称解析，重命名不改变调用协议。"""
+    explicit = getattr(provider, "adapter_key", None)
+    if explicit:
+        return get_provider_spec(explicit).key
+    return resolve_provider_key_from_name(provider.name)
 
 
 def is_provider_category_supported(provider_key: str, category: ModelCategoryKey) -> bool:

@@ -203,6 +203,10 @@ async def cancel_task(
             raise HTTPException(status_code=404, detail=entity_not_found("Task"))
         effective_immediately = True
     if rec.status == TaskStatus.cancelled:
+        # 通用任务终态还需投影到剧本导入域，否则导入弹窗会永久停在 analyzing。
+        from app.services.studio.script_imports import reconcile_cancelled_script_import_task
+
+        await reconcile_cancelled_script_import_task(db, task_id=task_id)
         message_row = (await db.execute(select(ExperimentMessage).where(ExperimentMessage.task_id == task_id))).scalars().first()
         if message_row is not None:
             message_row.status = "cancelled"

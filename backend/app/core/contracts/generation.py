@@ -7,7 +7,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.core.contracts.media import ImageMediaInput, VideoMediaInput
+from app.core.contracts.media import ImageMediaInput, VideoMediaInput, VideoEditMediaInput
+from app.core.contracts.generation_quality import ExecutionQualityTrace, QualitySourceBundle
 from app.core.contracts.text_generation import ScriptOperationInput, TextChatInput
 
 
@@ -34,6 +35,7 @@ class GenerationTargetKind(str, Enum):
     asset_image_slot = "asset_image_slot"
     shot_frame_slot = "shot_frame_slot"
     shot_video = "shot_video"
+    shot_video_edit = "shot_video_edit"
     shot_detail = "shot_detail"
     script_processing = "script_processing"
 
@@ -45,6 +47,8 @@ class GenerationOperation(str, Enum):
     text_agent = "text_agent"
     image_generation = "image_generation"
     video_generation = "video_generation"
+    video_edit = "video_edit"
+    quality_preflight = 'quality_preflight'
 
 
 class GenerationTarget(BaseModel):
@@ -79,8 +83,20 @@ class VideoGenerationOperationInput(BaseModel):
     seed: int | None = None
 
 
+class VideoEditOperationInput(BaseModel):
+    """Explicit editing consent and preserve instructions; no automatic crop or adoption."""
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['video_edit'] = 'video_edit'
+    client_request_id: str = Field(min_length=16, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
+    preserve_instructions: str = ''
+    keep_audio: bool = True
+    reference_positions: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]] = Field(default_factory=list, max_length=5)
+    external_transfer_confirmed: Literal[True]
+    billing_confirmed: Literal[True]
+
+
 TypedOperationInput = Annotated[
-    TextChatInput | ScriptOperationInput | ImageGenerationOperationInput | VideoGenerationOperationInput,
+    TextChatInput | ScriptOperationInput | ImageGenerationOperationInput | VideoGenerationOperationInput | VideoEditOperationInput,
     Field(discriminator="kind"),
 ]
 
@@ -92,14 +108,16 @@ class GenerationSubmitRequest(BaseModel):
 
     model_id: str | None = None
     execution_prompt: str | None = None
-    media: ImageMediaInput | VideoMediaInput | None = None
+    media: ImageMediaInput | VideoMediaInput | VideoEditMediaInput | None = None
     render_id: str | None = None
+    quality_source_fingerprint: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    quality_review_retry_id: str | None = Field(default=None, min_length=16, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
     operation_input: TypedOperationInput
 
     @model_validator(mode="after")
     def require_prompt_for_prompt_operations(self) -> "GenerationSubmitRequest":
         """单提示词 operation 必须显式冻结最终提示词，聊天与 Agent 不使用伪 prompt。"""
-        if isinstance(self.operation_input, (ImageGenerationOperationInput, VideoGenerationOperationInput)):
+        if isinstance(self.operation_input, (ImageGenerationOperationInput, VideoGenerationOperationInput, VideoEditOperationInput)):
             if not self.execution_prompt or not self.execution_prompt.strip():
                 raise ValueError("execution_prompt is required for image and video generation")
         return self
@@ -126,7 +144,7 @@ class ResolvedGenerationSnapshot(BaseModel):
     model_revision_id: str
     canonical_target: GenerationTarget
     expected_version_id: int | None = Field(default=None, ge=1)
-    media: ImageMediaInput | VideoMediaInput | None = None
+    media: ImageMediaInput | VideoMediaInput | VideoEditMediaInput | None = None
     operation_input: TypedOperationInput
     execution_prompt: str | None = None
     prompt_profile_rules: list[str] = Field(
@@ -134,3 +152,6 @@ class ResolvedGenerationSnapshot(BaseModel):
         description="提交时实际应用的供应商提示词适配规则，仅保存规则名，不保存凭据",
     )
     credential_ref: str | None = None
+    quality_trace: ExecutionQualityTrace | None = None
+    quality_sources: QualitySourceBundle | None = None
+    prompt_budget: dict | None = None

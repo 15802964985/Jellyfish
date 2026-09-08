@@ -9,6 +9,7 @@ import { Button, Image, Modal, Space, Tag, message } from 'antd'
 import { DeleteOutlined, EditOutlined, EyeOutlined, LoadingOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { buildFileDownloadUrl, resolveAssetUrl } from '../utils'
 import { DisplayImageCard } from './DisplayImageCard'
+import { useGenerationCompletion } from '../../components/useGenerationCompletion'
 
 type AssetImage = {
   id: number
@@ -68,6 +69,7 @@ export function AssetImageCard({
   const [imagesLoading, setImagesLoading] = useState(false)
   const [selectedImageId, setSelectedImageId] = useState<number | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [generationTaskId, setGenerationTaskId] = useState<string | null>(null)
 
   const generatedImages = useMemo(() => images.filter((image) => Boolean(image.file_id)), [images])
   const selectedImage = generatedImages.find((image) => image.id === selectedImageId) ?? preferredImage(generatedImages)
@@ -87,6 +89,17 @@ export function AssetImageCard({
       setImagesLoading(false)
     }
   }, [asset.id, assetLabel, listImages])
+
+  useGenerationCompletion(generationTaskId, () => {}, async (status) => {
+    if (status.status === 'succeeded') {
+      const rows = await listImages(asset.id)
+      setImages(rows)
+      setSelectedImageId(preferredImage(rows)?.id ?? null)
+    } else if (status.status === 'failed') {
+      message.error(`${assetLabel}图片生成失败，请在任务中心查看原因`)
+    }
+    setGenerationTaskId(null)
+  })
 
   useEffect(() => {
     if (previewOpen) void loadImages()
@@ -111,6 +124,7 @@ export function AssetImageCard({
       const draft = await renderPrompt(asset.id, target.id)
       const taskId = await createGenerationTask(asset.id, target.id, draft)
       if (!taskId) throw new Error('未创建生成任务')
+      setGenerationTaskId(taskId)
       message.success(`已创建${assetLabel}图片生成任务`)
       if (previewOpen) await loadImages()
     } catch {
@@ -120,7 +134,7 @@ export function AssetImageCard({
     }
   }
 
-  const thumbnailUrl = resolveAssetUrl(asset.thumbnail)
+  const thumbnailUrl = buildFileDownloadUrl(preferredImage(images)?.file_id) || resolveAssetUrl(asset.thumbnail)
 
   return (
     <>
@@ -135,7 +149,7 @@ export function AssetImageCard({
               type="primary"
               size="small"
               icon={generating ? <LoadingOutlined /> : <ThunderboltOutlined />}
-              loading={generating}
+              loading={generating || !!generationTaskId}
               onClick={(event) => {
                 event.stopPropagation()
                 void handleQuickGenerate()
@@ -148,7 +162,7 @@ export function AssetImageCard({
         onImageClick={openPreview}
         extra={<Tag color="blue">{assetLabel}</Tag>}
         actions={[
-          <Button key="generate" type="text" size="small" icon={<ThunderboltOutlined />} loading={generating} onClick={() => void handleQuickGenerate()}>
+          <Button key="generate" type="text" size="small" icon={<ThunderboltOutlined />} loading={generating || !!generationTaskId} onClick={() => void handleQuickGenerate()}>
             {thumbnailUrl ? '重新生成' : '快速生成'}
           </Button>,
           <Button key="edit" type="text" size="small" icon={<EditOutlined />} onClick={onEdit}>
@@ -173,7 +187,7 @@ export function AssetImageCard({
         ) : generatedImages.length === 0 ? (
           <div className="h-80 flex flex-col items-center justify-center gap-3 text-gray-500">
             <span>暂未生成任何视角图片</span>
-            <Button type="primary" icon={<ThunderboltOutlined />} loading={generating} onClick={() => void handleQuickGenerate()}>快速生成正面图</Button>
+            <Button type="primary" icon={<ThunderboltOutlined />} loading={generating || !!generationTaskId} onClick={() => void handleQuickGenerate()}>快速生成正面图</Button>
           </div>
         ) : (
           <Space direction="vertical" size="middle" className="w-full">
