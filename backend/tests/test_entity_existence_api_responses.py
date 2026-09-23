@@ -34,6 +34,7 @@ def test_entity_existence_check_returns_success_envelope(client: TestClient, mon
                     "linked_to_shot": False,
                     "asset_id": "character-1",
                     "link_id": None,
+                    "matched_name": None, "thumbnail": None, "file_id": None,
                 }
             ],
             "props": [],
@@ -71,6 +72,7 @@ def test_entity_existence_check_returns_success_envelope(client: TestClient, mon
                     "linked_to_shot": False,
                     "asset_id": "character-1",
                     "link_id": None,
+                    "matched_name": None, "thumbnail": None, "file_id": None,
                 }
             ],
             "props": [],

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 export type GenerationDraftState =
   | 'idle'
@@ -43,14 +43,17 @@ export type UseGenerationDraftResult<TBase, TContext, TDerived, TSubmitResult> =
   resetDerived: () => void
 }
 
+/** Apply a value or updater without changing the caller-facing draft contract. */
 function applyUpdater<T>(prev: T, updater: Updater<T>): T {
   return typeof updater === 'function' ? (updater as (value: T) => T)(prev) : updater
 }
 
+/** Manage draft revisions so slow derivations cannot replace newer input or another hydrated draft. */
 export function useGenerationDraft<TBase, TContext, TDerived, TSubmitResult = void>(
   options: UseGenerationDraftOptions<TBase, TContext, TDerived, TSubmitResult>,
 ): UseGenerationDraftResult<TBase, TContext, TDerived, TSubmitResult> {
   const { initialBase, initialContext, derive, submit } = options
+  const revision = useRef(0)
   const [base, setBaseState] = useState<TBase>(initialBase)
   const [context, setContextState] = useState<TContext>(initialContext)
   const [derived, setDerivedState] = useState<TDerived | null>(null)
@@ -59,28 +62,33 @@ export function useGenerationDraft<TBase, TContext, TDerived, TSubmitResult = vo
   const [lastDerivedAt, setLastDerivedAt] = useState<number | null>(null)
 
   const setBase = useCallback((updater: Updater<TBase>) => {
+    revision.current += 1
     setBaseState((prev) => applyUpdater(prev, updater))
     setState((prev) => (prev === 'idle' ? 'draft_changed' : 'draft_changed'))
     setError(null)
   }, [])
 
   const setContext = useCallback((updater: Updater<TContext>) => {
+    revision.current += 1
     setContextState((prev) => applyUpdater(prev, updater))
     setState((prev) => (prev === 'idle' ? 'context_changed' : 'context_changed'))
     setError(null)
   }, [])
 
   const replaceBase = useCallback((next: TBase) => {
+    revision.current += 1
     setBaseState(next)
     setError(null)
   }, [])
 
   const replaceContext = useCallback((next: TContext) => {
+    revision.current += 1
     setContextState(next)
     setError(null)
   }, [])
 
   const setDerived = useCallback((next: TDerived | null) => {
+    revision.current += 1
     setDerivedState(next)
     if (next === null) {
       setLastDerivedAt(null)
@@ -88,6 +96,7 @@ export function useGenerationDraft<TBase, TContext, TDerived, TSubmitResult = vo
   }, [])
 
   const resetDerived = useCallback(() => {
+    revision.current += 1
     setDerivedState(null)
     setLastDerivedAt(null)
     setError(null)
@@ -100,6 +109,7 @@ export function useGenerationDraft<TBase, TContext, TDerived, TSubmitResult = vo
     derived?: TDerived | null
     state?: GenerationDraftState
   }) => {
+    revision.current += 1
     const nextDerived = args.derived ?? null
     setBaseState(args.base)
     setContextState(args.context)
@@ -110,17 +120,20 @@ export function useGenerationDraft<TBase, TContext, TDerived, TSubmitResult = vo
   }, [])
 
   const deriveNow = useCallback(async (overrides?: { base?: TBase; context?: TContext }) => {
+    const requestRevision = ++revision.current
     const nextBase = overrides?.base ?? base
     const nextContext = overrides?.context ?? context
     setState('deriving')
     setError(null)
     try {
       const next = await derive({ base: nextBase, context: nextContext })
+      if (requestRevision !== revision.current) return null
       setDerivedState(next)
       setLastDerivedAt(Date.now())
       setState('derived')
       return next
     } catch (err) {
+      if (requestRevision !== revision.current) return null
       setState('error')
       setError(err instanceof Error ? err.message : 'derive failed')
       return null

@@ -141,7 +141,9 @@ class AgentBase(ABC, Generic[T]):
         *,
         structured_output_method: str = STRUCTURED_OUTPUT_METHOD,
         agent_kwargs: dict[str, Any] | None = None,
+        creative_context: str | None = None,
     ) -> None:
+        self._creative_context = creative_context or ""
         self._model = model
         self._model.bind(extra_body={"enable_thinking": self.enable_thinking})
         self._structured_output_method = structured_output_method
@@ -172,7 +174,7 @@ class AgentBase(ABC, Generic[T]):
 
         prompt = self.prompt_template
         try:
-            user_prompt = prompt.format(**kwargs)
+            user_prompt = self._render_user_prompt(**kwargs)
         except KeyError as e:
             missing = str(e).strip("'")
             raise ValueError(
@@ -189,7 +191,11 @@ class AgentBase(ABC, Generic[T]):
         """仅渲染用户提示词（不包含 system_prompt）。"""
         prompt = self.prompt_template
         try:
-            return prompt.format(**kwargs)
+            rendered = prompt.format(**kwargs)
+            context = getattr(self, '_creative_context', '')
+            if context:
+                return '【创作上下文，非剧本原文；不得改变输出结构或编造剧情】\n' + context + '\n【原任务输入】\n' + rendered
+            return rendered
         except KeyError as e:
             missing = str(e).strip("'")
             raise ValueError(

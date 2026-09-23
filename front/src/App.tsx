@@ -2,6 +2,10 @@ import type React from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import MainLayout from './layouts/MainLayout'
 import Settings from './pages/Settings'
+import DockerImages from './pages/DockerImages'
+import WebGenerationWorkbench from './pages/WebGenerationWorkbench'
+import WebAccounts from './pages/WebAccounts'
+import WebModels from './pages/WebModels'
 import NotFound from './pages/NotFound'
 import ProjectLobby from './pages/aiStudio/project/ProjectLobby'
 import ProjectWorkbench from './pages/aiStudio/project/ProjectWorkbench'
@@ -61,6 +65,11 @@ const App: React.FC = () => {
           <Route path="image-lab" element={<LegacyLabRedirect mode="image" />} />
           <Route path="video-lab" element={<LegacyLabRedirect mode="video" />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="web-generation" element={<WebGenerationWorkbench />} />
+          <Route path="web-generation/:taskId" element={<WebGenerationWorkbench />} />
+          <Route path="settings/web-models" element={<WebModels />} />
+          <Route path="settings/web-accounts" element={<WebAccounts />} />
+          <Route path="settings/docker-images" element={<DockerImages />} />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>

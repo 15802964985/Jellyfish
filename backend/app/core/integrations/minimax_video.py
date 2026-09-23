@@ -1,3 +1,5 @@
+from app.core.contracts.generation_recovery import confirm_media_receipt
+from app.core.integrations.traced_http import create_http_client
 """MiniMax Hailuo adapters, verified against official video-generation API 2026-09-08.
 
 This implementation intentionally uses 768P for Hailuo and explicit model-specific modes.
@@ -55,6 +57,10 @@ def build_video_body(inp) -> dict:
     """Validate model/mode and map both frames; unknown controls are rejected before billing."""
     if inp.model not in HAILUO_MODELS:
         raise ValueError("海螺型号尚未核验")
+    if getattr(inp, "resolution", None) not in (None, "768P"):
+        raise ValueError("当前海螺适配仅接通768P，不会忽略分辨率选择")
+    if getattr(inp, "generate_audio", None) is not None:
+        raise ValueError("当前海螺未接通原生音频参数")
     frames = inp.frame_references
     if inp.subject_references or frames.key_frames:
         raise ValueError("当前海螺适配不接收主体参考或关键帧，不能静默丢弃素材")
@@ -100,11 +106,12 @@ class MinimaxVideoApiAdapter:
         """Bound total waiting and preserve selected billing origin across submit/status/file requests."""
         body = build_video_body(inp)
         async with asyncio.timeout(3300):
-            async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=False) as client:
+            async with create_http_client(timeout=timeout_s, follow_redirects=False) as client:
                 created = await request_json(client, cfg=cfg, method="POST", path="/video_generation", json=body)
                 task_id = created.get("task_id")
                 if not isinstance(task_id, str) or not task_id:
                     raise ValueError("MiniMax 缺少任务 ID，不自动重复提交")
+                await confirm_media_receipt(task_id)
                 while True:
                     payload = await request_json(client, cfg=cfg, method="GET", path="/query/video_generation", params={"task_id": task_id})
                     state = payload.get("status")

@@ -5,4 +5,3 @@
 export type ScriptImportReviewUpdate = {
     review_state: Record<string, any>;
 };
-

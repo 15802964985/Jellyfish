@@ -147,6 +147,8 @@ async def delete_experiment_session(session_id: str, db: AsyncSession = Depends(
     has_task = (await db.execute(select(ExperimentMessage.id).join(GenerationTask, GenerationTask.id == ExperimentMessage.task_id).where(ExperimentMessage.session_id == session_id, GenerationTask.status.in_([GenerationTaskStatus.pending, GenerationTaskStatus.running, GenerationTaskStatus.streaming])).limit(1))).scalar_one_or_none()
     if has_task:
         raise HTTPException(status_code=409, detail="Session with generation tasks cannot be deleted")
+    from app.services.studio.creative_direction import delete_owned_directions
+    await delete_owned_directions(db, session)
     await db.delete(session)
     await db.commit()
     return empty_response()

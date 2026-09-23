@@ -1,6 +1,7 @@
 """可灵 Open Platform 的共享 HTTP 客户端。"""
 
 from __future__ import annotations
+from app.core.integrations.traced_http import create_http_client
 
 from typing import Any
 
@@ -76,7 +77,7 @@ class KlingClient:
             raise RuntimeError("httpx is required for Kling generation tasks") from exc
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+            async with create_http_client(timeout=self._timeout_s) as client:
                 response = await client.request(
                     method,
                     f"{self._base_url}{path}",

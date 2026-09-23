@@ -1,6 +1,7 @@
 """阿里云百炼万相异步视频生成 API 适配。"""
 
 from __future__ import annotations
+from app.core.integrations.traced_http import create_http_client
 from app.core.integrations.response_errors import raise_provider_error
 
 from typing import Any
@@ -84,6 +85,8 @@ def _build_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
             "21:9": "1344*576",
         }
         parameters = {"size": size_map[input_.ratio], "audio": False}
+    if input_.resolution is not None:
+        parameters["resolution"] = input_.resolution
     if input_.seconds is not None:
         parameters["duration"] = input_.seconds
     if input_.seed is not None:
@@ -116,7 +119,7 @@ class AliyunVideoApiAdapter:
             "Content-Type": "application/json",
             "X-DashScope-Async": "enable",
         }
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             response = await client.post(
                 root + "/services/aigc/video-generation/video-synthesis",
                 headers=headers,
@@ -144,7 +147,7 @@ class AliyunVideoApiAdapter:
 
         root = _aliyun_api_root(cfg.base_url)
         headers = {"Authorization": f"Bearer {cfg.api_key}"}
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             response = await client.get(root + f"/tasks/{task_id}", headers=headers)
             raise_provider_error(response, provider=cfg.provider, api_key=cfg.api_key)
             return response.json()
@@ -163,7 +166,7 @@ class AliyunVideoApiAdapter:
             raise RuntimeError("httpx is required for Aliyun video generation") from exc
 
         root = _aliyun_api_root(cfg.base_url)
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             response = await client.post(
                 root + f"/tasks/{task_id}/cancel",
                 headers={"Authorization": f"Bearer {cfg.api_key}"},

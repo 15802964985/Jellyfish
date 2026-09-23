@@ -124,6 +124,8 @@ async def _resolve_snapshot_video_input(
         model=revision.model_name,
         ratio=ratio,
         seconds=getattr(operation_input, "seconds", None),
+        resolution=getattr(operation_input, "resolution", None),
+        generate_audio=getattr(operation_input, "generate_audio", None),
         seed=getattr(operation_input, "seed", None),
         watermark=None,
         frame_references=SimpleNamespace(
@@ -145,13 +147,21 @@ async def _run_snapshot_video_generation(
     snapshot = ResolvedGenerationSnapshot.model_validate(snapshot_payload)
     provider_config = await _resolve_snapshot_provider_config(session, snapshot=snapshot)
     input_ = await _resolve_snapshot_video_input(session, task_id=task_id, snapshot=snapshot)
-    provider_task = VideoGenerationTask(provider_config=provider_config, input_=input_)
-    await provider_task.run()
-    raw_result = await provider_task.get_result()
-    if raw_result is None:
-        status_payload = await provider_task.status()
-        raise RuntimeError(str(status_payload.get("error") or "Video generation task returned no result"))
-    result = VideoGenerationResult.model_validate(raw_result.model_dump())
+    from app.core.contracts.generation_recovery import media_recovery
+    recovery = media_recovery.get()
+    cached = await recovery.load_result() if recovery else None
+    if cached is None:
+        provider_task = VideoGenerationTask(provider_config=provider_config, input_=input_)
+        await provider_task.run()
+        raw_result = await provider_task.get_result()
+        if raw_result is None:
+            status_payload = await provider_task.status()
+            raise RuntimeError(str(status_payload.get("error") or "Video generation task returned no result"))
+        result = VideoGenerationResult.model_validate(raw_result.model_dump())
+        if recovery:
+            await recovery.save_result(result.model_dump(mode="json"))
+    else:
+        result = VideoGenerationResult.model_validate(cached)
     headers = {"Authorization": f"Bearer {provider_config.api_key}"} if provider_config.provider == "openai" else None
     raw_artifact = await ArtifactStore().store_video(
         session,

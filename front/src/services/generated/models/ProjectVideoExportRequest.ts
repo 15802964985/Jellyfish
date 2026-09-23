@@ -7,6 +7,10 @@
  */
 export type ProjectVideoExportRequest = {
     /**
+     * 导出已保存工程的精确修订号
+     */
+    edit_revision?: (number | null);
+    /**
      * 是否允许跳过尚无视频的镜头
      */
     allow_partial?: boolean;

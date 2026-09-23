@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_dict_ } from '../models/ApiResponse_dict_';
 import type { ApiResponse_GenerationTaskLinkRead_ } from '../models/ApiResponse_GenerationTaskLinkRead_';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
 import type { ApiResponse_PaginatedData_GenerationTaskLinkRead__ } from '../models/ApiResponse_PaginatedData_GenerationTaskLinkRead__';
@@ -20,6 +21,72 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class FilmService {
     /**
+     * 查询生成任务调用详情
+     * Return the frozen configuration and sanitized real provider attempts through a dedicated detail API.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static getTaskCallDetailsApiV1FilmTasksTaskIdCallDetailsGet({
+        taskId,
+    }: {
+        taskId: string,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/film/tasks/{task_id}/call-details',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 查看生成恢复状态
+     * Return safe recovery phases, keeping provider receipts private.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static getGenerationRecoveryApiV1FilmTasksTaskIdRecoveryGet({
+        taskId,
+    }: {
+        taskId: string,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/film/tasks/{task_id}/recovery',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 继续原生成任务或补归档
+     * Queue existing receipt recovery without a new billable generation request.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static resumeGenerationRecoveryApiV1FilmTasksTaskIdRecoveryPost({
+        taskId,
+    }: {
+        taskId: string,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/film/tasks/{task_id}/recovery',
+            path: {
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * 全局任务列表（任务中心）
      * @returns ApiResponse_PaginatedData_TaskListItemRead__ Successful Response
      * @throws ApiError
@@ -27,6 +94,7 @@ export class FilmService {
     public static listTasksApiV1FilmTasksGet({
         statuses,
         taskKind,
+        modelQuery,
         relationType,
         relationEntityId,
         recentSeconds = 300,
@@ -41,6 +109,10 @@ export class FilmService {
          * 按 task_kind 过滤
          */
         taskKind?: (string | null),
+        /**
+         * 搜索冻结的厂商或型号名称
+         */
+        modelQuery?: (string | null),
         /**
          * 按 relation_type 过滤
          */
@@ -68,6 +140,7 @@ export class FilmService {
             query: {
                 'statuses': statuses,
                 'task_kind': taskKind,
+                'model_query': modelQuery,
                 'relation_type': relationType,
                 'relation_entity_id': relationEntityId,
                 'recent_seconds': recentSeconds,

@@ -21,9 +21,14 @@ def test_link_existing_asset_for_preparation_accepts_enum_value(monkeypatch) -> 
 
     import asyncio
 
+    class FakeDB:
+        """Return matching scope rows for the preparation association contract."""
+        async def get(self, model, identity):
+            return SimpleNamespace(id=identity, chapter_id="chapter-1", project_id="project-1")
+
     result = asyncio.run(
         svc.link_existing_asset_for_preparation(
-            None,
+            FakeDB(),
             project_id="project-1",
             chapter_id="chapter-1",
             shot_id="shot-1",

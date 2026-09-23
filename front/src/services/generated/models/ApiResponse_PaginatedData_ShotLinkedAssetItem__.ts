@@ -21,4 +21,3 @@ export type ApiResponse_PaginatedData_ShotLinkedAssetItem__ = {
      */
     meta?: (Record<string, any> | null);
 };
-

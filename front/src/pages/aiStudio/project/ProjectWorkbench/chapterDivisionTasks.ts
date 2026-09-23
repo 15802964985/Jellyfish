@@ -36,6 +36,7 @@ type TaskCancelLike = {
 }
 
 type UseRelationTaskPollingOptions = {
+  retainResult?: boolean
   enabled?: boolean
   relationType: string
   relationEntityId?: string | null
@@ -170,13 +171,20 @@ export async function loadActiveChapterDivisionTask(
   return findLatestActiveTaskForChapter(chapterId)
 }
 
+/** 根据业务关联恢复并轮询服务端任务；离开不取消，候选结果可保留到明确采用。 */
 export function useRelationTaskPolling({
+  retainResult = false,
   enabled = true,
   relationType,
   relationEntityId,
   pollIntervalMs = RELATION_TASK_POLL_INTERVAL_MS,
   onTaskSettled,
 }: UseRelationTaskPollingOptions) {
+  const recoveryKey = `jellyfish_relation_task:${relationType}:${relationEntityId}`
+  /** 保存任务指针以跨关闭/刷新恢复；不持久化用户输入或自动取消任务。 */
+  const remember = useCallback((id: string | null) => {
+    try { if(id)sessionStorage.setItem(recoveryKey,id);else sessionStorage.removeItem(recoveryKey) } catch { /* 内存轮询仍正常 */ }
+  }, [recoveryKey])
   const [task, setTask] = useState<RelationTaskState | null>(null)
   const [settledTask, setSettledTask] = useState<RelationTaskState | null>(null)
   const previousTaskIdRef = useRef<string | null>(null)
@@ -192,7 +200,8 @@ export function useRelationTaskPolling({
     setSettledTask(null)
     taskRef.current = next
     previousTaskIdRef.current = next?.taskId ?? null
-  }, [])
+    if(next)remember(next.taskId)
+  }, [remember])
 
   useEffect(() => {
     let cancelled = false
@@ -210,6 +219,19 @@ export function useRelationTaskPolling({
       try {
         const nextTask = await loadActiveRelationTask(relationType, relationEntityId)
         if (cancelled) return
+        let remembered: string | null = null
+        try { remembered=sessionStorage.getItem(recoveryKey) } catch { /* 无存储 */ }
+        if(!nextTask && remembered){
+          const ended=await loadTaskState(remembered)
+          if(cancelled)return
+          if(ended && !isActiveTaskStatus(ended.status)){
+            setSettledTask(ended)
+            await onTaskSettledRef.current?.(remembered,ended)
+            if(!retainResult)remember(null)
+            return
+          }
+        }
+        if(nextTask)remember(nextTask.taskId)
         setTask(nextTask)
         setSettledTask(null)
         taskRef.current = nextTask
@@ -232,7 +254,7 @@ export function useRelationTaskPolling({
     return () => {
       cancelled = true
     }
-  }, [enabled, relationEntityId, relationType])
+  }, [enabled, relationEntityId, relationType, recoveryKey, remember, retainResult])
 
   useEffect(() => {
     let cancelled = false
@@ -267,6 +289,7 @@ export function useRelationTaskPolling({
         previousTaskIdRef.current = null
         if (settledTaskId) {
           await onTaskSettledRef.current?.(settledTaskId, nextTask)
+          if(!retainResult)remember(null)
         }
       } catch {
         if (!cancelled) {
@@ -285,7 +308,7 @@ export function useRelationTaskPolling({
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
     }
-  }, [enabled, pollIntervalMs, task?.taskId, task?.status])
+  }, [enabled, pollIntervalMs, task?.taskId, task?.status, remember, retainResult])
 
   return { task, settledTask, setTrackedTask, previousTaskIdRef }
 }

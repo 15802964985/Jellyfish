@@ -3,10 +3,17 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AdoptVideoEditRequest } from '../models/AdoptVideoEditRequest';
+import type { ApiResponse_dict_ } from '../models/ApiResponse_dict_';
 import type { ApiResponse_dict_str__str__ } from '../models/ApiResponse_dict_str__str__';
-import type { ApiResponse_dict_str__Union_float__bool___ } from '../models/ApiResponse_dict_str__Union_float__bool___';
 import type { ApiResponse_ExperimentTaskCreated_ } from '../models/ApiResponse_ExperimentTaskCreated_';
+import type { ApiResponse_list_dict__ } from '../models/ApiResponse_list_dict__';
+import type { ApiResponse_QualityReviewHistory_ } from '../models/ApiResponse_QualityReviewHistory_';
+import type { ApiResponse_QualityReviewRecord_ } from '../models/ApiResponse_QualityReviewRecord_';
 import type { ApiResponse_TaskCreated_ } from '../models/ApiResponse_TaskCreated_';
+import type { ApiResponse_VideoEditCatalogRead_ } from '../models/ApiResponse_VideoEditCatalogRead_';
+import type { ApiResponse_VideoEditPreviewRead_ } from '../models/ApiResponse_VideoEditPreviewRead_';
+import type { ApplyReviewRevisionRequest } from '../models/ApplyReviewRevisionRequest';
+import type { FrameReviewCheckRequest } from '../models/FrameReviewCheckRequest';
 import type { GenerationSubmitRequest } from '../models/GenerationSubmitRequest';
 import type { QualityReviewRequest } from '../models/QualityReviewRequest';
 import type { ShotFrameType } from '../models/ShotFrameType';
@@ -16,9 +23,21 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class StudioGenerationTasksService {
     /**
+     * List Video Edit Models
+     * Return the backend-owned capability catalogue and precise configured exclusions.
+     * @returns ApiResponse_VideoEditCatalogRead_ Successful Response
+     * @throws ApiError
+     */
+    public static listVideoEditModelsApiV1StudioGenerationTasksVideoEditModelsGet(): CancelablePromise<ApiResponse_VideoEditCatalogRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/generation-tasks/video-edit-models',
+        });
+    }
+    /**
      * Preflight Video Edit
-     * Only inspect local files and configuration; no provider HTTP request or task is created.
-     * @returns ApiResponse_dict_str__Union_float__bool___ Successful Response
+     * Only inspect local files/configuration; no external request or generation task.
+     * @returns ApiResponse_VideoEditPreviewRead_ Successful Response
      * @throws ApiError
      */
     public static preflightVideoEditApiV1StudioGenerationTasksShotsShotIdVideoEditPreflightPost({
@@ -27,7 +46,7 @@ export class StudioGenerationTasksService {
     }: {
         shotId: string,
         requestBody: VideoEditPreflightRequest,
-    }): CancelablePromise<ApiResponse_dict_str__Union_float__bool___> {
+    }): CancelablePromise<ApiResponse_VideoEditPreviewRead_> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/studio/generation-tasks/shots/{shot_id}/video-edit-preflight',
@@ -42,8 +61,76 @@ export class StudioGenerationTasksService {
         });
     }
     /**
+     * Get Quality Review History
+     * 免费读取镜头预检/修改历史；读取不会重新提交或调用模型。
+     * @returns ApiResponse_QualityReviewHistory_ Successful Response
+     * @throws ApiError
+     */
+    public static getQualityReviewHistoryApiV1StudioGenerationTasksShotsShotIdQualityReviewsGet({
+        shotId,
+        scope = 'video',
+        stage,
+        outputFileId,
+        page = 1,
+        pageSize = 10,
+    }: {
+        shotId: string,
+        scope?: 'video' | 'first' | 'key' | 'last' | 'legacy',
+        stage?: ('before' | 'after' | null),
+        outputFileId?: (string | null),
+        page?: number,
+        pageSize?: number,
+    }): CancelablePromise<ApiResponse_QualityReviewHistory_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/quality-reviews',
+            path: {
+                'shot_id': shotId,
+            },
+            query: {
+                'scope': scope,
+                'stage': stage,
+                'output_file_id': outputFileId,
+                'page': page,
+                'page_size': pageSize,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Apply Quality Revision
+     * 显式应用优化方案；只保存草稿/标记，不调用模型。
+     * @returns ApiResponse_QualityReviewRecord_ Successful Response
+     * @throws ApiError
+     */
+    public static applyQualityRevisionApiV1StudioGenerationTasksShotsShotIdQualityReviewsTaskIdApplyPost({
+        shotId,
+        taskId,
+        requestBody,
+    }: {
+        shotId: string,
+        taskId: string,
+        requestBody: ApplyReviewRevisionRequest,
+    }): CancelablePromise<ApiResponse_QualityReviewRecord_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/quality-reviews/{task_id}/apply',
+            path: {
+                'shot_id': shotId,
+                'task_id': taskId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Submit Quality Review
-     * Freeze local evidence with the exact prompt; identical source/model inputs reuse a task.
+     * 显式提交预检或调整，服务层负责校验历史来源与冻结证据。
      * @returns ApiResponse_TaskCreated_ Successful Response
      * @throws ApiError
      */
@@ -265,6 +352,69 @@ export class StudioGenerationTasksService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Restore Quality Revision
+     * 免费恢复应用前状态，原预检和优化方案仍保留。
+     * @returns ApiResponse_QualityReviewRecord_ Successful Response
+     * @throws ApiError
+     */
+    public static restoreQualityRevisionApiV1StudioGenerationTasksShotsShotIdQualityReviewsTaskIdRestorePost({
+        shotId,
+        taskId,
+    }: {
+        shotId: string,
+        taskId: string,
+    }): CancelablePromise<ApiResponse_QualityReviewRecord_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/quality-reviews/{task_id}/restore',
+            path: {
+                'shot_id': shotId,
+                'task_id': taskId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Check Frame Review
+     * 免费校验帧图输入，不创建任何模型任务。
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static checkFrameReviewApiV1StudioGenerationTasksShotsShotIdFrameReviewCheckPost({
+        shotId,
+        requestBody,
+    }: {
+        shotId: string,
+        requestBody: FrameReviewCheckRequest,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/generation-tasks/shots/{shot_id}/frame-review-check',
+            path: {
+                'shot_id': shotId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Quality Review Models
+     * 返回当前预检模型和已接入的看图能力，不调用模型。
+     * @returns ApiResponse_list_dict__ Successful Response
+     * @throws ApiError
+     */
+    public static qualityReviewModelsApiV1StudioGenerationTasksQualityReviewModelsGet(): CancelablePromise<ApiResponse_list_dict__> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/generation-tasks/quality-review-models',
         });
     }
     /**

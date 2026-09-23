@@ -21,4 +21,3 @@ export type ApiResponse_ShotVideoPromptPreviewRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

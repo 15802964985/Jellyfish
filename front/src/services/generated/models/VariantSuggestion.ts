@@ -32,4 +32,3 @@ export type VariantSuggestion = {
      */
     evidence?: Array<EvidenceSpan>;
 };
-

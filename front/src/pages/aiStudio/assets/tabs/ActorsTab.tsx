@@ -137,7 +137,7 @@ export function ActorsTab() {
             <AssetImageCard
               key={a.id}
               asset={a}
-              assetLabel="演员"
+              assetLabel="演员" assetType="actor"
               listImages={assetAdapters.actor.listImages}
               createImageSlot={assetAdapters.actor.createImageSlot as any}
               renderPrompt={assetAdapters.actor.renderPrompt}

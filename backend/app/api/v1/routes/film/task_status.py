@@ -28,6 +28,27 @@ from .common import (
 )
 
 router = APIRouter()
+@router.get("/tasks/{task_id}/call-details", response_model=ApiResponse[dict], summary="查询生成任务调用详情")
+async def get_task_call_details(task_id: str, db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """Return the frozen configuration and sanitized real provider attempts through a dedicated detail API."""
+    from app.services.generation.call_audit import get_call_details
+    return success_response(await get_call_details(db, task_id))
+
+
+@router.get("/tasks/{task_id}/recovery", response_model=ApiResponse[dict], summary="查看生成恢复状态")
+async def get_generation_recovery(task_id: str, db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """Return safe recovery phases, keeping provider receipts private."""
+    from app.services.generation.recovery import recovery_status
+    return success_response(await recovery_status(db, task_id))
+
+
+@router.post("/tasks/{task_id}/recovery", response_model=ApiResponse[dict], summary="继续原生成任务或补归档")
+async def resume_generation_recovery(task_id: str, db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """Queue existing receipt recovery without a new billable generation request."""
+    from app.services.generation.recovery import resume_generation
+    return success_response(await resume_generation(db, task_id))
+
+
 TASK_LINK_ORDER_FIELDS = {"updated_at", "created_at", "id", "status"}
 
 
@@ -80,6 +101,7 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db, scope="function"),
     statuses: list[TaskStatus] | None = Query(None, description="按任务状态过滤，可多选"),
     task_kind: str | None = Query(None, description="按 task_kind 过滤"),
+    model_query: str | None = Query(None, max_length=255, description="搜索冻结的厂商或型号名称"),
     relation_type: str | None = Query(None, description="按 relation_type 过滤"),
     relation_entity_id: str | None = Query(None, description="按 relation_entity_id 过滤"),
     recent_seconds: int = Query(300, ge=0, le=86400, description="默认返回最近结束任务的时间窗口（秒）"),
@@ -90,6 +112,7 @@ async def list_tasks(
     items, total = await store.list_task_views(
         statuses=statuses,
         task_kind=task_kind,
+        model_query=model_query,
         relation_type=relation_type,
         relation_entity_id=relation_entity_id,
         recent_seconds=recent_seconds,
@@ -100,6 +123,8 @@ async def list_tasks(
         [
             TaskListItemRead(
                 task_id=item.id,
+                model_name=item.model_name,
+                provider_name=item.provider_name,
                 task_kind=item.task_kind,
                 status=item.status,
                 progress=item.progress,
@@ -193,7 +218,10 @@ async def cancel_task(
     db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[TaskCancelRead]:
     store = SqlAlchemyTaskStore(db)
-    rec = await store.request_cancel(task_id, body.reason)
+    from app.services.generation.web_generation import cancel_browser_task
+
+    handled = await cancel_browser_task(db, task_id, body.reason)
+    rec = await store.get(task_id) if handled else await store.request_cancel(task_id, body.reason)
     if rec is None:
         raise HTTPException(status_code=404, detail=entity_not_found("Task"))
     effective_immediately = rec.status == TaskStatus.cancelled

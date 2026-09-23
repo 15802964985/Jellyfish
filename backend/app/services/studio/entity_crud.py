@@ -91,6 +91,9 @@ async def create_entity(
     spec = entity_spec(entity_type_norm)
     parsed = spec.create_model.model_validate(body)
     data = parsed.model_dump()
+    data.pop("creative_direction", None)
+    creative_input = getattr(parsed, "creative_direction", None)
+    creative_fields = creative_input.model_dump(exclude_unset=True) if creative_input is not None else None
 
     link_project_id: str | None = None
     link_chapter_id: str | None = None
@@ -159,6 +162,16 @@ async def create_entity(
             chapter_id=link_chapter_id,
             shot_id=link_shot_id,
         )
+
+    if link_project_id and entity_type_norm != "character":
+        from app.services.studio.creative_direction import read_direction
+        inherited = await read_direction(db,'project',link_project_id)
+        # 独立资产复制项目设定作为初值；局部输入不能丢失其他项目约束。角色继续动态继承项目。
+        creative_fields = {**{key:value for key,value in inherited.effective.items() if key!='general_rules'}, **(creative_fields or {})}
+    if creative_fields is not None:
+        from app.services.studio.creative_direction import write_direction
+        from app.core.contracts.creative_direction import CreativeWrite, CreativeFields
+        await write_direction(db,entity_type_norm,obj.id,CreativeWrite(expected_revision=0,overrides=CreativeFields.model_validate(creative_fields)))
 
     if entity_type_norm == "character" and link_shot_id is not None:
         existing_indexes_stmt = (
@@ -256,5 +269,7 @@ async def delete_entity(
     obj = await db.get(spec.model, entity_id)
     if obj is None:
         return
+    from app.services.studio.creative_direction import delete_owned_directions
+    await delete_owned_directions(db, obj)
     await db.delete(obj)
     await db.flush()

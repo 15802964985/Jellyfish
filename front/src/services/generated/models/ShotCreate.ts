@@ -41,4 +41,3 @@ export type ShotCreate = {
      */
     generated_video_file_id?: (string | null);
 };
-

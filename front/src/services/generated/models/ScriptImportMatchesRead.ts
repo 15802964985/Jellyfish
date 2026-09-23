@@ -6,4 +6,3 @@ import type { ScriptImportEntityMatch } from './ScriptImportEntityMatch';
 export type ScriptImportMatchesRead = {
     matches?: Record<string, Array<ScriptImportEntityMatch>>;
 };
-

@@ -43,8 +43,10 @@ class _FakeResolver:
 
 
 @pytest.mark.asyncio
-async def test_snapshot_image_input_resolves_file_reference_only_in_worker_memory(monkeypatch) -> None:
+@pytest.mark.parametrize("profile", [None, "preview", "standard", "high", "ultra"])
+async def test_snapshot_image_input_resolves_file_reference_only_in_worker_memory(monkeypatch, profile) -> None:
     """Worker 从 snapshot 的 file_id 解析媒体，不接触历史 run_args URL 或凭据。"""
+    _FakeResolver.references = []
     monkeypatch.setattr(image_task_runner, "FileResolver", _FakeResolver)
     snapshot = ResolvedGenerationSnapshot(
         model_id="model-1",
@@ -56,7 +58,7 @@ async def test_snapshot_image_input_resolves_file_reference_only_in_worker_memor
         ),
         expected_version_id=1,
         media=ImageMediaInput(references=[MediaReference(file_id="file-1", media_kind="image")]),
-        operation_input=ImageGenerationOperationInput(target_ratio="16:9", count=2),
+        operation_input=ImageGenerationOperationInput(target_ratio="16:9", count=2, resolution_profile=profile),
         execution_prompt="冻结提示词",
     )
 
@@ -70,6 +72,7 @@ async def test_snapshot_image_input_resolves_file_reference_only_in_worker_memor
     assert input_.prompt == "冻结提示词"
     assert input_.model == "image-model"
     assert input_.n == 2
+    assert input_.resolution_profile == profile
     assert input_.purpose == "video_reference"
     assert input_.images[0].file_id is None
     assert input_.images[0].image_url == "data:image/png;base64,cG5nLWJ5dGVz"

@@ -57,6 +57,7 @@ class ArtifactStore:
                 b64_data=image.b64_json,
                 name=f"{name_prefix}-{ordinal}",
                 prefix=storage_prefix,
+                recovery_ordinal=ordinal,
             )
             artifacts.append(
                 await self._add_file_artifact(
@@ -146,6 +147,7 @@ class ArtifactStore:
             prefix=storage_prefix,
             url_request_headers=url_request_headers,
             httpx_timeout=httpx_timeout,
+            recovery_ordinal=0,
         )
 
     async def _add_file_artifact(

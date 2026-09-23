@@ -30,4 +30,3 @@ export type TaskResultRead = {
      */
     elapsed_ms?: (number | null);
 };
-

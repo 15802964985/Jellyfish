@@ -61,6 +61,22 @@ class GenerationTarget(BaseModel):
     slot_id: str | None = None
 
 
+class ImageEditRegion(BaseModel):
+    """Normalized rectangle on the original image; output outside it is locally preserved."""
+    model_config = ConfigDict(extra="forbid")
+    x: float = Field(ge=0, lt=1, allow_inf_nan=False)
+    y: float = Field(ge=0, lt=1, allow_inf_nan=False)
+    width: float = Field(gt=0, le=1, allow_inf_nan=False)
+    height: float = Field(gt=0, le=1, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def within_image(self):
+        """Reject rectangles extending beyond the source instead of silently clipping."""
+        if self.x + self.width > 1.000001 or self.y + self.height > 1.000001:
+            raise ValueError("局部修正范围超出原图")
+        return self
+
+
 class ImageGenerationOperationInput(BaseModel):
     """图片 operation 的可执行参数，不承载媒体 URL 或业务目标。"""
 
@@ -68,8 +84,10 @@ class ImageGenerationOperationInput(BaseModel):
 
     kind: Literal["image_generation"] = "image_generation"
     target_ratio: str | None = None
+    size: str | None = Field(default=None, max_length=32)
     resolution_profile: str | None = None
     count: int = Field(default=1, ge=1, le=10)
+    edit_region: ImageEditRegion | None = None
 
 
 class VideoGenerationOperationInput(BaseModel):
@@ -79,6 +97,8 @@ class VideoGenerationOperationInput(BaseModel):
 
     kind: Literal["video_generation"] = "video_generation"
     ratio: str
+    resolution: str | None = Field(default=None, max_length=32)
+    generate_audio: bool | None = Field(default=None, description="仅支持原生有声生成的模型可配置")
     seconds: int | None = Field(default=None, ge=1)
     seed: int | None = None
 
@@ -90,6 +110,8 @@ class VideoEditOperationInput(BaseModel):
     client_request_id: str = Field(min_length=16, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
     preserve_instructions: str = ''
     keep_audio: bool = True
+    resolution: str | None = None
+    seconds: int | None = Field(default=None, ge=1, le=30)
     reference_positions: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]] = Field(default_factory=list, max_length=5)
     external_transfer_confirmed: Literal[True]
     billing_confirmed: Literal[True]
@@ -107,9 +129,12 @@ class GenerationSubmitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model_id: str | None = None
+    expected_model_revision_id: str | None = None
     execution_prompt: str | None = None
     media: ImageMediaInput | VideoMediaInput | VideoEditMediaInput | None = None
     render_id: str | None = None
+    quality_review_task_id: str | None = None
+    quality_revision_task_id: str | None = None
     quality_source_fingerprint: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
     quality_review_retry_id: str | None = Field(default=None, min_length=16, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
     operation_input: TypedOperationInput
@@ -155,3 +180,5 @@ class ResolvedGenerationSnapshot(BaseModel):
     quality_trace: ExecutionQualityTrace | None = None
     quality_sources: QualitySourceBundle | None = None
     prompt_budget: dict | None = None
+    cost_estimate: dict | None = None
+    creative_direction: dict | None = None

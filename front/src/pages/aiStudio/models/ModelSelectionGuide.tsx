@@ -80,7 +80,7 @@ export default function ModelSelectionGuide({ open, onClose, onConfigure }: {
     {error && <Alert type="error" message={error} className="mb-4" />}
     <Typography.Paragraph type="secondary">
       当前范围 {items.length} 个型号 / 类型，其中 {items.filter(item => item.configurations?.length).length} 个已保存配置。
-      同一型号的多个账户在同一行分别展示；“已接通”仅指列出的业务模式。
+      同一型号的多个账户在同一行分别展示；“已接通”仅指本地实现；官方链接分型号级和协议级，均不代表账户调用或生成质量已验收。
     </Typography.Paragraph>
     <Table<ModelOverviewItem> size="small" rowKey="key" loading={loading}
       dataSource={filtered.slice((visiblePage - 1) * pageSize, visiblePage * pageSize)} pagination={false}
@@ -116,7 +116,14 @@ export default function ModelSelectionGuide({ open, onClose, onConfigure }: {
           {item.official_documentation && <div><a href={item.official_documentation} target="_blank" rel="noopener noreferrer">官方文档 / 开通指引</a></div>}
         </div> },
       ]}
-      expandable={{ rowExpandable: item => !!item.configurations?.length, expandedRowRender: item => <Space direction="vertical">
+      expandable={{ rowExpandable: item => !!item.configurations?.length || !!item.mode_contracts?.length, expandedRowRender: item => <Space direction="vertical">
+        {(item.mode_contracts ?? []).map(mode => <section key={mode.key} className="rounded border p-3 w-full">
+          <strong>{mode.title}</strong> · {mode.implementation === 'integrated' ? '本地已接通' : '待核验 / 未接通'}
+          <div>输入要求：{mode.requirement}。{mode.reason}</div>
+          <details><summary>本地参数约束（当前模式）</summary><pre className="whitespace-pre-wrap break-all">{JSON.stringify(mode.parameters, null, 2)}</pre></details>
+          <div>{mode.evidence_status === 'model_source_bound' ? '型号文档已绑定' : mode.evidence_status === 'protocol_only' ? '仅协议级文档' : '缺少官方来源'}；{mode.verification}</div>
+          {mode.source_url && <a href={mode.source_url} target="_blank" rel="noreferrer">核对官方文档</a>}
+        </section>)}
         {(item.configurations ?? []).map(account => <div key={account.model_id}>
           <strong>{account.provider_name}</strong>：{account.reasons?.join('；')}。
           <Typography.Text type="secondary">{account.verification}</Typography.Text>

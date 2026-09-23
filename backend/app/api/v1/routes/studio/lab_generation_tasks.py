@@ -88,6 +88,8 @@ async def _submit_lab_task(
 
     lab_type: Literal["image", "video"] = "image" if modality is GenerationModality.image else "video"
     session = await _require_session(db, session_id=session_id, lab_type=lab_type)
+    from app.services.studio.lab_submission_guard import guard_lab_submission
+    await guard_lab_submission(db, session_id, body)
     payload = _message_payload(body)
     operation = GenerationOperation.image_generation if modality is GenerationModality.image else GenerationOperation.video_generation
     task_label = "图片" if modality is GenerationModality.image else "视频"

@@ -1,6 +1,7 @@
 """LLM 相关基础配置的 CRUD 接口：Provider / Model / ModelSettings。"""
 
 from __future__ import annotations
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +52,62 @@ from app.services.llm.testing import test_provider_connection as test_provider_c
 from app.services.llm.testing import test_text_model as test_text_model_service
 
 router = APIRouter()
+
+
+@router.get("/model-sync", response_model=ApiResponse[dict], summary="模型接口同步状态")
+async def get_model_sync_report(db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """Return only supported/configured scope and official-source change records."""
+    from app.services.llm.model_governance import governance_report
+    result = await governance_report(db)
+    await db.commit()
+    return success_response(result)
+
+
+from app.core.contracts.model_governance import ModelSyncSettings, GenerationDefaultsUpdate, ModelRuleAction
+
+
+@router.patch("/models/{model_id}/generation-defaults", response_model=ApiResponse[dict], summary="保存模型默认生成规格")
+async def set_generation_default(model_id: str, body: GenerationDefaultsUpdate,
+                                 db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """Save only the explicitly selected default through the model revision service."""
+    from app.services.generation.specifications import save_generation_default
+    return success_response(await save_generation_default(db, model_id, body))
+
+
+
+@router.post("/model-sync/{source_id}/rules", response_model=ApiResponse[dict], summary="回退或恢复官方兼容规则")
+async def change_model_rule(source_id: str, body: ModelRuleAction, db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """Apply a version-checked rule action; never rewrite provider endpoint or credentials."""
+    from app.services.llm.model_governance import change_rule_version
+    return success_response(await change_rule_version(db, source_id, body))
+
+
+@router.patch("/model-sync/settings", response_model=ApiResponse[dict], summary="设置模型接口检查周期")
+async def update_model_sync_settings(body: ModelSyncSettings, db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """Update cadence without modifying model defaults, endpoints or source trust policy."""
+    from app.services.llm.model_governance import update_sync_settings
+    return success_response(await update_sync_settings(db, body.model_dump()))
+
+
+@router.post("/model-sync", response_model=ApiResponse[dict], summary="手动检查模型接口更新")
+async def trigger_model_sync() -> ApiResponse[dict]:
+    """Queue the same distributed-lease-protected scan used by startup and Beat."""
+    from app.services.llm.model_governance import queue_sync
+    await queue_sync(force=True)
+    return success_response({"status": "queued"})
+
+
+
+@router.get("/generation-specification", response_model=ApiResponse[dict], summary="读取当前生成模型规格和计费依据")
+async def get_generation_specification(
+    category: Literal["image", "video"], model_id: str | None = None, ratio: str | None = None,
+    references: int = Query(0, ge=0, le=100), editing: bool = False, db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict]:
+    """Use saved exact model configuration to expose implemented choices without provider generation."""
+    from app.services.generation.specifications import get_specification
+    return success_response(await get_specification(db, model_id=model_id, category=category,
+        ratio=ratio, references=references, editing=editing))
+
 
 from app.core.contracts.model_recommendations import ModelScenarioRead
 from app.core.contracts.model_recommendations import ModelOverviewRead

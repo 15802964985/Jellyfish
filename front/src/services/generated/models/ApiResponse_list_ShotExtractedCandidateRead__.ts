@@ -21,4 +21,3 @@ export type ApiResponse_list_ShotExtractedCandidateRead__ = {
      */
     meta?: (Record<string, any> | null);
 };
-

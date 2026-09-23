@@ -50,4 +50,3 @@ export type ShotExtractedCandidateRead = {
      */
     updated_at: string;
 };
-

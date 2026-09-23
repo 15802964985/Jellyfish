@@ -6,4 +6,3 @@ export type ScriptImportCreate = {
     project_id: string;
     file_id: string;
 };
-

@@ -35,4 +35,3 @@ export type EntityMergerRequest = {
      */
     conflict_resolutions?: null;
 };
-

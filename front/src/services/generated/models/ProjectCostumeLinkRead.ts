@@ -25,4 +25,3 @@ export type ProjectCostumeLinkRead = {
      */
     thumbnail?: string;
 };
-

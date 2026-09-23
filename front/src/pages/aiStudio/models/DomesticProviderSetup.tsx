@@ -18,8 +18,8 @@ const setups: Record<string, { title: string; steps: string; url: string }> = {
   },
   jimeng: {
     title: '即梦：独立视觉 API，AK/SK 签名，不使用方舟套餐密钥',
-    steps: '在火山视觉服务开通接口，使用最小权限 AK（API Key）与 SK（API Secret）。Base URL：https://visual.volcengineapi.com。图片4.0当前为2K单图文生；本地参考图公网导出尚未开放。视频3.0为720p首尾双帧、5/10秒，两帧都必须提供。网页积分/会员与此 API 独立计费。',
-    url: 'https://www.volcengine.com/docs/85621/1863351',
+    steps: '在火山视觉服务开通接口，使用最小权限 AK（API Key）与 SK（API Secret）。Base URL：https://visual.volcengineapi.com。模型名称选择已开通的服务版本，不需要填写req_key。图片3.0无图走文生图、1张参考图走智能参考；4.0需单独开通且当前只接通文生图。视频3.0根据纯文字/首帧/首尾帧及720P/1080P动态匹配，时长5/10秒；请确认对应分辨率权限。专用运镜模板暂未开放，不会自动套用。网页积分/会员与此 API 独立计费。',
+    url: 'https://docs.volcengine.com/docs/85621/2533614?lang=zh',
   },
 }
 

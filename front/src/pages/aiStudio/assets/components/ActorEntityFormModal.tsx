@@ -1,7 +1,10 @@
+import { creativeFormError } from '../../../../components/creativeDirectionForm'
+import { CreativeDirectionDraftFields } from '../../../../components/CreativeDirectionDraftFields'
+import { CreativeDirectionButton } from '../../../../components/CreativeDirectionButton'
+import type { CreativeFields } from '../../../../services/generated'
 import { useEffect, useState } from 'react'
 import { Input, InputNumber, Modal, message } from 'antd'
 import { StudioEntitiesApi } from '../../../../services/studioEntities'
-import { ProjectVisualStyleAndStyleFields } from '../../project/ProjectVisualStyleAndStyleFields'
 import { useProjectStyleOptions } from '../../project/useProjectStyleOptions'
 
 export type ActorEntityLike = {
@@ -38,7 +41,9 @@ export function ActorEntityFormModal({
   onCancel: () => void
   onSuccess: (detail?: { created?: unknown }) => void | Promise<void>
 }) {
-  const { options: projectStyleOptions, defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
+  const { defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
+  const [creativeDraft, setCreativeDraft] = useState<CreativeFields>({})
+  useEffect(() => { if (open) setCreativeDraft({}) }, [open])
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
   const [formTags, setFormTags] = useState('')
@@ -69,6 +74,7 @@ export function ActorEntityFormModal({
   }, [open, editing, defaultVisualStyle, getDefaultStyle])
 
   const handleOk = async () => {
+    if(!editing){const error=creativeFormError(creativeDraft);if(error){message.warning(error);return}}
     const name = formName.trim()
     if (!name) {
       message.warning('请输入名称')
@@ -78,6 +84,7 @@ export function ActorEntityFormModal({
       if (!editing) {
         const created = await StudioEntitiesApi.create('actor', {
           id: crypto?.randomUUID?.() ?? `actor_${Date.now()}`,
+          creative_direction: Object.keys(creativeDraft).length ? creativeDraft : undefined,
           name,
           description: formDesc.trim() || undefined,
           tags: normalizeTags(formTags),
@@ -113,6 +120,8 @@ export function ActorEntityFormModal({
 
   return (
     <Modal
+      width="min(820px, 96vw)"
+      styles={{body:{maxHeight:'65vh',overflowY:'auto'}}}
       title={editing ? '编辑演员' : '新建演员'}
       open={open}
       onCancel={onCancel}
@@ -137,16 +146,8 @@ export function ActorEntityFormModal({
           <InputNumber className="w-full" min={1} max={4} value={formViewCount} onChange={(v) => setFormViewCount(v ?? null)} />
         </div>
         <div>
-          <div className="text-sm text-gray-600 mb-1">视觉风格</div>
-          <ProjectVisualStyleAndStyleFields
-            visual_style={formVisualStyle}
-            style={formStyle}
-            options={projectStyleOptions}
-            onChange={(next) => {
-              setFormVisualStyle(next.visual_style)
-              setFormStyle(next.style)
-            }}
-          />
+          <div className="text-sm text-gray-600 mb-1">创作方向</div>
+          {editing ? <CreativeDirectionButton scope={'actor'} entityId={editing.id} /> : <CreativeDirectionDraftFields value={creativeDraft} onChange={setCreativeDraft} />}
         </div>
       </div>
     </Modal>

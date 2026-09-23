@@ -8,4 +8,3 @@
 export type AssetImagePromptRenderBody = {
     reference_file_ids?: Array<string>;
 };
-

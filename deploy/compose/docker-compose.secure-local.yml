@@ -8,6 +8,10 @@ services:
       dockerfile: deploy/docker/backend.local.Dockerfile
 
   backend:
+    # Optional local browser credential; absent on other installations means disabled.
+    env_file:
+      - path: ../../local-browser/runner.env
+        required: false
     build:
       dockerfile: deploy/docker/backend.local.Dockerfile
     ports: !override
@@ -22,6 +26,9 @@ services:
       dockerfile: deploy/docker/backend.local.Dockerfile
 
   front:
+    # Host collector publishes only inventory; nginx exposes one exact JSON file.
+    volumes:
+      - ../../local-reports:/var/lib/jellyfish-inventory:ro
     build:
       dockerfile: deploy/docker/front.local.Dockerfile
     ports: !override

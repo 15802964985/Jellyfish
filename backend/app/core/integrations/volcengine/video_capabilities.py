@@ -27,10 +27,14 @@ _SEEDANCE_15 = VideoModelCapability(
     default_ratio="16:9",
     min_seconds=4,
     max_seconds=12,
+    supports_generate_audio=True,
+    resolutions=("480p", "720p", "1080p"),
+    resolution_source="https://www.volcengine.com/docs/82379/1520757",
     max_key_frames=0,
 )
 _VOLCENGINE_BUILTIN_OVERRIDES: dict[str, VideoModelCapability] = {
     "doubao-seedance-1.5": _SEEDANCE_15,
+    "doubao-seedance-1-5-pro": _SEEDANCE_15,
 }
 _VOLCENGINE_MODEL_OVERRIDES: dict[str, VideoModelCapability] = dict(_VOLCENGINE_BUILTIN_OVERRIDES)
 

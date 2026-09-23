@@ -101,13 +101,13 @@ def test_domestic_scope_and_same_name_different_categories():
 
 
 def test_aliyun_known_images_and_frame_requirements():
-    """Mapped Wan images must appear without saved models; Jimeng cannot pretend to be text-to-video."""
+    """Mapped Wan images and Jimeng service families expose implemented scenes without saved models."""
     result = build_model_overview([], [])
     entry = find(result, "aliyun_bailian", "wan2.7-image-pro", "image")
     assert set(entry.scenario_keys) == {"concept", "reference_image"}
     video = next(m for m in result.models if m.provider_key == "jimeng" and m.category == "video")
-    assert video.scenario_keys == ["first_last"]
-    assert "必须提供首帧" in video.limitations and "必须提供尾帧" in video.limitations
+    assert {"text_video", "image_video", "first_last"} <= set(video.scenario_keys)
+    assert "必须提供首帧" not in video.limitations and "必须提供尾帧" not in video.limitations
 
 
 @pytest.mark.asyncio

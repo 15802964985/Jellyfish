@@ -73,7 +73,10 @@ async def get_shot_assets_overview(
         candidate_status = _enum_or_str_value(candidate.candidate_status)
         if not candidate_type:
             continue
-        key = f"{candidate_type}:{_normalize_name(candidate.candidate_name)}"
+        # Merge confirmed aliases by stable entity identity; preserve current asset photos.
+        linked_match = next((item for item in item_by_key.values() if item.type == candidate_type
+            and item.linked_entity_id == candidate.linked_entity_id), None) if candidate.linked_entity_id else None
+        key = linked_match.key if linked_match else f"{candidate_type}:{_normalize_name(candidate.candidate_name)}"
         payload = dict(candidate.payload or {})
         existing = item_by_key.get(key)
         description = _payload_value(payload, "description")
@@ -100,8 +103,8 @@ async def get_shot_assets_overview(
         item_by_key[key] = existing.model_copy(
             update={
                 "description": description or existing.description,
-                "thumbnail": thumbnail or existing.thumbnail,
-                "file_id": file_id or existing.file_id,
+                "thumbnail": existing.thumbnail or thumbnail,
+                "file_id": existing.file_id or file_id,
                 "source": "both",
                 "candidate_id": candidate.id,
                 "candidate_status": candidate_status,

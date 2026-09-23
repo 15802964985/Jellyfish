@@ -1,6 +1,9 @@
+import { creativeFormError } from '../../../../components/creativeDirectionForm'
+import { CreativeDirectionDraftFields } from '../../../../components/CreativeDirectionDraftFields'
+import { CreativeDirectionButton } from '../../../../components/CreativeDirectionButton'
+import type { CreativeFields } from '../../../../services/generated'
 import { useEffect, useRef, useState } from 'react'
 import { Input, InputNumber, Modal, message } from 'antd'
-import { ProjectVisualStyleAndStyleFields } from '../../project/ProjectVisualStyleAndStyleFields'
 import { useProjectStyleOptions } from '../../project/useProjectStyleOptions'
 
 export type StudioAssetLike = {
@@ -107,8 +110,10 @@ export function StudioAssetTypeFormModal({
   } | null
   onSeedConsumed?: () => void
 }) {
-  const { options: projectStyleOptions, defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
+  const { defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
   void _entityType
+  const [creativeDraft, setCreativeDraft] = useState<CreativeFields>({})
+  useEffect(() => { if (open) setCreativeDraft({}) }, [open])
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
   const [formTags, setFormTags] = useState('')
@@ -157,6 +162,7 @@ export function StudioAssetTypeFormModal({
   }, [open, editing, seedCreateForm, onSeedConsumed, defaultVisualStyle, getDefaultStyle])
 
   const handleOk = async () => {
+    if(!editing){const error=creativeFormError(creativeDraft);if(error){message.warning(error);return}}
     if (!formName.trim()) {
       message.warning('请输入资产名称')
       return Promise.reject(new Error('validation'))
@@ -180,6 +186,7 @@ export function StudioAssetTypeFormModal({
         await onSaved({ type: 'update', id: editing.id, asset: normalizedNext })
       } else {
         const created = await createAsset({
+          creative_direction: Object.keys(creativeDraft).length ? creativeDraft : undefined,
           id: `asset_${Date.now()}`,
           name: formName.trim(),
           description: formDesc.trim(),
@@ -211,12 +218,13 @@ export function StudioAssetTypeFormModal({
 
   return (
     <Modal
+      width="min(820px, 96vw)"
+      styles={{body:{maxHeight:'65vh',overflowY:'auto'}}}
       title={editing ? `编辑${label}` : `新建${label}`}
       open={open}
       onCancel={onCancel}
       onOk={handleOk}
       okText="保存"
-      width={560}
     >
       <div className="space-y-3">
         <div>
@@ -244,15 +252,7 @@ export function StudioAssetTypeFormModal({
           />
         </div>
         <div>
-          <ProjectVisualStyleAndStyleFields
-            visual_style={formVisualStyle}
-            style={formStyle}
-            options={projectStyleOptions}
-            onChange={(next) => {
-              setFormVisualStyle(next.visual_style)
-              setFormStyle(next.style)
-            }}
-          />
+          {editing ? <CreativeDirectionButton scope={_entityType} entityId={editing.id} /> : <CreativeDirectionDraftFields value={creativeDraft} onChange={setCreativeDraft} />}
         </div>
       </div>
     </Modal>

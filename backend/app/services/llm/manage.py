@@ -161,12 +161,12 @@ async def _create_model_revision(
             asdict(resolve_image_capability(provider=provider_key, model=model.name))
         )
     elif model.category == ModelCategoryKey.video:
-        from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
-        if provider_key in VIDEO_EDIT_MODELS:
-            if model.name != VIDEO_EDIT_MODELS[provider_key]:
-                raise HTTPException(status_code=400, detail='该供应商目前仅接入目录中的视频编辑型号')
+        from app.core.integrations.video_edit_registry import edit_capability, editing_only
+        if edit_capability(provider_key, model.name):
             capability_snapshot = {'operations': ['video_edit'], 'source_video_required': True,
-                'automatic_adoption': False, 'documentation_checked': '2026-09-08'}
+                'automatic_adoption': False, 'documentation_checked': '2026-09-09'}
+            if not editing_only(provider_key, model.name):
+                capability_snapshot['generation'] = _json_safe_capability(asdict(resolve_video_capability(provider=provider_key, model=model.name)))
         else:
             capability_snapshot = _json_safe_capability(
                 asdict(resolve_video_capability(provider=provider_key, model=model.name)))
@@ -482,8 +482,8 @@ async def update_model_settings(
             )
         if category == ModelCategoryKey.video:
             provider = await db.get(Provider, model.provider_id)
-            from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
-            if provider and resolve_provider_key(provider) in VIDEO_EDIT_MODELS:
+            from app.core.integrations.video_edit_registry import editing_only
+            if provider and editing_only(resolve_provider_key(provider), model.name):
                 raise HTTPException(status_code=400, detail='编辑专用模型不能设为普通视频生成默认模型，请在编辑窗口单独选择')
     patch_model(settings, changes)
     return await flush_and_refresh(db, settings)
@@ -516,9 +516,10 @@ async def get_video_generation_options(
     model = await get_or_404(db, Model, resolved_model_id, detail=entity_not_found("Model"))
     provider = await get_or_404(db, Provider, model.provider_id, detail=entity_not_found("Provider"))
     provider_key = resolve_provider_key(provider)
-    from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
-    if provider_key in VIDEO_EDIT_MODELS:
+    from app.core.integrations.video_edit_registry import editing_only
+    if editing_only(provider_key, model.name):
         raise HTTPException(status_code=400, detail='该模型仅支持已有视频编辑，请使用文字编辑视频入口')
+    from app.core.integrations.video_capabilities import supports_studio_subject_images
     capability = resolve_video_capability(provider=provider_key, model=model.name)
     allowed_ratios = sorted(capability.allowed_ratios or {"16:9"})
     default_ratio = resolve_default_ratio(provider=provider_key, model=model.name) or allowed_ratios[0]
@@ -550,6 +551,8 @@ async def get_video_generation_options(
         max_videos_per_subject=capability.max_videos_per_subject,
         max_audios_per_subject=capability.max_audios_per_subject,
         max_media_per_subject=capability.max_media_per_subject,
+        max_total_subject_images=capability.max_total_subject_images,
+        studio_subject_images_verified=supports_studio_subject_images(provider_key, model.name),
         max_total_subject_videos=capability.max_total_subject_videos,
     )
 

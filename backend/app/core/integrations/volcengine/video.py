@@ -1,6 +1,7 @@
 """火山方舟：内容生成任务创建与查询。"""
 
 from __future__ import annotations
+from app.core.integrations.traced_http import create_http_client
 from app.core.integrations.response_errors import raise_provider_error
 
 from typing import Any
@@ -32,7 +33,7 @@ class VolcengineVideoApiAdapter:
         }
         body = build_create_task_body(input_)
 
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             r = await client.post(f"{base_url}/contents/generations/tasks", headers=headers, json=body)
             raise_provider_error(r, provider=cfg.provider, api_key=cfg.api_key)
             data: dict[str, Any] = r.json()
@@ -59,7 +60,7 @@ class VolcengineVideoApiAdapter:
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             rr = await client.get(f"{base_url}/contents/generations/tasks/{task_id}", headers=headers)
             raise_provider_error(rr, provider=cfg.provider, api_key=cfg.api_key)
             return rr.json()

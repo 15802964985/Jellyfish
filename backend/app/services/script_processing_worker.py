@@ -66,7 +66,7 @@ class DivideResultGenerator(AbstractLLMResultGenerator):
     thinking = False
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> ScriptDivisionResult:
-        agent = ScriptDividerAgent(llm)
+        agent = ScriptDividerAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         script_text = str(run_args.get("script_text") or "")
         result = agent.divide_script(script_text=script_text)
         return normalize_generated_division_result(result, script_text=script_text)
@@ -102,6 +102,7 @@ class ExtractResultGenerator(AbstractLLMResultGenerator):
             script_division=dict(run_args.get("script_division") or {}),
             consistency=dict(run_args.get("consistency") or {}) if run_args.get("consistency") else None,
             refresh_cache=bool(run_args.get("refresh_cache")),
+            creative_context=str(run_args.get("creative_context") or ""),
         )
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> Any:  # pragma: no cover - 不直接走这里
@@ -112,7 +113,7 @@ class ConsistencyResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> ScriptConsistencyCheckResult:
-        agent = ConsistencyCheckerAgent(llm)
+        agent = ConsistencyCheckerAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.extract(script_text=str(run_args.get("script_text") or ""))
 
 
@@ -122,7 +123,7 @@ class MergeResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> EntityMergeResult:
-        agent = EntityMergerAgent(llm)
+        agent = EntityMergerAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.extract(
             all_extractions_json=json.dumps(run_args.get("all_shot_extractions") or [], ensure_ascii=False),
             historical_library_json=json.dumps(run_args.get("historical_library") or {}, ensure_ascii=False),
@@ -138,7 +139,7 @@ class VariantResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> VariantAnalysisResult:
-        agent = VariantAnalyzerAgent(llm)
+        agent = VariantAnalyzerAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.extract(
             merged_library_json=json.dumps(run_args.get("merged_library") or {}, ensure_ascii=False),
             all_extractions_json=json.dumps(run_args.get("all_shot_extractions") or [], ensure_ascii=False),
@@ -150,7 +151,7 @@ class CharacterPortraitResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> Any:
-        agent = CharacterPortraitAnalysisAgent(llm)
+        agent = CharacterPortraitAnalysisAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.analyze_character_description(
             character_context=run_args.get("character_context"),
             character_description=str(run_args.get("character_description") or ""),
@@ -161,7 +162,7 @@ class PropInfoResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> Any:
-        agent = PropInfoAnalysisAgent(llm)
+        agent = PropInfoAnalysisAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.analyze_prop_description(
             prop_context=run_args.get("prop_context"),
             prop_description=str(run_args.get("prop_description") or ""),
@@ -172,7 +173,7 @@ class SceneInfoResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> Any:
-        agent = SceneInfoAnalysisAgent(llm)
+        agent = SceneInfoAnalysisAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.analyze_scene_description(
             scene_context=run_args.get("scene_context"),
             scene_description=str(run_args.get("scene_description") or ""),
@@ -183,7 +184,7 @@ class CostumeInfoResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> Any:
-        agent = CostumeInfoAnalysisAgent(llm)
+        agent = CostumeInfoAnalysisAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.analyze_costume_description(
             costume_context=run_args.get("costume_context"),
             costume_description=str(run_args.get("costume_description") or ""),
@@ -194,7 +195,7 @@ class ScriptOptimizationResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> ScriptOptimizationResult:
-        agent = ScriptOptimizerAgent(llm)
+        agent = ScriptOptimizerAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.extract(
             script_text=str(run_args.get("script_text") or ""),
             consistency_json=json.dumps(dict(run_args.get("consistency") or {}), ensure_ascii=False),
@@ -205,7 +206,7 @@ class ScriptSimplificationResultGenerator(AbstractLLMResultGenerator):
     thinking = True
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> ScriptSimplificationResult:
-        agent = ScriptSimplifierAgent(llm)
+        agent = ScriptSimplifierAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         return agent.extract(script_text=str(run_args.get("script_text") or ""))
 
 
@@ -220,7 +221,7 @@ class ScriptImportAnalysisResultGenerator(AbstractLLMResultGenerator):
         return self.generate_with_llm(llm, run_args)
 
     def generate_with_llm(self, llm, run_args: dict[str, Any]) -> ScriptImportAnalysisResult:
-        agent = ScriptImportAnalysisAgent(llm)
+        agent = ScriptImportAnalysisAgent(llm, creative_context=str(run_args.get('creative_context') or ''))
         result = agent.analyze(
             parsed_document_json=json.dumps(run_args.get("parsed_document") or {}, ensure_ascii=False)
         )
@@ -410,9 +411,11 @@ def generate_division_result(
     *,
     db: Session,
     script_text: str,
+    creative_context: str = "",
 ) -> ScriptDivisionResult:
+    """同步辅助入口显式接收上下文，不读取不存在的任务变量。"""
     llm = build_default_text_llm_sync(db, thinking=False)
-    agent = ScriptDividerAgent(llm)
+    agent = ScriptDividerAgent(llm, creative_context=creative_context)
     return agent.divide_script(script_text=script_text)
 
 
@@ -433,12 +436,13 @@ def generate_extraction_result(
     script_division: dict[str, Any],
     consistency: dict[str, Any] | None,
     refresh_cache: bool,
+    creative_context: str = "",
 ) -> tuple[Any, bool]:
     cache_key = build_script_extract_cache_key(
         project_id=project_id,
         chapter_id=chapter_id,
         script_division=script_division,
-        consistency=consistency,
+        consistency={**(consistency or {}), "creative_context": creative_context} if creative_context else consistency,
     )
 
     result = None
@@ -449,7 +453,7 @@ def generate_extraction_result(
 
     if result is None:
         llm = build_default_text_llm_sync(db, thinking=False)
-        agent = ElementExtractorAgent(llm)
+        agent = ElementExtractorAgent(llm, creative_context=creative_context)
         result = agent.extract(
             project_id=project_id,
             chapter_id=chapter_id,

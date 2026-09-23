@@ -34,4 +34,3 @@ export type ShotSemanticSuggestion = {
      */
     notes?: (string | null);
 };
-

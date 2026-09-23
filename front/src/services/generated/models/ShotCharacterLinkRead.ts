@@ -24,4 +24,3 @@ export type ShotCharacterLinkRead = {
      */
     note?: string;
 };
-

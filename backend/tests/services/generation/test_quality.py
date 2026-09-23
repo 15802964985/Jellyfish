@@ -77,6 +77,8 @@ async def test_gate_freezes_post_profile_trace_and_payload_roundtrips(monkeypatc
     from app.services.generation.gate import GenerationEntityGate
     from app.services.generation.submission.submitter import _task_payload
     import app.services.generation.gate as gate_module
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr('app.services.studio.creative_direction.direction_for_target', AsyncMock(return_value=None))
 
     command = GenerationCommand(modality='video', operation='video_generation',
         delivery='async_polling', target=GenerationTarget(kind='shot_video', entity_id='s'),
@@ -88,7 +90,7 @@ async def test_gate_freezes_post_profile_trace_and_payload_roundtrips(monkeypatc
     monkeypatch.setattr(gate, '_validate_target', AsyncMock())
     monkeypatch.setattr(gate, '_resolve_model', AsyncMock(return_value=(
         SimpleNamespace(id='m'), SimpleNamespace(id='rev', provider_key='volcengine',
-            model_name='test', credential_ref='private-ref'))))
+            model_name='test', credential_ref='private-ref', category='video', model_id='m', model_params={}, endpoint_config={}))))
     monkeypatch.setattr(gate, '_resolve_asset_references', AsyncMock(return_value=(None, '开门')))
     monkeypatch.setattr(gate, '_validate_media', AsyncMock())
     monkeypatch.setattr(gate, '_target_version', AsyncMock(return_value=1))

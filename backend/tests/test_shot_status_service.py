@@ -272,7 +272,7 @@ async def test_derive_video_preview_uses_prompt_pack() -> None:
         assert result.template_id == "video-template-1"
         assert "镜头一" in result.rendered_prompt
         assert "男子：你终于来了。" in result.rendered_prompt
-        assert "现实" in result.rendered_prompt
+        assert "真人写实" in result.rendered_prompt
         assert result.pack.camera.duration == 3
     await engine.dispose()
 
@@ -823,3 +823,88 @@ async def test_update_shot_detail_scene_clear_marks_old_candidate_back_to_pendin
         assert rows[0].confirmed_at is None
         assert shot.status == ShotStatus.pending
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_saved_moods_reach_frame_and_video_context_and_clear() -> None:
+    """Persisted custom moods feed both contexts, and clearing removes their guidance."""
+    from app.services.generation.prompts.frame_context import build_frame_render_guidance
+    from app.services.studio.shot_video_prompt_pack import build_shot_video_prompt_pack
+    db, engine = await _build_session()
+    async with db:
+        shot = await _seed_graph(db)
+        detail = ShotDetail(id=shot.id, camera_shot="MS", angle="EYE_LEVEL", movement="STATIC", duration=3,
+                            atmosphere="晨光", mood_tags=[" 不安 ", "释然", "释然"])
+        db.add(detail)
+        await db.flush()
+        pack = await build_shot_video_prompt_pack(db, shot_id=shot.id)
+        assert pack.atmosphere == "晨光\n镜头情绪：不安、释然"
+        from app.services.studio.shot_video_prompt_pack import enrich_rendered_video_prompt
+        prompt = enrich_rendered_video_prompt(rendered_prompt="自定义模板", pack=pack)
+        assert "镜头情绪：不安、释然" in prompt
+        assert enrich_rendered_video_prompt(rendered_prompt=prompt, pack=pack).count("镜头情绪：") == 1
+        guidance = await build_frame_render_guidance(db=db, shot_id=shot.id, frame_type="first")
+        assert "镜头情绪：不安、释然" in guidance["frame_specific_guidance"]
+        detail.mood_tags = []
+        await db.flush()
+        pack = await build_shot_video_prompt_pack(db, shot_id=shot.id)
+        assert pack.atmosphere == "晨光"
+        guidance = await build_frame_render_guidance(db=db, shot_id=shot.id, frame_type="first")
+        assert "镜头情绪：" not in guidance["frame_specific_guidance"]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manual_shot_create_has_editable_detail_and_preparation_state() -> None:
+    """手动创建立即读取/修改详情和聚合准备状态，不依赖AI提取来补数据库记录。"""
+    from app.schemas.studio.shots import ShotCreate, ShotDetailRead
+    from app.services.studio.shots import create
+    from app.services.studio.shot_details import get, update
+    from app.services.studio.shot_preparation_state import build_shot_preparation_state
+    db, engine = await _build_session()
+    try:
+        async with db:
+            await _seed_graph(db)
+            shot = await create(db, body=ShotCreate(id="manual", chapter_id="chapter-1", index=2,
+                                                   title="手动镜头", script_excerpt="人物走入房间"))
+            await db.commit()
+            detail = await get(db, shot_id=shot.id)
+            assert ShotDetailRead.model_validate(detail).duration == 4
+            assert detail.mood_tags == [] and detail.action_beats == []
+            state = await build_shot_preparation_state(db, shot_id=shot.id)
+            assert state.shot.status == "pending"
+            assert not state.ready_for_generation
+            await update(db, shot_id=shot.id, body=ShotDetailUpdate(duration=7, mood_tags=["平静"]))
+            await db.commit()
+            assert (await get(db, shot_id=shot.id)).duration == 7
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_missing_detail_repair_is_idempotent_and_preserves_existing_data() -> None:
+    """仅补缺失行，可回滚且重复运行不覆盖已保存镜头内容。"""
+    from app.services.studio.shot_details import repair_missing_shot_details, new_shot_detail
+    db, engine = await _build_session()
+    try:
+        async with db:
+            shot = await _seed_graph(db)
+            existing = Shot(id="existing", chapter_id="chapter-1", index=2, title="保留")
+            db.add(existing)
+            await db.flush()
+            detail = new_shot_detail(existing.id)
+            detail.duration = 13
+            detail.first_frame_prompt = "原始提示词"
+            db.add(detail)
+            await db.commit()
+            assert await repair_missing_shot_details(db) == [shot.id]
+            await db.rollback()
+            assert await db.get(ShotDetail, "shot-1") is None
+            assert await repair_missing_shot_details(db) == ["shot-1"]
+            await db.commit()
+            assert await repair_missing_shot_details(db) == []
+            preserved = await db.get(ShotDetail, "existing")
+            assert preserved.duration == 13 and preserved.first_frame_prompt == "原始提示词"
+            assert (await db.get(Shot, "shot-1")).title == "镜头一"
+    finally:
+        await engine.dispose()

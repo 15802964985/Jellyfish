@@ -21,4 +21,3 @@ export type ApiResponse_ScriptImportMediaPlanRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

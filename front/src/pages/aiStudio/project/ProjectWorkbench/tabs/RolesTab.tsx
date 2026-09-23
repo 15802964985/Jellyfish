@@ -1,3 +1,7 @@
+import { ManualMediaButton } from '../../../../../components/ManualMediaButton'
+import { CreativeDirectionDraftFields } from '../../../../../components/CreativeDirectionDraftFields'
+import type { CreativeFields } from '../../../../../services/generated'
+import { PreviewImage } from '../../../../../components/PreviewImage'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, Button, Empty, Modal, Input, message, Space, Select, Pagination } from 'antd'
 import { EditOutlined, PlusOutlined, UserOutlined } from '@ant-design/icons'
@@ -12,7 +16,6 @@ import { resolveAssetUrl } from '../../../assets/utils'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { StudioEntitiesApi } from '../../../../../services/studioEntities'
 import {
-  ProjectVisualStyleAndStyleFields,
   type ProjectVisualStyleChoice,
 } from '../../../project/ProjectVisualStyleAndStyleFields'
 import { useProjectStyleOptions } from '../../../project/useProjectStyleOptions'
@@ -60,7 +63,7 @@ function notifyShotAssetCreatedAndLinked(payload: {
 }
 
 export function RolesTab() {
-  const { options: projectStyleOptions, defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
+  const { defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
   const navigate = useNavigate()
   const { projectId } = useParams<{ projectId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -70,6 +73,7 @@ export function RolesTab() {
   const [creating, setCreating] = useState(false)
   const [pendingShotLinkShotId, setPendingShotLinkShotId] = useState<string | null>(null)
   const [pendingShotLinkChapterId, setPendingShotLinkChapterId] = useState<string | null>(null)
+  const [creativeDraft, setCreativeDraft] = useState<CreativeFields>({})
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
   const [formActorId, setFormActorId] = useState<string | undefined>(undefined)
@@ -125,7 +129,7 @@ export function RolesTab() {
   const openNormalRoleCreate = useCallback(() => {
     setPendingShotLinkShotId(null)
     setPendingShotLinkChapterId(null)
-    setFormName('')
+    setFormName(''); setCreativeDraft({})
     setFormDesc('')
     setFormActorId(undefined)
     setFormCostumeId(undefined)
@@ -233,14 +237,11 @@ export function RolesTab() {
       message.warning('请输入角色名称')
       return
     }
-    if (!formActorId) {
-      message.warning('请选择关联演员')
-      return
-    }
     setCreating(true)
     try {
       const createRes = await StudioEntitiesApi.create('character', {
         id: newId('char'),
+        creative_direction: Object.keys(creativeDraft).length ? creativeDraft : undefined,
         project_id: projectId,
         chapter_id: pendingShotLinkChapterId,
         shot_id: pendingShotLinkShotId,
@@ -248,7 +249,7 @@ export function RolesTab() {
         description: formDesc.trim() || undefined,
         visual_style: formVisualStyle || '现实',
         style: formStyle,
-        actor_id: formActorId,
+        actor_id: formActorId ?? null,
         costume_id: formCostumeId ?? null,
       })
       const charId = (createRes.data as { id?: string } | undefined)?.id
@@ -263,7 +264,7 @@ export function RolesTab() {
       }
       message.success('角色创建成功')
       setCreateOpen(false)
-      setFormName('')
+      setFormName(''); setCreativeDraft({})
       setFormDesc('')
       setFormActorId(undefined)
       setFormCostumeId(undefined)
@@ -311,7 +312,7 @@ export function RolesTab() {
         label: (
           <div className="flex items-center gap-2 min-w-0">
             {url ? (
-              <img src={url} alt="" className="w-6 h-6 rounded object-cover shrink-0" />
+              <PreviewImage src={url} alt="" className="w-6 h-6 rounded object-cover shrink-0" />
             ) : (
               <div className="w-6 h-6 rounded bg-gray-100 flex items-center justify-center text-gray-400 shrink-0">
                 <UserOutlined />
@@ -401,11 +402,12 @@ export function RolesTab() {
                     </Button>
                   </Space>
                 }
+                footer={<ManualMediaButton target={{target_type:'character',entity_id:c.id}} title="修改正面图" onAdopted={refresh}/>}
                 meta={
                   <div className="space-y-1">
                     {c.description ? <div className="text-xs text-gray-600 line-clamp-2">{c.description}</div> : null}
                     <div className="text-xs text-gray-500 truncate">
-                      演员：{actor?.name ?? c.actor_id}
+                      演员：{actor?.name ?? c.actor_id ?? '未关联，可在编辑页选择'}
                     </div>
                     <div className="text-xs text-gray-500 truncate">
                       服装：{costume?.name ?? (c.costume_id ?? '—')}
@@ -455,21 +457,14 @@ export function RolesTab() {
             <Input.TextArea rows={3} value={formDesc} onChange={(e) => setFormDesc(e.target.value)} />
           </div>
           <div>
-            <ProjectVisualStyleAndStyleFields
-              visual_style={formVisualStyle}
-              style={formStyle}
-              options={projectStyleOptions}
-              onChange={(next) => {
-                setFormVisualStyle(next.visual_style)
-                setFormStyle(next.style)
-              }}
-            />
+            <CreativeDirectionDraftFields value={creativeDraft} onChange={setCreativeDraft} />
           </div>
           <div>
-            <div className="text-sm text-gray-600 mb-1">关联演员（必填）</div>
+            <div className="text-sm text-gray-600 mb-1">关联演员（可选，可稍后在角色编辑页关联）</div>
             <Select
               className="w-full"
-              placeholder="选择当前项目已关联的演员"
+              allowClear
+              placeholder="可先不选演员，直接创建剧情角色"
               loading={loadingLinks}
               value={formActorId}
               onChange={(v) => setFormActorId(v)}

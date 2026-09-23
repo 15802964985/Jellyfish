@@ -110,7 +110,7 @@ async def _resolve_navigation_targets(
         if relation_type in shot_like_relation_types:
             result[task_id] = (shot_like_relation_types[relation_type], relation_entity_id)
             continue
-        if relation_type == "shot_frame_image":
+        if relation_type in {"shot_frame_image", "shot_frame_slot"}:
             try:
                 shot_frame_image_ids.append(int(relation_entity_id))
                 shot_frame_task_ids.append(task_id)
@@ -194,6 +194,7 @@ class TaskStore(Protocol):
         relation_type: str | None = None,
         relation_entity_id: str | None = None,
         recent_seconds: int | None = None,
+        model_query: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[TaskListItemView], int]: ...
@@ -263,6 +264,7 @@ class InMemoryTaskStore(TaskStore):
         relation_type: str | None = None,
         relation_entity_id: str | None = None,
         recent_seconds: int | None = None,
+        model_query: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[TaskListItemView], int]:
@@ -270,6 +272,8 @@ class InMemoryTaskStore(TaskStore):
             TaskListItemView(
                 id=rec.id,
                 task_kind=rec.task_kind,
+                model_name=(rec.payload.get("call_identity") or {}).get("model_name"),
+                provider_name=(rec.payload.get("call_identity") or {}).get("provider_name"),
                 status=rec.status,
                 progress=rec.progress,
                 cancel_requested=rec.cancel_requested,
@@ -298,6 +302,8 @@ class InMemoryTaskStore(TaskStore):
             ]
         if task_kind:
             items = [item for item in items if item.task_kind == task_kind]
+        if model_query:
+            items = [item for item in items if model_query.lower() in ((item.model_name or "") + " " + (item.provider_name or "")).lower()]
         items.sort(key=lambda item: item.updated_at_ts or item.created_at_ts or 0, reverse=True)
         total = len(items)
         start = max(0, (page - 1) * page_size)
@@ -453,12 +459,17 @@ class SqlAlchemyTaskStore(TaskStore):
         relation_type: str | None = None,
         relation_entity_id: str | None = None,
         recent_seconds: int | None = None,
+        model_query: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[TaskListItemView], int]:
         # 任务中心只读取 async-polling 的可见任务；文本 SSE hidden run 只能由
         # 实验室专用接口按会话访问，不能因全局列表泄漏到任务中心。
         filters = [GenerationTask.visibility == GenerationTaskVisibility.task_center]
+        if model_query:
+            identity = GenerationTask.payload["call_identity"]
+            filters.append(or_(identity["model_name"].as_string().contains(model_query, autoescape=True),
+                identity["provider_name"].as_string().contains(model_query, autoescape=True)))
         cutoff_dt: datetime | None = None
         join_links = relation_type is not None or relation_entity_id is not None
         if relation_type is not None:
@@ -536,6 +547,8 @@ class SqlAlchemyTaskStore(TaskStore):
             TaskListItemView(
                 id=task.id,
                 task_kind=task.task_kind,
+                model_name=((task.payload or {}).get("call_identity") or {}).get("model_name"),
+                provider_name=((task.payload or {}).get("call_identity") or {}).get("provider_name"),
                 status=_to_app_status(task.status),
                 progress=int(task.progress),
                 cancel_requested=bool(task.cancel_requested),

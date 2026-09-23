@@ -5,4 +5,3 @@
 export type ScriptImportMediaPlanRequest = {
     model_id: string;
 };
-

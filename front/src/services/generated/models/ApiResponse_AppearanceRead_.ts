@@ -2,7 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type ApiResponse_dict_str__Union_float__bool___ = {
+import type { AppearanceRead } from './AppearanceRead';
+export type ApiResponse_AppearanceRead_ = {
     /**
      * 与 HTTP 状态码一致
      */
@@ -14,7 +15,7 @@ export type ApiResponse_dict_str__Union_float__bool___ = {
     /**
      * 实际数据
      */
-    data?: (Record<string, (number | boolean)> | null);
+    data?: (AppearanceRead | null);
     /**
      * 附加元信息
      */

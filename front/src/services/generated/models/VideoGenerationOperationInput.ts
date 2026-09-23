@@ -8,7 +8,11 @@
 export type VideoGenerationOperationInput = {
     kind?: string;
     ratio: string;
+    resolution?: (string | null);
+    /**
+     * 仅支持原生有声生成的模型可配置
+     */
+    generate_audio?: (boolean | null);
     seconds?: (number | null);
     seed?: (number | null);
 };
-

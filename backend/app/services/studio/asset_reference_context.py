@@ -160,7 +160,10 @@ async def _shot_entities(
             .order_by(ShotCharacterLink.index)
         )
     ).all()
+    from app.services.studio.character_appearances import selected_appearances
+    appearances = await selected_appearances(db, shot_id)
     for character_id, name, actor_id, costume_id in character_rows:
+        if character_id in appearances: costume_id = appearances[character_id].data.get('costume_id')
         key = str(name)
         sources = [("character", str(character_id))]
         entities.append(("character", str(character_id), key))
@@ -272,6 +275,11 @@ async def resolve_shot_reference_bundle(
     """将镜头关联资产转换为提示词上下文和可选模型媒体主体。"""
     entities, subject_sources = await _shot_entities(db, shot_id=shot_id)
     attachments = await _load_attachments(db, entities=entities)
+    from app.services.studio.character_appearances import selected_appearances
+    appearances=await selected_appearances(db,shot_id)
+    # A selected look must not silently reuse unrelated current-role image attachments.
+    attachments=[a for a in attachments if a.entity_type!='character' or a.entity_id not in appearances
+        or a.file.type!='image' or a.file.id in {v['file_id'] for v in appearances[a.entity_id].data.get('views',[])}]
     prompt_context = await build_attachment_prompt_context(db, attachments=attachments)
     subjects = (
         _select_subjects(

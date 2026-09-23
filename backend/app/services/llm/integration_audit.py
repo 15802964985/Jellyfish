@@ -65,7 +65,7 @@ def audit_model_integration(*, model: Model, provider: Provider) -> ModelIntegra
                 for choice in recommendation.choices:
                     issues.extend(choice.reasons)
         if key == "jimeng":
-            issues.append("即梦图片仅文生图；本地参考图公网导出未开放。视频为首尾双帧，不是原片编辑。")
+            issues.append("即梦按服务版本和生成场景匹配req_key；图片3.0支持单张本地参考，4.0公网参考待接通。视频3.0支持文生/首帧/双帧及720P/1080P，不是原片编辑；账户权限需另验。")
         if key == "minimax" and category == "image":
             issues.append("人物参考语义确认入口未接通，当前仅开放文生图，不能使用通用参考素材。")
     issues.append("已配置不等于已验证：尚未对该模型、端点及参数组合建立可追溯的官方契约核验记录。")

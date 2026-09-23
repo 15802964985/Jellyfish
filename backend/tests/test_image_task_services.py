@@ -252,6 +252,7 @@ async def test_build_actor_image_base_draft_front_view_returns_no_refs(monkeypat
 async def test_build_character_image_base_draft_combines_actor_and_costume_refs(monkeypatch):
     character = SimpleNamespace(
         id="char-1",
+        project_id=None,
         name="角色A",
         description="主角",
         actor_id="actor-1",

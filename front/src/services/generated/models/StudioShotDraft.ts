@@ -49,4 +49,3 @@ export type StudioShotDraft = {
      */
     semantic_suggestion?: (ShotSemanticSuggestion | null);
 };
-

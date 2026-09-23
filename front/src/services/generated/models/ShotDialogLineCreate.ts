@@ -13,4 +13,3 @@ export type ShotDialogLineCreate = {
     speaker_name?: (string | null);
     target_name?: (string | null);
 };
-

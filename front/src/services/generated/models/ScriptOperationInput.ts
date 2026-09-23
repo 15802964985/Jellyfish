@@ -10,4 +10,3 @@ export type ScriptOperationInput = {
     operation: 'divide' | 'extract' | 'check-consistency' | 'analyze-character-portrait' | 'analyze-prop-info' | 'analyze-scene-info' | 'analyze-costume-info' | 'optimize-script' | 'simplify-script' | 'merge-entities' | 'analyze-variants';
     source_text: string;
 };
-

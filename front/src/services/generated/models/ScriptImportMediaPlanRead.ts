@@ -16,4 +16,3 @@ export type ScriptImportMediaPlanRead = {
     items?: Array<ScriptImportMediaPlanItem>;
     warnings?: Array<string>;
 };
-

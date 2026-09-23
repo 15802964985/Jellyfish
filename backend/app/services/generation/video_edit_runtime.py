@@ -8,6 +8,7 @@ from time import monotonic
 from fractions import Fraction
 
 import httpx
+from app.core.integrations.traced_http import create_http_client
 from sqlalchemy import select, update
 
 from app.core.db import async_session_maker
@@ -67,6 +68,7 @@ async def probe_edit_video(content: bytes, provider: str = 'fal') -> dict:
     if provider == 'runway' and (not 2 <= seconds <= 30 or not 0 < fps <= 30 or min(width, height) > 1080 or max(width, height) > 1920):
         raise ValueError('Runway Aleph 2 要求 2–30 秒、30FPS 以下、最高 1080p；不会自动裁剪或缩放')
     return {'seconds': seconds, 'width': width, 'height': height,
+        'fps': fps, 'codec': stream.get('codec_name'),
         'has_audio': any(s.get('codec_type') == 'audio' for s in data.get('streams', []))}
 
 
@@ -95,22 +97,30 @@ async def run_video_edit_task(task_id: str, run_args: dict) -> None:
             cfg = await _resolve_snapshot_provider_config(db, snapshot=snapshot)
             secret = cfg.api_key or ''
             revision = await db.get(ModelConfigRevision, snapshot.model_revision_id)
-            if cfg.provider not in VIDEO_EDIT_ADAPTERS or (cfg.base_url and cfg.base_url.rstrip('/') != VIDEO_EDIT_ORIGINS[cfg.provider]):
-                raise ValueError('视频编辑必须使用所选供应商独立的官方地址和凭据')
+            from app.core.integrations.video_edit_registry import edit_capability, editing_base_url
+            cap = edit_capability(cfg.provider, revision.model_name)
+            if not cap:
+                raise ValueError('该型号未接通编辑')
+            editing_base_url(cfg.provider, cfg.base_url)
             resolver = FileResolver(db)
             source = await resolver.resolve_task_reference(task_id=task_id, reference=media.source)
             if source.content_type not in ('video/mp4', 'video/quicktime'):
                 raise ValueError('源视频必须为 MP4/MOV，且文件 MIME 类型有效')
             images = []
             resolved_images = []
-            for reference in media.references:
+            for reference in sorted(media.references, key=lambda r: r.ordinal):
                 item = await resolver.resolve_task_reference(task_id=task_id, reference=reference)
                 if item.content_type not in ('image/jpeg', 'image/png', 'image/webp'):
                     raise ValueError('参考文件必须为 JPG、PNG 或 WebP 图片')
                 images.append(f'data:{item.content_type};base64,' + base64.b64encode(item.content).decode('ascii'))
                 resolved_images.append(item)
             from app.services.generation.video_edit_preflight import validate_edit_inputs
-            metadata = await validate_edit_inputs(cfg.provider, source, resolved_images, operation.reference_positions)
+            metadata = await validate_edit_inputs(cfg.provider, source, resolved_images, operation.reference_positions, model=revision.model_name)
+            video_url = f'data:{source.content_type};base64,' + base64.b64encode(source.content).decode('ascii')
+            if cap.transport == 'url':
+                from app.services.generation.video_edit_media import signed_edit_url
+                video_url = await signed_edit_url(db, media.source.file_id)
+                images = [await signed_edit_url(db, r.file_id) for r in sorted(media.references,key=lambda r:r.ordinal)]
             receipt = (row.result or {}).get('provider_receipt')
             if not receipt:
                 if (row.result or {}).get('submission_started'):
@@ -118,8 +128,12 @@ async def run_video_edit_task(task_id: str, run_args: dict) -> None:
                 row.result = {'submission_started': True, 'source_file_id': media.source.file_id, 'metadata': metadata}
                 await store.set_status(task_id, TaskStatus.running)
                 await db.commit()
-            async with httpx.AsyncClient(timeout=90) as client:
-                adapter = VIDEO_EDIT_ADAPTERS[cfg.provider](client, cfg.api_key)
+            async with create_http_client(timeout=90) as client:
+                if cfg.provider in VIDEO_EDIT_ADAPTERS:
+                    adapter = VIDEO_EDIT_ADAPTERS[cfg.provider](client, cfg.api_key)
+                else:
+                    from app.core.integrations.native_video_edit import NativeVideoEditAdapter
+                    adapter = NativeVideoEditAdapter(client, cfg)
                 if not receipt:
                     if await edit_cancel_requested(task_id):
                         await store.mark_cancelled(task_id)
@@ -129,8 +143,12 @@ async def run_video_edit_task(task_id: str, run_args: dict) -> None:
                     if operation.preserve_instructions.strip():
                         prompt += '\n保持不变：' + operation.preserve_instructions.strip()
                     extra = {'reference_positions': operation.reference_positions} if cfg.provider == 'runway' else {}
+                    if cfg.provider not in VIDEO_EDIT_ADAPTERS:
+                        extra = {'resolution': operation.resolution, 'seconds': operation.seconds}
+                    if len(prompt) > cap.prompt_limit:
+                        raise ValueError('最终编辑提示词超过当前模型上限，请精简后重试')
                     receipt = await adapter.submit(model=revision.model_name, prompt=prompt,
-                        video_url=f'data:{source.content_type};base64,' + base64.b64encode(source.content).decode('ascii'),
+                        video_url=video_url,
                         image_urls=images, keep_audio=operation.keep_audio, **extra)
                     row.result = {**(row.result or {}), 'provider_receipt': receipt}
                     await db.commit()
@@ -159,7 +177,7 @@ async def run_video_edit_task(task_id: str, run_args: dict) -> None:
                 result=VideoGenerationResult(url=url, provider_task_id=receipt['request_id']),
                 name=f'edited-{snapshot.canonical_target.entity_id}', storage_prefix='edited-videos',
                 httpx_timeout=600.0)
-            if cfg.provider == 'runway' and operation.keep_audio and metadata['has_audio']:
+            if cap.local_audio and operation.keep_audio and metadata['has_audio']:
                 # Preserve the paid raw result even if local audio remux fails later.
                 row.result = {**(row.result or {}), 'raw_edit_file_id': artifact.file_id,
                     'audio_retention_pending': True}

@@ -1,3 +1,4 @@
+import { CreativePromptPreview, useCreativePrompt } from '../../../../components/CreativePromptPreview'
 /**
  * 文本实验室模态。
  *
@@ -6,8 +7,9 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Spin, Tag, message } from 'antd'
-import { ClearOutlined, StopOutlined } from '@ant-design/icons'
+import { ClearOutlined } from '@ant-design/icons'
 import {
+  FilmService,
   LlmService,
   StudioPromptsService,
   StudioTextLabService,
@@ -25,7 +27,7 @@ import { ExperimentPromptEditor } from '../components/ExperimentPromptEditor'
 import { createPromptTemplateValues, renderPromptTemplate } from '../components/PromptTemplateForm'
 import { useExperimentHistory } from '../hooks/useExperimentHistory'
 import { focusExperimentPromptEditor, readExperimentInputSnapshot, type ExperimentInputSnapshot } from '../experimentInputSnapshot'
-import { streamTextLab } from '../../../../services/textLabStream'
+import { BackgroundTaskNotice } from '../../components/BackgroundTaskNotice'
 
 /** 文本实验室可使用的提示词模板类别。 */
 const textPromptCategories = [
@@ -81,11 +83,6 @@ function toLocalMessages(messages: ExperimentMessageRead[]): LocalMessage[] {
     }))
 }
 
-/** 为刚提交、尚未完成下一次历史读取的消息生成稳定的浏览器内标识。 */
-function createMessageId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
 /**
  * 提供文本模态的历史展示和生成输入。
  *
@@ -110,9 +107,26 @@ export function TextExperimentMode({
   const [submitting, setSubmitting] = useState(false)
   const historyState = useExperimentHistory(sessionId)
   const previousSessionIdRef = useRef(sessionId)
-  const streamAbortRef = useRef<AbortController | null>(null)
-  const streamTaskIdRef = useRef<string | undefined>(undefined)
-  const streamSessionIdRef = useRef<string | undefined>(undefined)
+  const runningTask = historyState.messages.find(item => item.task_id && ['pending', 'running', 'streaming'].includes(item.status ?? 'pending'))
+  const { refresh: refreshHistory } = historyState
+
+  /** 只轮询持久会话；离开时停止读请求，服务端任务继续，返回后自动恢复。 */
+  useEffect(() => {
+    if (!runningTask?.task_id) return
+    let disposed = false, querying = false
+    /** 状态未结束时不重载全文历史，避免输入区反复闪烁及历史滚动跳动。 */
+    const poll = async () => {
+      if (querying) return
+      querying = true
+      try {
+        const response = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({taskId: runningTask.task_id!})
+        if (!disposed && response.data && ['succeeded','failed','cancelled'].includes(response.data.status)) await refreshHistory()
+      } catch { /* 读取失败保留运行状态，不自动重新生成 */ }
+      finally { querying = false }
+    }
+    const timer = window.setInterval(() => void poll(), 3000)
+    return () => { disposed = true; window.clearInterval(timer) }
+  }, [runningTask?.task_id, refreshHistory])
 
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === templateId) ?? null,
@@ -191,92 +205,27 @@ export function TextExperimentMode({
     ? renderPromptTemplate(selectedTemplate.content, templateValues).trim()
     : draft.trim()
 
-  /** 提交固定 SSE 文本运行；服务端是 canonical user/assistant 消息的唯一写入者。 */
-  const handleSubmit = async () => {
-    if (sessionId && historyState.loading) {
-      message.info('正在加载会话历史，请稍后再发送')
-      return
-    }
-    if (!modelId) {
-      message.warning('请选择文本模型')
-      return
-    }
-    if (!currentPrompt) {
-      message.warning(selectedTemplate ? '请填写模板变量，生成有效提示词' : '请输入提示词')
-      return
-    }
+  const creativePrompt = useCreativePrompt(sessionId ? 'lab' : 'global', sessionId || 'system', 'script', currentPrompt)
 
+  /** 使用已有 Outbox 异步任务；受理后释放页面，不再依赖浏览器流连接。 */
+  const handleSubmit = async () => {
+    if (submitting || runningTask) return
+    if (sessionId && historyState.loading) { message.info('正在加载会话历史'); return }
+    if (!modelId || !currentPrompt) { message.warning('请选择文本模型并填写提示词'); return }
+    if (!creativePrompt.prompt || creativePrompt.loading || creativePrompt.error) { message.warning('请等待创作设定预览完成'); return }
     setSubmitting(true)
-    let temporaryAssistantId: string | undefined
     try {
       const session = await ensureSession('text')
-      if (!selectedTemplate) setDraft('')
-      const controller = new AbortController()
-      const activeTemporaryAssistantId = `stream-${createMessageId()}`
-      temporaryAssistantId = activeTemporaryAssistantId
-      streamAbortRef.current = controller
-      streamSessionIdRef.current = session.id
-      for await (const event of streamTextLab({
-        sessionId: session.id,
-        body: { model_id: modelId, content: currentPrompt },
-        signal: controller.signal,
-      })) {
-        if (event.event === 'accepted') {
-          streamTaskIdRef.current = event.data.task_id
-          setLocalMessages((current) => [
-            ...current,
-            { id: event.data.user_message.id, role: 'user', content: event.data.user_message.content },
-            { id: activeTemporaryAssistantId, role: 'assistant', content: '' },
-          ])
-        } else if (event.event === 'delta') {
-          setLocalMessages((current) => current.map((item) => (
-            item.id === activeTemporaryAssistantId ? { ...item, content: `${item.content}${event.data.text_delta}` } : item
-          )))
-        } else if (event.event === 'completed') {
-          setLocalMessages((current) => current.map((item) => (
-            item.id === activeTemporaryAssistantId
-              ? { id: event.data.assistant_message.id, role: 'assistant', content: event.data.assistant_message.content }
-              : item
-          )))
-          void historyState.refresh()
-        } else if (event.event === 'error') {
-          throw new Error(event.data.error.message)
-        } else if (event.event === 'cancelled') {
-          setLocalMessages((current) => current.filter((item) => item.id !== activeTemporaryAssistantId))
-        }
-      }
-    } catch {
-      if (temporaryAssistantId) {
-        const messageId = temporaryAssistantId
-        setLocalMessages((current) => current.filter((item) => item.id !== messageId))
-      }
-      if (!selectedTemplate) setDraft(currentPrompt)
-      if (!(streamAbortRef.current?.signal.aborted)) {
-        message.error('文本模型调用失败，请检查模型、供应商配置和服务日志')
-      }
-    } finally {
-      streamAbortRef.current = null
-      streamTaskIdRef.current = undefined
-      streamSessionIdRef.current = undefined
-      setSubmitting(false)
-    }
-  }
-
-  /** 先停止本地事件消费，再请求服务端取消已 accepted 的 hidden run。 */
-  const handleStop = async () => {
-    const taskId = streamTaskIdRef.current
-    const activeSessionId = streamSessionIdRef.current
-    streamAbortRef.current?.abort()
-    if (!taskId || !activeSessionId) return
-    try {
-      await StudioTextLabService.cancelTextLabStreamApiV1StudioLabsTextSessionsSessionIdRunsTaskIdCancelPost({
-        sessionId: activeSessionId,
-        taskId,
-        requestBody: { reason: 'user_cancelled' },
+      const response = await StudioTextLabService.submitTextLabTaskApiV1StudioLabsTextSessionsSessionIdTasksPost({
+        sessionId: session.id, requestBody: { model_id: modelId, content: creativePrompt.prompt },
       })
-    } catch {
-      // 断流时服务端也会执行 best-effort 取消；这里不覆盖已停止的本地状态。
-    }
+      if (!response.data?.task_id) throw new Error('未返回任务ID')
+      historyState.adoptCanonicalMessages(session.id, response.data.messages)
+      window.dispatchEvent(new CustomEvent('jellyfish:task-accepted', { detail: { taskId: response.data.task_id, title: '文本生成' } }))
+      if (!selectedTemplate) setDraft('')
+      message.success('文本生成已在后台执行，可切换会话或页面，结果会保存在原会话')
+    } catch { message.error('提交未确认，请先查看任务记录再决定是否重试') }
+    finally { setSubmitting(false) }
   }
 
   /** 清空服务端与浏览器内的当前会话消息，草稿态无需执行该操作。 */
@@ -306,10 +255,10 @@ export function TextExperimentMode({
   return render({
     extra: (
       <div className="flex gap-2">
-        {submitting ? <Button icon={<StopOutlined />} danger onClick={() => void handleStop()}>停止生成</Button> : null}
+
         <Button
           icon={<ClearOutlined />}
-          disabled={!sessionId || !localMessages.length || submitting}
+          disabled={!sessionId || !localMessages.length || submitting || Boolean(runningTask)}
           onClick={() => void handleClearSession()}
         >
           清空会话
@@ -318,6 +267,8 @@ export function TextExperimentMode({
     ),
     history: (
       <>
+        <BackgroundTaskNotice active={Boolean(runningTask)} />
+        {historyState.messages.filter(item => item.role === 'task' && ['failed', 'cancelled'].includes(item.status ?? '')).map(item => <div key={item.id} role="status">{item.status === 'failed' ? '文本生成失败，可在任务中心查看原因' : '文本生成已取消'}</div>)}
         {historyState.loading ? <div className="flex h-72 items-center justify-center"><Spin /></div> : null}
         {historyState.hasMoreHistory ? (
           <Button size="small" loading={historyState.loadingMore} onClick={() => void historyState.loadMore()}>
@@ -344,7 +295,7 @@ export function TextExperimentMode({
     composer: (
       <ExperimentComposer
         submitting={submitting}
-        submitDisabled={submitting || Boolean(sessionId && historyState.loading)}
+        submitDisabled={creativePrompt.loading || Boolean(creativePrompt.error) || submitting || Boolean(runningTask) || Boolean(sessionId && historyState.loading)}
         onSubmit={() => void handleSubmit()}
         options={(
           <ExperimentOptionBar
@@ -384,6 +335,7 @@ export function TextExperimentMode({
           }}
           onSubmit={() => void handleSubmit()}
         />
+        <CreativePromptPreview result={creativePrompt} />
       </ExperimentComposer>
     ),
     disabled: submitting,

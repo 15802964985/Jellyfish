@@ -48,6 +48,7 @@ def build_content(input_: VideoGenerationInput) -> list[dict[str, Any]]:
 
 
 def build_create_task_body(input_: VideoGenerationInput) -> dict[str, Any]:
+    """Map validated controls to the Ark request; never change the configured billing endpoint."""
     validate_volcengine_video_options(input_)
     content = build_content(input_)
     if not content:
@@ -62,6 +63,10 @@ def build_create_task_body(input_: VideoGenerationInput) -> dict[str, Any]:
         body["model"] = input_.model
     if input_.seconds is not None:
         body["duration"] = int(input_.seconds)
+    if input_.generate_audio is not None:
+        body["generate_audio"] = input_.generate_audio
+    if input_.resolution is not None:
+        body["resolution"] = input_.resolution
     if input_.seed is not None:
         body["seed"] = int(input_.seed)
     if input_.watermark is not None:

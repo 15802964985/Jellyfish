@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ApiResponse_dict_ } from '../models/ApiResponse_dict_';
+import type { ApiResponse_FileDeleteImpactRead_ } from '../models/ApiResponse_FileDeleteImpactRead_';
 import type { ApiResponse_FileDetailRead_ } from '../models/ApiResponse_FileDetailRead_';
 import type { ApiResponse_FileRead_ } from '../models/ApiResponse_FileRead_';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
@@ -231,6 +232,28 @@ export class StudioFilesService {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/v1/studio/files/{file_id}',
+            path: {
+                'file_id': fileId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 查询文件关联及是否允许删除
+     * 收参并返回业务关联检查，不执行删除或解除引用。
+     * @returns ApiResponse_FileDeleteImpactRead_ Successful Response
+     * @throws ApiError
+     */
+    public static getFileDeleteImpactApiApiV1StudioFilesFileIdDeleteImpactGet({
+        fileId,
+    }: {
+        fileId: string,
+    }): CancelablePromise<ApiResponse_FileDeleteImpactRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/files/{file_id}/delete-impact',
             path: {
                 'file_id': fileId,
             },

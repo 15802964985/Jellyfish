@@ -15,4 +15,3 @@ export type ActionBeatPhaseRead = {
      */
     phase: 'trigger' | 'peak' | 'aftermath';
 };
-

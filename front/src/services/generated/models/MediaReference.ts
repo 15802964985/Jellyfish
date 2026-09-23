@@ -10,4 +10,3 @@ export type MediaReference = {
     media_kind: 'image' | 'video' | 'audio';
     ordinal?: number;
 };
-

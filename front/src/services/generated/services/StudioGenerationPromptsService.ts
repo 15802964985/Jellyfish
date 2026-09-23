@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_dict_ } from '../models/ApiResponse_dict_';
 import type { ApiResponse_RenderedPromptSnapshot_ } from '../models/ApiResponse_RenderedPromptSnapshot_';
 import type { AssetImagePromptRenderBody } from '../models/AssetImagePromptRenderBody';
 import type { ShotFramePromptRenderBody } from '../models/ShotFramePromptRenderBody';
@@ -93,6 +94,31 @@ export class StudioGenerationPromptsService {
             },
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 免费整理单帧初始提示词
+     * 返回只读初始草稿，由页面保留手动编辑与显式保存决定。
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static initialFramePromptApiV1StudioGenerationPromptsShotsShotIdFramesFrameTypeDraftGet({
+        shotId,
+        frameType,
+    }: {
+        shotId: string,
+        frameType: ShotFrameType,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/generation-prompts/shots/{shot_id}/frames/{frame_type}/draft',
+            path: {
+                'shot_id': shotId,
+                'frame_type': frameType,
+            },
             errors: {
                 422: `Validation Error`,
             },

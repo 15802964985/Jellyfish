@@ -8,4 +8,3 @@ export type ShotSkipExtractionUpdate = {
      */
     skip: boolean;
 };
-

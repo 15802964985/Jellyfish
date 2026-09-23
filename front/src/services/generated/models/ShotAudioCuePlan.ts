@@ -14,4 +14,3 @@ export type ShotAudioCuePlan = {
     evidence?: Array<Record<string, string>>;
     confidence?: number;
 };
-

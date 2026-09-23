@@ -53,5 +53,7 @@ async def delete_if_exists(
     obj = await db.get(model, entity_id)
     if obj is None:
         return
+    from app.services.studio.creative_direction import delete_owned_directions
+    await delete_owned_directions(db, obj)
     await db.delete(obj)
     await db.flush()

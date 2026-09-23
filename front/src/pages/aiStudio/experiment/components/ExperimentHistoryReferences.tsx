@@ -1,3 +1,4 @@
+import { PreviewImage } from '../../../../components/PreviewImage'
 /** 实验室历史中已提交参考图片的紧凑展示。 */
 import type { FileRead } from '../../../../services/generated'
 import { buildFileDownloadUrl } from '../../assets/utils'
@@ -23,7 +24,7 @@ export function ExperimentHistoryReferences({ files, references }: ExperimentHis
     {references.map((reference) => {
       const file = files.find((item) => item.id === reference.id)
       return <div key={`${reference.label}-${reference.id}`} className="w-16" title={file?.name ?? `${reference.label}（文件不可用）`}>
-        {file ? <img src={buildFileDownloadUrl(file.id)} alt={`${reference.label}：${file.name}`} className="h-12 w-16 rounded border border-slate-200 object-cover" /> : <div className="flex h-12 w-16 items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 px-1 text-center text-[10px] text-slate-400">文件不可用</div>}
+        {file ? <PreviewImage src={buildFileDownloadUrl(file.id)} alt={`${reference.label}：${file.name}`} className="h-12 w-16 rounded border border-slate-200 object-cover" /> : <div className="flex h-12 w-16 items-center justify-center rounded border border-dashed border-slate-300 bg-slate-100 px-1 text-center text-[10px] text-slate-400">文件不可用</div>}
         <div className="mt-1 truncate text-center text-[10px] text-slate-500">{reference.label}</div>
       </div>
     })}

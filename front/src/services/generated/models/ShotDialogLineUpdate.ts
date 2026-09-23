@@ -12,4 +12,3 @@ export type ShotDialogLineUpdate = {
     speaker_name?: (string | null);
     target_name?: (string | null);
 };
-

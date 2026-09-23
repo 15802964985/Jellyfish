@@ -1,3 +1,7 @@
+import { creativeFormError } from '../../../components/creativeDirectionForm'
+import { CreativeDirectionDraftFields } from '../../../components/CreativeDirectionDraftFields'
+import { CreativeDirectionButton, CreativeDirectionSummary } from '../../../components/CreativeDirectionButton'
+import type { CreativeFields } from '../../../services/generated'
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card,
@@ -32,7 +36,6 @@ import { chapters as mockChapters, projects as mockProjects, type Project } from
 import { StudioChaptersService, StudioProjectsService } from '../../../services/generated'
 import type { ChapterRead, ProjectRead, ProjectStyle } from '../../../services/generated'
 import {
-  ProjectVisualStyleAndStyleFields,
   type ProjectVisualStyleChoice,
 } from './ProjectVisualStyleAndStyleFields'
 import { useProjectStyleOptions } from './useProjectStyleOptions'
@@ -60,6 +63,9 @@ type ProjectView = Project & {
   visualStyle?: ProjectVisualStyleChoice
   defaultVideoRatio?: string | null
 }
+
+// 共用说明反映当前接入状态，避免将项目元数据误认为已生效的生成参数。
+const PROJECT_SEED_HELP = '新建时随机填入 0～99998 的整数，可能重复，可自行修改。当前仅保存到项目信息，尚未自动传入图片或视频生成；修改不会改变已有作品或后续生成参数。种子不能保证角色或画风一致。'
 
 const ProjectLobby: React.FC = () => {
   const navigate = useNavigate()
@@ -397,6 +403,7 @@ const ProjectLobby: React.FC = () => {
 
   const handleCreateSubmit = async (values: {
     name: string
+    creative_direction?: CreativeFields
     description?: string
     style: string
     visual_style: ProjectVisualStyleChoice
@@ -409,6 +416,7 @@ const ProjectLobby: React.FC = () => {
       const res = await StudioProjectsService.createProjectApiV1StudioProjectsPost({
         requestBody: {
           id: createdId,
+          creative_direction: values.creative_direction,
           name: values.name,
           description: values.description ?? '',
           style: values.style as ProjectStyle,
@@ -594,7 +602,7 @@ const ProjectLobby: React.FC = () => {
         >
           <div className="flex justify-between items-start gap-2">
             <div className="min-w-0">
-              <div className="text-xs text-gray-500 mb-0.5">{p.style}</div>
+              <div className="text-xs text-gray-500 mb-0.5"><CreativeDirectionSummary scope="project" entityId={p.id} /></div>
               <div className={`${isCompact ? 'text-sm' : 'text-base'} font-semibold truncate text-gray-900`}>
                 {p.name}
               </div>
@@ -945,8 +953,8 @@ const ProjectLobby: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-[11px] text-gray-500">
-                    <span>视频风格：{selectedProject.style}</span>
-                    <span>种子：{selectedProject.seed}</span>
+                    <span>创作方向：<CreativeDirectionSummary scope="project" entityId={selectedProject.id} /></span>
+                    <span title={PROJECT_SEED_HELP}>种子：{selectedProject.seed}（暂未用于生成）</span>
                   </div>
                   <div>
                     <div className="text-[11px] text-gray-500 mb-0.5">进度</div>
@@ -985,10 +993,12 @@ const ProjectLobby: React.FC = () => {
         title="新建短剧项目"
         open={createModalOpen}
         onCancel={() => setCreateModalOpen(false)}
-        footer={null}
-        width={520}
+        footer={<Space><Button onClick={() => setCreateModalOpen(false)}>取消</Button><Button type="primary" htmlType="submit" form="creative-project-create">创建并进入</Button></Space>}
+        width="min(760px, 96vw)"
+        styles={{ body: { maxHeight: '70vh', overflowY: 'auto', paddingRight: 8 } }}
       >
         <Form
+          id="creative-project-create"
           form={form}
           layout="vertical"
           onFinish={handleCreateSubmit}
@@ -1013,33 +1023,21 @@ const ProjectLobby: React.FC = () => {
           <Form.Item name="description" label="项目简介（选填）">
             <Input.TextArea rows={4} placeholder="项目简介与风格说明，建议 80–120 字" />
           </Form.Item>
-          <ProjectVisualStyleAndStyleFields form={form} options={projectStyleOptions} />
+          <Form.Item name="style" hidden><Input /></Form.Item>
+          <Form.Item name="visual_style" hidden><Input /></Form.Item>
+          <Form.Item name="creative_direction" label="创作方向" rules={[{validator:(_,value)=>{const error=creativeFormError(value,true);return error?Promise.reject(new Error(error)):Promise.resolve()}}]} initialValue={{ presentation: '真人写实', treatment: '影视写实', primary_genre: '都市生活' }}><CreativeDirectionDraftFields required /></Form.Item>
           <Form.Item
             name="seed"
-            label="全局种子值"
-            tooltip="固定种子可确保整部短剧视觉调性一致"
+            label="全局种子值（暂未用于生成）"
+            extra={PROJECT_SEED_HELP}
           >
             <InputNumber min={0} className="w-full" />
           </Form.Item>
           <Form.Item name="default_video_ratio" label="默认视频比例">
             <Select allowClear placeholder="未设置时由模型/供应商决定" options={videoRatioOptions} />
           </Form.Item>
-          <Form.Item
-            name="unifyStyle"
-            label="所有章节强制继承此风格"
-            valuePropName="checked"
-            tooltip="开启后所有章节继承项目风格"
-          >
-            <Switch />
-          </Form.Item>
-          <Form.Item className="mb-0">
-            <Space>
-              <Button onClick={() => setCreateModalOpen(false)}>取消</Button>
-              <Button type="primary" htmlType="submit">
-                创建并进入
-              </Button>
-            </Space>
-          </Form.Item>
+          <p className="text-gray-500 text-sm">章节和分镜默认继承项目设定，需要特例时可在对应页面覆盖字段。</p>
+
         </Form>
       </Modal>
 
@@ -1062,8 +1060,10 @@ const ProjectLobby: React.FC = () => {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} placeholder="项目简介与风格说明" />
           </Form.Item>
-          <ProjectVisualStyleAndStyleFields form={editForm} options={projectStyleOptions} />
-          <Form.Item name="seed" label="全局种子值" tooltip="固定种子可确保整部短剧视觉调性一致">
+          <Form.Item name="style" hidden><Input /></Form.Item>
+          <Form.Item name="visual_style" hidden><Input /></Form.Item>
+          {editingProject && <div style={{ marginBottom: 16 }}><CreativeDirectionButton scope="project" entityId={editingProject.id} label="编辑四维创作设定与继承规则" /></div>}
+          <Form.Item name="seed" label="全局种子值（暂未用于生成）" extra={PROJECT_SEED_HELP}>
             <InputNumber min={0} className="w-full" />
           </Form.Item>
           <Form.Item name="default_video_ratio" label="默认视频比例">

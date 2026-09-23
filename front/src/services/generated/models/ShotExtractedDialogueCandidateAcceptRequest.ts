@@ -25,4 +25,3 @@ export type ShotExtractedDialogueCandidateAcceptRequest = {
      */
     target_name?: (string | null);
 };
-

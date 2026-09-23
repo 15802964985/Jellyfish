@@ -24,4 +24,3 @@ export type EntityMergeResult = {
      */
     notes?: (string | null);
 };
-

@@ -27,6 +27,8 @@ celery_app.conf.update(
     timezone="Asia/Shanghai",
     enable_utc=False,
     beat_schedule={
+        "recover-interrupted-media": {"task": "task.recover_media", "schedule": 60.0},
+        "sync-official-model-contracts": {"task": "task.sync_model_contracts", "schedule": 3600.0},
         "reap-expired-text-stream-runs": {
             "task": "task.reap_text_streams",
             "schedule": 30.0,

@@ -107,6 +107,29 @@ async def _create_script_task(
 ) -> AsyncTaskCreateResult:
     """创建剧本处理任务并冻结 command/snapshot，防止执行期重新推断请求语义。"""
 
+    # 在排队前冻结设定；Worker不读取后续变更，也不把设定混入原文证据。
+    from app.services.studio.creative_direction import read_direction, direction_prompt
+    scope = 'chapter' if run_args.get('chapter_id') else 'project' if run_args.get('project_id') else 'global'
+    source_id = str(run_args.get('chapter_id') or run_args.get('project_id') or 'system')
+    if scope == 'global':
+        # 老入口只传关系ID；按已知业务关系找对象，不根据名称或正文猜项目。
+        from app.services.studio.creative_direction import MODELS
+        from app.models.studio_script_imports import ScriptImport
+        if relation_type == SCRIPT_IMPORT_ANALYSIS_RELATION_TYPE:
+            imported = await db.get(ScriptImport, relation_entity_id)
+            if imported is not None:
+                scope, source_id = 'project', imported.project_id
+        else:
+            asset_scope = {CHARACTER_PORTRAIT_ANALYSIS_RELATION_TYPE: 'character', PROP_INFO_ANALYSIS_RELATION_TYPE: 'prop',
+                           SCENE_INFO_ANALYSIS_RELATION_TYPE: 'scene', COSTUME_INFO_ANALYSIS_RELATION_TYPE: 'costume'}.get(relation_type)
+            scopes = [asset_scope, 'chapter', 'project'] if asset_scope else ['chapter', 'project']
+            for candidate in scopes:
+                if await db.get(MODELS[candidate], relation_entity_id) is not None:
+                    scope, source_id = candidate, relation_entity_id
+                    break
+    creative = await read_direction(db, scope, source_id)
+    run_args = {**run_args, 'creative_direction': creative.model_dump(mode='json'), 'creative_context': direction_prompt(creative, 'script')}
+
     store = SqlAlchemyTaskStore(db)
     tm = TaskManager(store=store, strategies={})
     task_record = await tm.create(

@@ -1,5 +1,23 @@
 # Jellyfish Windows 一键脚本使用说明
 
+## 2026-09-23 Push 暂存区格式校验补修（工作树待提交）
+
+重新运行后索引锁问题已解除，实际停止在 git diff --cached --check，退出码 2。完整暂存区确认三个新增文件末尾空行：scripts/doubao-browser-inspect.mjs、scripts/verify-image-preview.mjs、site/content/docs/architecture/manual-media-selection.md。前次 git diff --check 只覆盖未暂存的已跟踪差异，没有覆盖当时未跟踪的新文件，验证范围不足；不能将其表述为全部待提交文件检查通过。
+
+本批仅将这三个文件末尾规范为单换行并更新其暂存内容，保留其他全部暂存改动；未关闭格式检查，不修改全局换行设置，不提交或推送。LF will be replaced by CRLF 为提示，不是本次失败原因。最终必须以完整 git diff --cached --check 及 git diff --check 均通过作为格式验收。LC-001/014，全部原计划保持，无运行服务部署或业务改动。
+
+
+## 2026-09-23 Push 索引残留锁与生成文件格式修复（工作树待提交）
+
+用户双击 Push-Jellyfish.cmd 时 git add 因 .git/index.lock 已存在退出 128。现场确认该锁为 2026-09-10 15:03:04 UTC 的 0 字节残留，检查时无 Git 进程，已移至 backups/push-lock-20260923/index.lock.stale 保留。未删除索引、reset、暂存、commit 或 push；索引摘要在暂存预演前后保持一致。
+
+Jellyfish.ps1 在预检查及实际 git add 前检查 git rev-parse --git-path index.lock（兼容 Git 工作树路径），存在即提前显示中文诊断与恢复说明；不按锁龄自动删除锁、不终止 Git。未来出现此提示，应先等待其他操作结束，只有核实为无人持有的残留锁才备份移走。14 项模拟脚本测试通过，含原有锁、确认前出现的新锁，保持不写入、不自动删锁；补齐原测试遗漏的本机助手空操作夹具。
+
+同时发现 OpenAPI 生成器会新增 EOF 空行，导致后续 git diff --cached --check 失败；新增 front/scripts/normalize-generated-eof.mjs，openapi:gen 自动执行，只处理 generated TypeScript 末尾单换行，不修改契约内容。重新生成与 tsc 验证通过；首轮遇 Windows 临时文件访问错误，顺序重跑成功。最终真实 Push -Preview、git add --dry-run -A 及 git diff --check 验证记录在 local-reports/push-lock-20260923；预演不表示远程认证/联网推送成功。
+
+LC-001/009/014；本批不涉及业务 API 变化、数据库或运行服务部署，其他未关闭计划保持。用户可关闭旧失败窗口后重新运行 Push-Jellyfish.cmd，核对范围并按原流程确认。
+
+
 ## 2026-09-08 复查修正
 
 启动现在不仅等待容器运行，还检查本机 API /health 与前端首页 HTTP 200，并再次核对七个容器；失败显示未就绪，不自动回滚。端口改变时需要同步脚本检查地址。此检查不替代业务生成验收。
@@ -108,3 +126,28 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\Test-J
 ### 提交窗口停在冒号 / 换行符警告
 
 LF will be replaced by CRLF 是换行符提示，本身不是提交失败。旧脚本若停在底部冒号，按英文 Q 退出 Git 分页器；再次出现时再按 Q，随后按确认提示输入 YES。不要同时重复启动提交脚本。2026-09-08 已对脚本内所有 Git 调用加入 --no-pager，后续运行不会自动进入分页器，不改用户全局配置。出现“推送完成”及精确 HEAD 才代表脚本成功；若出现其他错误，应按错误诊断。12 项隔离模拟回归通过，未实际代为推送。
+
+
+## 中文 Docker 镜像清单
+
+双击项目根目录的 `查看Docker镜像清单.cmd`。先确保Docker Desktop引擎已启动；脚本自动查询当前Docker context并用默认浏览器打开 `local-reports/docker-images.html`。当前目录入口为 `E:\JellyfishNew\查看Docker镜像清单.cmd`，换目录后使用新根目录同名文件。
+
+清单提供用途说明、引用状态、引用容器、保留原因和镜像大小，可以搜索和筛选。相同镜像ID的多个标签合并显示；Unused不等于无用，回滚镜像和构建基础环境可能没有容器引用。保留原因是当前已知用途建议，未知项需核对，不执行删除。
+
+这是本机快照。需要更新时重新双击CMD；只刷新浏览器不会查询Docker。每次覆盖同一文件，不积累历史报表。Docker不可用时脚本报错并保留旧快照，请留意页面采集时间。命令行仅生成而不打开：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows/Show-DockerImages.ps1 -NoOpen`。无需启动Jellyfish业务服务。
+
+
+## 2026-09-10 网页镜像清单入口及脚本修复
+
+网页入口：左侧“系统设置”→右上角“Docker 镜像清单”。本机可直接访问 http://127.0.0.1:7788/settings/docker-images 。支持用途/保留原因查询、引用状态过滤与分页。
+
+数据暂采用手动采集：需要最新状态时运行根目录“查看Docker镜像清单.cmd”，随后点击网页“刷新清单”。网页显示采集时间；刷新不会直接运行Docker命令，当前尚未安装定时采集。Docker不可用时保留上次数据，不代表最新状态。独立HTML入口仍可使用。
+
+双击CMD的Windows中文编码报错已修复，脚本强制按UTF-8接收Docker输出；重复覆盖清单也兼容Windows PowerShell 5.1。无需调整系统编码。Web清单依赖secure-local覆盖的只读报告挂载；其他部署未配置时会提示尚未取得清单，不会启动Docker采集。
+# 2026-09-17 网页助手守护补充
+
+`启动网页本机助手.cmd`调用`Start-WebDesktop.ps1 -RegisterLogon`：先建立当前用户登录启动项，再派生隐藏`-Supervisor`进程并返回。`Start-Jellyfish`使用`-KeepAlive`也会及时返回；仅独立守护每30秒检查。重复启动按项目目录mutex去重，后端不可达时不误杀助手；刚启动有40秒宽限。
+
+账号窗口仍由网页账号页操作。任务暂停保留原账号，恢复或取消在原网页生成任务中进行；不要用关浏览器冒充取消。宿主致命错误落日志后退出，由守护重启；日志在`local-browser/logs`，宿主日志超过5MiB轮转，账号日志下次启动前轮转，回执和登录资料不清理。
+
+验证：`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows/Test-WebDesktop.ps1`仅模拟启动/注册，不创建真实任务。本轮正式启动入口返回、独立守护与助手心跳通过；没有做Windows重启后的登录验收。

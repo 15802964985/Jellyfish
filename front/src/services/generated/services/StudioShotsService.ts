@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_dict_ } from '../models/ApiResponse_dict_';
 import type { ApiResponse_list_ShotExtractedCandidateRead__ } from '../models/ApiResponse_list_ShotExtractedCandidateRead__';
 import type { ApiResponse_list_ShotExtractedDialogueCandidateRead__ } from '../models/ApiResponse_list_ShotExtractedDialogueCandidateRead__';
 import type { ApiResponse_list_ShotRuntimeSummaryRead__ } from '../models/ApiResponse_list_ShotRuntimeSummaryRead__';
@@ -21,6 +22,7 @@ import type { ShotExtractedDialogueCandidateAcceptRequest } from '../models/Shot
 import type { ShotPreparationLinkRequest } from '../models/ShotPreparationLinkRequest';
 import type { ShotSkipExtractionUpdate } from '../models/ShotSkipExtractionUpdate';
 import type { ShotUpdate } from '../models/ShotUpdate';
+import type { ShotVideoAdoptionBody } from '../models/ShotVideoAdoptionBody';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -278,12 +280,16 @@ export class StudioShotsService {
     public static getShotVideoReadinessApiApiV1StudioShotsShotIdVideoReadinessGet({
         shotId,
         referenceMode = 'text_only',
+        modelId,
+        subjectImageCount,
     }: {
         shotId: string,
         /**
          * 参考模式：first/last/key/first_last/first_last_key/text_only
          */
         referenceMode?: string,
+        modelId?: (string | null),
+        subjectImageCount?: number,
     }): CancelablePromise<ApiResponse_ShotVideoReadinessRead_> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -293,6 +299,8 @@ export class StudioShotsService {
             },
             query: {
                 'reference_mode': referenceMode,
+                'model_id': modelId,
+                'subject_image_count': subjectImageCount,
             },
             errors: {
                 422: `Validation Error`,
@@ -507,6 +515,32 @@ export class StudioShotsService {
                 'page': page,
                 'page_size': pageSize,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 采用镜头视频用于成片
+     * Accept identifiers only; the service verifies ownership and protects concurrent selection.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static adoptShotVideoApiApiV1StudioShotsShotIdVideoAdoptionPost({
+        shotId,
+        requestBody,
+    }: {
+        shotId: string,
+        requestBody: ShotVideoAdoptionBody,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/shots/{shot_id}/video-adoption',
+            path: {
+                'shot_id': shotId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

@@ -104,34 +104,13 @@ def test_aliyun_happyhorse_modes_require_matching_reference_shape() -> None:
         )
 
 
-def test_aliyun_reference_audio_requires_visual_and_is_model_scoped() -> None:
-    """参考音色必须绑定视觉素材，且只允许声明支持的阿里模型。"""
-    audio_only = VideoSubjectReference(
-        name="hero",
-        media=[MediaReference(file_id="voice", media_kind="audio")],
-    )
-    with pytest.raises(ValueError, match="requires an image or video"):
-        validate_video_options(
-            provider="aliyun_bailian",
-            model="happyhorse-1.1-r2v",
-            input_=VideoGenerationInput(
-                prompt="hero", model="happyhorse-1.1-r2v", ratio="16:9", subject_references=[audio_only]
-            ),
-        )
-    visual_voice = VideoSubjectReference(
-        name="hero",
-        media=[
-            MediaReference(file_id="image", media_kind="image"),
-            MediaReference(file_id="voice", media_kind="audio", ordinal=1),
-        ],
-    )
-    validate_video_options(
-        provider="aliyun_bailian",
-        model="happyhorse-1.1-r2v",
-        input_=VideoGenerationInput(
-            prompt="hero", model="happyhorse-1.1-r2v", ratio="16:9", subject_references=[visual_voice]
-        ),
-    )
+def test_happyhorse_reference_api_rejects_audio_with_or_without_visual() -> None:
+    """Official R2V accepts images only; an image does not make an audio attachment valid."""
+    for media in [[MediaReference(file_id="voice", media_kind="audio")], [
+        MediaReference(file_id="image", media_kind="image"), MediaReference(file_id="voice", media_kind="audio", ordinal=1)]]:
+        with pytest.raises(ValueError, match="audio references are not supported"):
+            validate_video_options(provider="aliyun_bailian", model="happyhorse-1.1-r2v",
+                input_=VideoGenerationInput(prompt="hero", ratio="16:9", subject_references=[VideoSubjectReference(name="hero",media=media)]))
 
 
 def test_vidu_subject_video_is_limited_to_q2_pro_and_conflicts_with_frames() -> None:
@@ -157,3 +136,18 @@ def test_vidu_subject_video_is_limited_to_q2_pro_and_conflicts_with_frames() -> 
     )
     with pytest.raises(ValueError, match="cannot be combined with frame references"):
         validate_video_options(provider="vidu", model=conflict.model, input_=conflict)
+
+def test_vidu_multi_angle_group_and_total_limits_are_independent():
+    """同一主体可有三角度，但所有主体合计仍限七张，避免按7乘3放行。"""
+    def request(counts):
+        """按有序角度构造多个主体，保持业务 FileItem 契约。"""
+        return VideoGenerationInput(model='viduq2', prompt='@hero0 walk', ratio='16:9', seconds=5,
+            subject_references=[VideoSubjectReference(name=f'hero{group}', media=[
+                MediaReference(file_id=f'{group}-{i}', media_kind='image', ordinal=i)
+                for i in range(count)]) for group, count in enumerate(counts)])
+    valid = request([3,3,1])
+    validate_video_options(provider='vidu', model='viduq2', input_=valid)
+    with pytest.raises(ValueError):
+        validate_video_options(provider='vidu', model='viduq2', input_=request([3,3,2]))
+    with pytest.raises(ValueError):
+        validate_video_options(provider='vidu', model='viduq2', input_=request([4]))

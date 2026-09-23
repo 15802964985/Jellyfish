@@ -41,6 +41,11 @@ def resolve_aliyun_image_capability(model: str | None) -> ImageModelCapability:
     ):
         if value.startswith(prefix):
             return capability
+    if value == "wan2.7-image-pro":
+        from app.core.integrations.documented_image_sizes import WAN_PRO_PROFILES
+        return ImageModelCapability(supports_seed=True, supports_watermark=True, min_n=1, max_n=4,
+            default_resolution_profile="preview", supported_ratios=set(WAN_PRO_PROFILES),
+            ratio_size_profiles=WAN_PRO_PROFILES)
     return _ALIYUN_DEFAULT
 
 

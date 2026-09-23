@@ -6,4 +6,3 @@ export type ScriptSourceSpan = {
     start_line: number;
     end_line: number;
 };
-

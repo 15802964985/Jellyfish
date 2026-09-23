@@ -12,4 +12,3 @@ export type ScriptImportCommitRequest = {
     include_audio_dialogue?: boolean;
     media_plan_model_id?: (string | null);
 };
-

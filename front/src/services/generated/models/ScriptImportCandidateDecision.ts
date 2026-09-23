@@ -8,4 +8,3 @@ export type ScriptImportCandidateDecision = {
     edited_name?: (string | null);
     edited_description?: (string | null);
 };
-

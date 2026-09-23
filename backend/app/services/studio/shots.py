@@ -204,10 +204,14 @@ async def create(
     *,
     body: ShotCreate,
 ) -> Shot:
-    """创建镜头。"""
+    """同一事务创建镜头和基础详情，保证手动新建后可直接进入准备页和工作室。"""
     await ensure_not_exists(db, Shot, body.id, detail=entity_already_exists("Shot"))
     await require_entity(db, Chapter, body.chapter_id, detail=entity_not_found("Chapter"), status_code=400)
-    return await create_and_refresh(db, Shot(**body.model_dump()))
+    from app.services.studio.shot_details import new_shot_detail
+
+    shot = await create_and_refresh(db, Shot(**body.model_dump()))
+    await create_and_refresh(db, new_shot_detail(shot.id))
+    return shot
 
 
 async def get(

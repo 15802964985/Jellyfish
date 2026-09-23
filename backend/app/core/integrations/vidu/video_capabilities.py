@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from dataclasses import replace
 
 from app.core.integrations.video_capabilities import VideoModelCapability
 
@@ -141,8 +142,36 @@ def clear_vidu_video_capability_overrides() -> None:
 def resolve_vidu_video_capability(model: str | None) -> VideoModelCapability:
     """按最长模型前缀选择 Vidu 视频能力，未知模型采用通用交集。"""
     value = (model or "").strip().lower()
+    # Official model-map separates Q2 text/reference from Pro/Turbo frame endpoints.
+    if value == "viduq2":
+        return replace(_VIDU_Q2, supports_first_frame=False, supports_last_frame=False,
+            max_key_frames=0, max_total_subject_images=7, resolutions=("540p", "720p", "1080p"))
+    if value == "viduq2-turbo":
+        return replace(_VIDU_DEFAULT, supports_text_to_video=False, max_key_frames=0,
+            min_seconds=1, max_seconds=10)
+    if value == "viduq1-classic":
+        return replace(_VIDU_DEFAULT, supports_text_to_video=False, max_key_frames=0,
+            min_seconds=5, max_seconds=5, resolutions=("1080p",))
+    if value == "viduq2-pro":
+        return replace(_VIDU_Q2_PRO, supports_text_to_video=False, max_key_frames=0)
+    if value == "viduq3-pro":
+        # Text, first-frame and first/last endpoints all document 1-16 seconds.
+        return replace(_VIDU_Q3, supports_subject_image_reference=False, max_subjects=0,
+            max_key_frames=0, min_seconds=1, resolutions=("540p", "720p", "1080p"),
+            resolution_source="https://platform.vidu.cn/docs/text-to-video")
+    if value in {"viduq3", "viduq3-turbo"}:
+        # Per-subject limit (3) does not replace the entire request's seven-image limit.
+        return replace(_VIDU_Q3, max_key_frames=0, max_total_subject_images=7,
+            resolutions=("540p", "720p", "1080p"),
+            resolution_source="https://platform.vidu.cn/docs/reference-to-video")
     for prefix, capability in sorted(_VIDU_MODEL_OVERRIDES.items(), key=lambda item: len(item[0]), reverse=True):
         if value.startswith(prefix):
+            # Only these exact names share verified reference/image duration and resolution contracts.
+            resolutions = {'viduq2': ('540p', '720p', '1080p'), 'viduq1': ('1080p',), 'vidu2.0': ('360p', '720p')}
+            if value in resolutions:
+                return replace(capability, max_total_subject_images=7, max_key_frames=0,
+                    supports_text_to_video=value != 'vidu2.0', resolutions=resolutions[value],
+                    resolution_source='https://platform.vidu.com/docs/reference-to-video')
             return capability
     return _VIDU_DEFAULT
 

@@ -57,6 +57,7 @@ async def create_file_from_url_or_b64(
     url_request_headers: dict[str, str] | None = None,
     httpx_timeout: float | None = None,
     usage: FileUsageCreateParams | None = None,
+    recovery_ordinal: int | None = None,
 ) -> FileItem:
     """从远端 URL 或 base64 内容创建 FileItem。
 
@@ -67,6 +68,21 @@ async def create_file_from_url_or_b64(
     """
     if not url and not b64_data:
         raise ValueError("create_file_from_url_or_b64 需要提供 url 或 b64_data 至少其一")
+
+    from app.core.contracts.generation_recovery import media_recovery
+    recovery = media_recovery.get() if recovery_ordinal is not None else None
+    archive_id = str(recovery_ordinal)
+    if recovery is not None:
+        cached = await recovery.update(lambda data: (data.get("archives") or {}).get(archive_id))
+        if cached:
+            # A prior SQL rollback does not discard the already stored bytes or create another object.
+            existing = await session.get(FileItem, cached["id"])
+            if existing is not None:
+                return existing
+            file_obj = FileItem(**cached)
+            session.add(file_obj)
+            await session.flush()
+            return file_obj
 
     content: bytes
     content_type: str | None = None
@@ -109,14 +125,14 @@ async def create_file_from_url_or_b64(
 
     display_name = name or os.path.splitext(filename)[0] or filename
 
-    key = f"{prefix}/{uuid.uuid4().hex}{ext}"
+    file_id = str(uuid.uuid5(uuid.NAMESPACE_URL, recovery.task_id + "/" + archive_id)) if recovery else str(uuid.uuid4())
+    key = f"{prefix}/{file_id}{ext}"
     info = await storage.upload_file(
         key=key,
         data=content,
         content_type=content_type,
     )
 
-    file_id = str(uuid.uuid4())
     file_obj = FileItem(
         id=file_id,
         type=file_type,
@@ -125,6 +141,14 @@ async def create_file_from_url_or_b64(
         tags=[],
         storage_key=key,
     )
+    if recovery is not None:
+        def remember(data):
+            """Persist archive identity before the business transaction can roll back."""
+            archives = dict(data.get("archives", {}))
+            archives[archive_id] = {"id": file_id, "type": file_type.value, "name": display_name,
+                "thumbnail": info.url, "tags": [], "storage_key": key}
+            data["archives"] = archives
+        await recovery.update(remember)
     session.add(file_obj)
     await session.flush()
     await session.refresh(file_obj)

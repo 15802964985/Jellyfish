@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Layout, Tabs } from 'antd'
 import ProvidersTab from './ProvidersTab'
 import ModelsTab from './ModelsTab'
+import { ModelGovernanceTab } from './ModelGovernanceTab'
 import SettingsTab from './SettingsTab'
 
 export default function ModelManagement() {
@@ -21,6 +22,7 @@ export default function ModelManagement() {
             { key: 'providers', label: '供应商' },
             { key: 'models', label: '模型' },
             { key: 'settings', label: '运行设置' },
+            { key: 'governance', label: '接口与价格同步' },
           ]}
         />
       </div>
@@ -29,6 +31,7 @@ export default function ModelManagement() {
         {activeTab === 'providers' && <ProvidersTab />}
         {activeTab === 'models' && <ModelsTab onConfigureProvider={() => setActiveTab('providers')} />}
         {activeTab === 'settings' && <SettingsTab />}
+        {activeTab === 'governance' && <ModelGovernanceTab />}
       </div>
     </Layout>
   )

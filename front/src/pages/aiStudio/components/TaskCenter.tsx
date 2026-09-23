@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Empty, message, Modal, Progress, Segmented, Select, Spin, Tag } from 'antd'
+import { Badge, Button, Card, Empty, Input, message, Modal, Progress, Segmented, Select, Spin, Tag } from 'antd'
 import {
   ArrowLeftOutlined,
   ArrowRightOutlined,
@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { TaskListItemRead, TaskStatus } from '../../../services/generated'
+import { TaskCallDetails } from './TaskCallDetails'
 import { FilmService } from '../../../services/generated'
 import type { TaskUiItem } from './taskUiStore'
 import {
@@ -125,6 +126,8 @@ export function TaskCenter() {
   const [scopeFilter, setScopeFilter] = useState<'all' | 'current' | 'active' | 'settled'>('active')
   const [taskKindFilter, setTaskKindFilter] = useState<string | undefined>(undefined)
   const [page, setPage] = useState(1)
+  const [modelQuery, setModelQuery] = useState('')
+  const [callDetailTaskId, setCallDetailTaskId] = useState<string | null>(null)
   const [historyItems, setHistoryItems] = useState<TaskListItemRead[]>([])
   const [historyTotal, setHistoryTotal] = useState(0)
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -240,6 +243,7 @@ export function TaskCenter() {
     void FilmService.listTasksApiV1FilmTasksGet({
       statuses,
       taskKind: taskKindFilter,
+      modelQuery: modelQuery || undefined,
       page,
       pageSize: TASK_CENTER_PAGE_SIZE,
     })
@@ -259,7 +263,7 @@ export function TaskCenter() {
     return () => {
       cancelled = true
     }
-  }, [effectiveScopeFilter, page, taskKindFilter, usesServerHistory])
+  }, [effectiveScopeFilter, page, taskKindFilter, usesServerHistory, modelQuery])
 
   const historyTasks = useMemo(
     () => mergeTaskUiItems(Object.fromEntries(historyItems.map((task) => [task.task_id, task])), {}),
@@ -273,9 +277,10 @@ export function TaskCenter() {
         if (effectiveScopeFilter === 'active' && !['pending', 'running', 'streaming'].includes(task.status)) return false
         if (effectiveScopeFilter === 'settled' && !['succeeded', 'failed', 'cancelled'].includes(task.status)) return false
         if (taskKindFilter && task.taskKind !== taskKindFilter) return false
+        if (modelQuery && ![task.modelName, task.providerName].some(value => value?.toLowerCase().includes(modelQuery.toLowerCase()))) return false
         return true
       }),
-    [activeContexts, effectiveScopeFilter, resolvedTasks, taskKindFilter],
+    [activeContexts, effectiveScopeFilter, resolvedTasks, taskKindFilter, modelQuery],
   )
   const displayedTasks = usesServerHistory ? resolvedHistoryTasks : filteredTasks
   const displayedTotal = usesServerHistory ? historyTotal : filteredTasks.length
@@ -479,6 +484,8 @@ export function TaskCenter() {
                     }}
                     options={taskKindOptions}
                   />
+                  <Input.Search size="small" allowClear placeholder="搜索厂商或型号（历史冻结名称）"
+                    onSearch={value => { setModelQuery(value.trim()); setScopeFilter('all'); setPage(1) }} />
                   <div className="text-[11px] text-gray-400">
                     任务范围：未结束含等待中、进行中、取消中；已结束含已完成、失败、已取消 · 每页最多 4 条
                   </div>
@@ -513,12 +520,14 @@ export function TaskCenter() {
                               <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
                                 {highlighted ? <Tag color="blue">当前页面</Tag> : null}
                                 <Tag color={tone.color}>{tone.label}</Tag>
+                                <span>{[task.providerName, task.modelName].filter(Boolean).join(" · ")}</span>
                                 <span>进度 {Math.max(0, Math.min(100, Math.round(task.progress)))}%</span>
                                 {elapsed ? <span>耗时 {elapsed}</span> : null}
                               </div>
                               {startedAt ? <div className="mt-1 text-xs text-gray-400">开始于 {startedAt}</div> : null}
                             </div>
                             <div className="flex flex-col gap-2">
+                              <Button size="small" onClick={() => setCallDetailTaskId(task.taskId)}>调用详情</Button>
                               {task.status === 'failed' ? (
                                 <Button
                                   size="small"
@@ -632,6 +641,7 @@ export function TaskCenter() {
           </span>
         </Button>
       </Badge>
+      <TaskCallDetails taskId={callDetailTaskId} onClose={() => setCallDetailTaskId(null)} />
     </div>
   )
 }

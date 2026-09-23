@@ -13,4 +13,3 @@ export type ChapterUpdate = {
     storyboard_count?: (number | null);
     status?: (ChapterStatus | null);
 };
-

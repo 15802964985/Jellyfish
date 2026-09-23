@@ -31,4 +31,3 @@ export type GenerationTaskLinkCreate = {
      */
     status?: string;
 };
-

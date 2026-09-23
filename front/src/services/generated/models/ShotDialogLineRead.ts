@@ -41,4 +41,3 @@ export type ShotDialogLineRead = {
      */
     target_name?: (string | null);
 };
-

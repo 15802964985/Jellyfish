@@ -122,6 +122,7 @@ export function ShotAudioTracksPanel({ shotId }: { shotId: string | null }) {
         },
       })
       if (!response.data?.task_id) throw new Error('任务创建结果缺少 task_id')
+      window.dispatchEvent(new CustomEvent('jellyfish:task-accepted',{detail:{taskId:response.data.task_id,title:'配音生成'}}))
       setTtsTaskId(response.data.task_id)
       setTtsOpen(false)
       message.success(response.data.reused ? '已有配音任务正在执行' : '配音任务已提交，可在任务中心查看')

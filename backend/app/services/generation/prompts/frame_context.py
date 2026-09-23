@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.services.studio.shot_mood import append_shot_mood
+
 from typing import TypedDict
 
 from fastapi import HTTPException
@@ -241,6 +243,7 @@ async def build_frame_render_guidance(*, db: AsyncSession, shot_id: str, frame_t
     composition = _build_composition_anchor(detail=detail, previous_shot=previous_shot, next_shot=next_shot, characters=characters, scenes=list(scenes_by_id.values()))
     screen = _build_screen_direction_guidance(detail=detail, previous_shot=previous_shot, next_shot=next_shot, dialogue_summary=dialogue_summary, character_names=[item.name for item in characters])
     frame_specific = _build_frame_specific_guidance(frame_type=normalized_frame_type, previous_shot=previous_shot, next_shot=next_shot, detail=detail, script_excerpt=shot.script_excerpt or "", action_beats=action_beats)
+    frame_specific = append_shot_mood(frame_specific, getattr(detail, "mood_tags", None))
     return {
         "director_command_summary": _build_director_command_summary(frame_type=normalized_frame_type, frame_specific_guidance=frame_specific, continuity_guidance=continuity, composition_anchor=composition, screen_direction_guidance=screen, has_dialogue=bool(dialogue_summary.strip()), character_count=len(characters), same_scene_with_previous=_same_scene(previous_shot, str(detail.scene_id or "")), same_scene_with_next=_same_scene(next_shot, str(detail.scene_id or "")), movement=_enum_value(detail.movement)),
         "continuity_guidance": continuity,

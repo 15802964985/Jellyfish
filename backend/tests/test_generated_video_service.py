@@ -109,7 +109,7 @@ async def test_quality_sources_freeze_exact_chapter_match_and_current_asset_desc
             assert source.text is None
             assert source.excerpt_start == 3
             assert chapter.raw_text[source.excerpt_start:source.excerpt_end] == '角色推门而入。'
-            assert next(s for s in evidence.sources if s.kind == 'prop').literal_in_prompt is True
+            assert next(s for s in evidence.sources if s.kind == 'prop' and s.field == 'description').literal_in_prompt is True
             frozen = evidence.model_dump_json()
             prop.description = ''
             await db.commit()
@@ -280,6 +280,12 @@ async def test_shot_video_readiness_reports_ready_for_text_only() -> None:
 
         readiness = await get_shot_video_readiness(db, shot_id="s1", reference_mode="text_only")
 
+        assert readiness.ready is False  # The fixture's six seconds is unsupported by this configured model.
+        assert not {item.key: item.ok for item in readiness.checks}['duration_ready']
+        detail = await db.get(ShotDetail, 's1')
+        detail.duration = 8
+        await db.flush()
+        readiness = await get_shot_video_readiness(db, shot_id='s1', reference_mode='text_only')
         assert readiness.ready is True
         assert {item.key: item.ok for item in readiness.checks}["extraction_ready"] is True
         assert {item.key: item.ok for item in readiness.checks}["reference_frames_ready"] is True

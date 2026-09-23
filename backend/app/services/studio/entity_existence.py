@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, case, or_, literal, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.studio import (
@@ -48,17 +48,23 @@ async def check_names_existence(
         if shot_ok is None:
             raise HTTPException(status_code=404, detail=relation_mismatch("shot_id", "project_id"))
 
+    def _name_match(model, q):
+        """Treat qualifiers as candidate text; matching remains a user-confirmed suggestion."""
+        return or_(model.name.contains(q, autoescape=True),
+            (func.length(model.name) >= 2) & (func.instr(literal(q), model.name) > 0))
+
     async def _find_character_id(q: str) -> str | None:
         stmt = (
             select(Character.id)
-            .where(Character.project_id == project_id, Character.name.ilike(f"%{q}%"))
+            .where(Character.project_id == project_id, _name_match(Character, q))
+            .order_by(case((Character.name == q, 0), else_=1), Character.id)
             .limit(1)
         )
         row = (await db.execute(stmt)).scalar_one_or_none()
         return str(row) if row is not None else None
 
     async def _find_asset_id(model: type, q: str) -> str | None:
-        stmt = select(getattr(model, "id")).where(getattr(model, "name").ilike(f"%{q}%")).limit(1)
+        stmt = select(model.id).where(_name_match(model, q)).order_by(case((model.name == q, 0), else_=1), model.id).limit(1)
         row = (await db.execute(stmt)).scalar_one_or_none()
         return str(row) if row is not None else None
 
@@ -66,7 +72,8 @@ async def check_names_existence(
         stmt = (
             select(ProjectPropLink.id, Prop.id)
             .join(Prop, Prop.id == ProjectPropLink.prop_id)
-            .where(ProjectPropLink.project_id == project_id, Prop.name.ilike(f"%{q}%"))
+            .where(ProjectPropLink.project_id == project_id, _name_match(Prop, q))
+            .order_by(case((Prop.name == q, 0), else_=1), Prop.id)
             .limit(1)
         )
         row = (await db.execute(stmt)).first()
@@ -79,7 +86,8 @@ async def check_names_existence(
         stmt = (
             select(ProjectSceneLink.id, Scene.id)
             .join(Scene, Scene.id == ProjectSceneLink.scene_id)
-            .where(ProjectSceneLink.project_id == project_id, Scene.name.ilike(f"%{q}%"))
+            .where(ProjectSceneLink.project_id == project_id, _name_match(Scene, q))
+            .order_by(case((Scene.name == q, 0), else_=1), Scene.id)
             .limit(1)
         )
         row = (await db.execute(stmt)).first()
@@ -92,7 +100,8 @@ async def check_names_existence(
         stmt = (
             select(ProjectCostumeLink.id, Costume.id)
             .join(Costume, Costume.id == ProjectCostumeLink.costume_id)
-            .where(ProjectCostumeLink.project_id == project_id, Costume.name.ilike(f"%{q}%"))
+            .where(ProjectCostumeLink.project_id == project_id, _name_match(Costume, q))
+            .order_by(case((Costume.name == q, 0), else_=1), Costume.id)
             .limit(1)
         )
         row = (await db.execute(stmt)).first()
@@ -281,6 +290,23 @@ async def check_names_existence(
                 aid = row.get("asset_id")
                 if aid and aid in linked_costume_ids:
                     row["linked_to_shot"] = True
+
+    # Candidate thumbnails are live asset data, never hallucinated extraction output.
+    from app.services.studio.entity_specs import entity_spec
+    from app.services.studio.entity_thumbnails import resolve_thumbnail_infos, resolve_attachment_image_infos
+    for kind, model, rows in (("character", Character, characters_out), ("scene", Scene, scenes_out),
+                              ("prop", Prop, props_out), ("costume", Costume, costumes_out)):
+        ids = list({r["asset_id"] for r in rows if r.get("asset_id")})
+        if not ids:
+            continue
+        names = dict((await db.execute(select(model.id, model.name).where(model.id.in_(ids)))).all())
+        images = await resolve_thumbnail_infos(db, image_model=entity_spec(kind).image_model,
+            parent_field_name=kind + "_id", parent_ids=ids)
+        attachments = await resolve_attachment_image_infos(db, entity_type=kind, entity_ids=ids)
+        for row in rows:
+            aid = row.get("asset_id")
+            photo = images.get(aid) or attachments.get(aid) or {}
+            row.update(matched_name=names.get(aid), thumbnail=photo.get("thumbnail"), file_id=photo.get("file_id"))
 
     return {
         "characters": characters_out,

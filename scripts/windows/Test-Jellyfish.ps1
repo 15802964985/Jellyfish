@@ -10,6 +10,9 @@ $scriptDir = Join-Path $testRoot 'scripts/windows'
 New-Item -ItemType Directory -Path $scriptDir -Force | Out-Null
 $testScript = Join-Path $scriptDir 'Jellyfish.ps1'
 $logFile = Join-Path $testRoot 'calls.txt'
+# 启动流程会调用本机助手；测试以空操作脚本替代，不能启动真实浏览器。
+$hostStub = Join-Path $scriptDir 'Start-WebDesktop.ps1'
+[IO.File]::WriteAllText($hostStub, 'param([switch]$KeepAlive)')
 $mock = @'
 # 模拟 HTTP 与确认输入，禁止测试访问真实服务。
 function Invoke-WebRequest {
@@ -26,6 +29,8 @@ function Invoke-Native {
     if ($Program -eq 'git') {
         switch -Wildcard ($Arguments -join ' ') {
             'rev-parse --show-toplevel' { return $projectRoot }
+            'rev-parse --git-path index.lock' { return '.git/index.lock' }
+            '*status --short' { if ('CASE' -eq 'late-lock') { [IO.File]::WriteAllText((Join-Path $projectRoot '.git/index.lock'), '') }; return }
             'branch --show-current' { return 'local/stable-codex-0718' }
             'remote get-url*' { if ('CASE' -eq 'wrong-remote') { return 'https://github.com/Forget-C/Jellyfish.git' }; return 'https://github.com/15802964985/Jellyfish.git' }
             'diff --name-only --diff-filter=U' { return }
@@ -53,7 +58,12 @@ function Invoke-Native {
 }
 '@
 # 独立子进程保留主入口的真实退出码、catch 和失败中止行为。
-foreach ($case in @('start', 'stop', 'push', 'wrong-remote', 'secret', 'diff-fail', 'stop-fail', 'staged-secret', 'missing-health', 'http-fail', 'decline-push', 'decline-stop')) {
+foreach ($case in @('start', 'stop', 'push', 'wrong-remote', 'secret', 'diff-fail', 'stop-fail', 'staged-secret', 'missing-health', 'http-fail', 'decline-push', 'decline-stop', 'index-lock', 'late-lock')) {
+    $testGitDir = Join-Path $testRoot '.git'
+    New-Item -ItemType Directory -Path $testGitDir -Force | Out-Null
+    $testLock = Join-Path $testGitDir 'index.lock'
+    if (Test-Path -LiteralPath $testLock) { Remove-Item -LiteralPath $testLock }
+    if ($case -eq 'index-lock') { [IO.File]::WriteAllText($testLock, '') }
     $replacement = $mock.Replace('CASE', $case)
     $candidate = $source.Substring(0, $native.Extent.StartOffset) + $replacement + $source.Substring($native.Extent.EndOffset)
     if ($case -eq 'http-fail') { $candidate = $candidate.Replace('.AddSeconds(120)', '.AddSeconds(-1)') }
@@ -74,10 +84,16 @@ foreach ($case in @('start', 'stop', 'push', 'wrong-remote', 'secret', 'diff-fai
     if ($case -in @('secret', 'wrong-remote') -and $calls -match 'git add') { throw '保护检查失败后仍暂存文件' }
     if ($case -like 'decline-*' -and $calls -match 'git add|docker stop') { throw '取消确认后仍执行变更' }
     if ($case -eq 'staged-secret' -and $calls -match 'git commit|git push') { throw '索引敏感路径未阻止提交' }
+    if ($case -in @('index-lock', 'late-lock')) {
+        if ($calls -match 'git add|git commit|git push') { throw '锁存在时仍写入 Git' }
+        if (-not (Test-Path -LiteralPath $testLock)) { throw '脚本不应自动删除锁' }
+    }
     Write-Host "PASS $case"
 }
 # 只删除本测试明确创建的文件及空目录，不使用递归删除。
-Remove-Item -LiteralPath $testScript, $logFile
+if (Test-Path -LiteralPath $testLock) { Remove-Item -LiteralPath $testLock }
+Remove-Item -LiteralPath $testGitDir
+Remove-Item -LiteralPath $testScript, $logFile, $hostStub
 Remove-Item -LiteralPath $scriptDir
 Remove-Item -LiteralPath (Join-Path $testRoot 'scripts')
 Remove-Item -LiteralPath $testRoot

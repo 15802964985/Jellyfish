@@ -1,3 +1,4 @@
+import { PreviewImage } from '../../../components/PreviewImage'
 import { Alert, Modal } from 'antd'
 import type { FileRead } from '../../../services/generated'
 import { buildFilePreviewUrl } from '../assets/utils'
@@ -23,7 +24,7 @@ export function FilePreviewModal({ file, onClose }: FilePreviewModalProps) {
     >
       {!file || !url ? null : file.type === 'image' ? (
         <div className="flex max-h-[78vh] min-h-64 items-center justify-center overflow-auto rounded-lg bg-slate-950/95 p-3">
-          <img src={url} alt={file.name} className="max-h-[74vh] max-w-full object-contain" />
+          <PreviewImage src={url} alt={file.name} className="max-h-[74vh] max-w-full object-contain" />
         </div>
       ) : file.type === 'video' ? (
         <div className="space-y-3">

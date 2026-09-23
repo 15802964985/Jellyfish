@@ -20,7 +20,7 @@ def quality_source_fingerprint(bundle: QualitySourceBundle) -> str:
         sort_keys=True).encode('utf-8')).hexdigest()
 
 
-async def read_linked_asset_descriptions(db: AsyncSession, linked) -> dict[tuple[str, str], str]:
+async def read_linked_asset_descriptions(db: AsyncSession, linked, shot_id: str | None = None) -> dict[tuple[str, str], str]:
     """Fetch authoritative descriptions by typed ID, at most one query per asset category."""
     result = {}
     for kind, model in ASSET_MODELS.items():
@@ -29,6 +29,12 @@ async def read_linked_asset_descriptions(db: AsyncSession, linked) -> dict[tuple
             continue
         rows = (await db.execute(select(model.id, model.description).where(model.id.in_(ids)))).all()
         result.update({(kind, row.id): row.description or '' for row in rows})
+    if shot_id:
+        from app.services.studio.character_appearances import appearance_context
+        for character_id, look in (await appearance_context(db, shot_id)).items():
+            key = ('character', character_id)
+            if key in result:
+                result[key] += '\n本镜头服装与造型以所选版本为准：' + json.dumps(look, ensure_ascii=False)
     return result
 
 
@@ -52,6 +58,16 @@ async def collect_quality_sources(db: AsyncSession, *, shot_id: str,
     if shot is None:
         bundle.warnings.append('镜头来源不存在，无法追溯。')
         return bundle
+    from app.services.studio.creative_direction import read_direction, direction_prompt
+    direction = await read_direction(db, 'shot', shot_id)
+    bundle.warnings.extend(direction.warnings)
+    bundle.sources.append(source_snapshot('project', direction.project_id or shot_id, 'creative_direction',
+        direction_prompt(direction, 'review') + '\n版本:' + direction.fingerprint, prompt or ''))
+    for fid in direction.effective.get('reference_file_ids') or []:
+        from app.models.studio import FileItem
+        ref = await db.get(FileItem, fid)
+        bundle.sources.append(source_snapshot('project', direction.project_id or shot_id, 'creative_reference:'+fid,
+            json.dumps({'id':fid,'updated_at':str(getattr(ref,'updated_at','')),'content_version':getattr(ref,'content_version',None),'checksum':getattr(ref,'checksum',None),'exists':ref is not None},sort_keys=True), prompt or ''))
     text = prompt or ''
     excerpt = shot.script_excerpt or ''
     bundle.sources.append(source_snapshot('shot', shot.id, 'script_excerpt', excerpt, text))
@@ -62,19 +78,19 @@ async def collect_quality_sources(db: AsyncSession, *, shot_id: str,
             if value is not None:
                 bundle.sources.append(source_snapshot('shot_detail', shot_id, field, str(value), text))
     # Only immediate neighbours: their state is continuity context, not this shot's action.
-    for direction, condition, ordering in (
+    for neighbour_direction, condition, ordering in (
         ('previous', Shot.index < shot.index, Shot.index.desc()),
         ('next', Shot.index > shot.index, Shot.index.asc()),
     ):
         neighbour = (await db.execute(select(Shot).where(Shot.chapter_id == shot.chapter_id, condition)
             .order_by(ordering).limit(1))).scalar_one_or_none()
         if neighbour:
-            bundle.sources.append(source_snapshot('neighbour', neighbour.id, direction, neighbour.script_excerpt or '', text))
+            bundle.sources.append(source_snapshot('neighbour', neighbour.id, neighbour_direction, neighbour.script_excerpt or '', text))
     chapter = await db.get(Chapter, shot.chapter_id)
     if chapter is not None:
         project = await db.get(Project, chapter.project_id)
         if project:
-            for field in ('description', 'style', 'visual_style', 'default_video_ratio'):
+            for field in ('description', 'default_video_ratio'):
                 value = getattr(project, field, None)
                 if value is not None:
                     bundle.sources.append(source_snapshot('project', project.id, field, str(value), text))
@@ -98,7 +114,22 @@ async def collect_quality_sources(db: AsyncSession, *, shot_id: str,
     if not any(s.kind == 'chapter' and s.excerpt_start is not None for s in bundle.sources):
         bundle.warnings.append('镜头摘录未在章节原文或精简文本中精确定位；可能已改写，不等于剧情冲突，需人工或后续语义核对。')
     linked = await list_shot_linked_assets(db, shot_id=shot_id)
-    descriptions = await read_linked_asset_descriptions(db, linked)
+    descriptions = await read_linked_asset_descriptions(db, linked, shot_id=shot_id)
+    for asset in linked:
+        if asset.type not in ASSET_MODELS: continue
+        asset_direction = await read_direction(db, asset.type, asset.id)
+        if asset.type=='character' and asset.id in direction.appearances:
+            # Review the selected immutable look, not today's unrelated default costume/style.
+            look=direction.appearances[asset.id]
+            asset_direction=asset_direction.model_copy(update={'effective':look['creative_direction'],
+                'fingerprint':sha256(json.dumps(look,sort_keys=True,ensure_ascii=False).encode()).hexdigest()})
+        bundle.sources.append(source_snapshot(asset.type, asset.id, 'creative_direction',
+            direction_prompt(asset_direction, 'asset')+'\n版本:'+asset_direction.fingerprint, prompt or ''))
+        for key in ('presentation','treatment','era'):
+            left,right=direction.effective.get(key),asset_direction.effective.get(key)
+            if left and right and left!=right:
+                bundle.warnings.append(f'资产 {asset.name} 的{key}（{right}）与镜头设定（{left}）不同，请核对是否为剧情特例；不会自动改图。')
+
     character_ids = [asset.id for asset in linked if asset.type == 'character']
     if character_ids:
         actors = (await db.execute(select(Actor.id, Actor.description).join(Character, Character.actor_id == Actor.id)

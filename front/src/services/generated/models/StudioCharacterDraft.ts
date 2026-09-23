@@ -45,4 +45,3 @@ export type StudioCharacterDraft = {
      */
     prop_names?: Array<string>;
 };
-

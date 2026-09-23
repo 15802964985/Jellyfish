@@ -21,4 +21,3 @@ export type ApiResponse_list_ShotRuntimeSummaryRead__ = {
      */
     meta?: (Record<string, any> | null);
 };
-

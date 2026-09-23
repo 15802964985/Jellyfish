@@ -12,4 +12,3 @@ export type FrameReferenceMappingSnapshot = {
     name: string;
     file_id: string;
 };
-

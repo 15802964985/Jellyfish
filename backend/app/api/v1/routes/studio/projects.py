@@ -35,6 +35,7 @@ PROJECT_ORDER_FIELDS = {"name", "created_at", "updated_at", "progress"}
 
 
 def _build_project_style_options() -> tuple[dict[ProjectVisualStyle, list[ProjectStyle]], dict[ProjectVisualStyle, ProjectStyle]]:
+    """从共享枚举生成风格目录，保持旧默认值并覆盖所有项目/资产候选。"""
     mapping: dict[ProjectVisualStyle, list[ProjectStyle]] = {key: [] for key in ProjectVisualStyle}
     for item in ProjectStyle:
         if item.name.startswith("real_people_"):
@@ -120,7 +121,12 @@ async def create_project(
         _validate_project_style_combo(visual_style=body.visual_style, style=body.style)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    obj = await create_and_refresh(db, Project(**body.model_dump()))
+    data = body.model_dump(exclude={'creative_direction'})
+    obj = await create_and_refresh(db, Project(**data))
+    if body.creative_direction is not None:
+        from app.services.studio.creative_direction import write_direction
+        from app.core.contracts.creative_direction import CreativeWrite
+        await write_direction(db, 'project', obj.id, CreativeWrite(expected_revision=0, overrides=body.creative_direction))
     return created_response(ProjectRead.model_validate(obj))
 
 

@@ -21,4 +21,3 @@ export type ApiResponse_TaskLinkAdoptRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

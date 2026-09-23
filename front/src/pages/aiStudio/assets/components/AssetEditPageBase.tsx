@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ManualMediaButton } from '../../../../components/ManualMediaButton'
+import { GenerationChannelActions } from '../../../../components/GenerationChannelActions'
+import { WebResultCandidates } from '../../../../components/WebResultCandidates'
+import { WebImageButton } from '../../../../components/WebImageButton'
+import { StudioWebGenerationService, type WebImageRequest } from '../../../../services/generated'
+import { GenerationOptionsPanel } from '../../components/GenerationOptionsPanel'
+import type { GenerationChoice } from '../../components/GenerationParameterDialog'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Button,
   Card,
@@ -12,6 +19,8 @@ import {
   Row,
   Space,
   Spin,
+  Select,
+  Alert,
   Tag,
   Typography,
   message,
@@ -22,7 +31,7 @@ import type { TaskStatus } from '../../../../services/generated'
 import { listTaskLinksNormalized } from '../../../../services/filmTaskLinks'
 import { buildFileDownloadUrl } from '../utils'
 import { DisplayImageCard } from './DisplayImageCard'
-import { ProjectVisualStyleAndStyleFields } from '../../project/ProjectVisualStyleAndStyleFields'
+import { CreativeDirectionButton } from '../../../../components/CreativeDirectionButton'
 import { useProjectStyleOptions } from '../../project/useProjectStyleOptions'
 import { defaultTaskActionErrorMessage, executeAsyncTaskCreate, executeTaskCancel, notifyExistingTask } from '../../components/taskActionHelpers'
 import { handleTaskResultSafely } from '../../components/taskResultHelpers'
@@ -96,6 +105,7 @@ export type BaseAssetImage = {
 
 export type AssetEditPageBaseProps<TAsset extends BaseAsset, TImage extends BaseAssetImage> = {
   assetId?: string
+  extraContent?: ReactNode
   missingAssetIdText: string
   assetDisplayName: string
   backTo: string
@@ -106,7 +116,7 @@ export type AssetEditPageBaseProps<TAsset extends BaseAsset, TImage extends Base
   createImageSlot: (assetId: string, angle: AssetViewAngle) => Promise<void>
   updateImage: (assetId: string, imageId: number, payload: { file_id: string; width?: number | null; height?: number | null; format?: string | null }) => Promise<void>
   renderPrompt: (assetId: string, imageId: number) => Promise<{ prompt: string; images: string[] }>
-  createGenerationTask: (assetId: string, imageId: number, payload: { prompt: string; images: string[] }) => Promise<string | null>
+  createGenerationTask: (assetId: string, imageId: number, payload: { prompt: string; images: string[]; generationChoice?: GenerationChoice | null }) => Promise<string | null>
   onNavigate: (to: string, replace?: boolean) => void
 }
 
@@ -153,6 +163,7 @@ function getAssetNavigateRelationType(relationType: string): string | null {
 export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseAssetImage>({
   assetId,
   missingAssetIdText,
+  extraContent,
   assetDisplayName,
   backTo,
   relationType,
@@ -165,12 +176,32 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   createGenerationTask,
   onNavigate,
 }: AssetEditPageBaseProps<TAsset, TImage>) {
-  const { options: projectStyleOptions, defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
+  const { defaultVisualStyle, getDefaultStyle } = useProjectStyleOptions()
   const taskCopy = TASK_COPY.smartDetect
   const location = useLocation()
   const [loading, setLoading] = useState(true)
   const [asset, setAsset] = useState<TAsset | null>(null)
   const [images, setImages] = useState<TImage[]>([])
+  const humanAsset = relationType === 'actor_image' || relationType === 'character_image'
+  const [anchorFileId, setAnchorFileId] = useState<string>('')
+  const [confirmedAnchor, setConfirmedAnchor] = useState<string>('')
+  const [creatingViews, setCreatingViews] = useState(false)
+  useEffect(() => { setAnchorFileId(''); setConfirmedAnchor('') }, [assetId])
+
+  /** 仅建立缺少的正面、侧面、背面槽位；模型生成仍逐张预览并确认费用。 */
+  const prepareThreeViews = async () => {
+    if (!assetId) return
+    setCreatingViews(true)
+    try {
+      const existing = await listImages(assetId)
+      for (const angle of ['FRONT', 'LEFT', 'BACK'] as AssetViewAngle[]) {
+        if (!existing.some(image => image.view_angle === angle)) await createImageSlot(assetId, angle)
+      }
+      setImages(await listImages(assetId))
+      message.success('三视图槽位已保存，请先确认主形象，再逐张生成其他角度')
+    } catch { message.error('建立槽位失败，请刷新后重试；已建立的槽位会保留') }
+    finally { setCreatingViews(false) }
+  }
 
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
@@ -189,6 +220,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   const [generationTask, setGenerationTask] = useState<RelationTaskState | null>(null)
   const [generationSettledTask, setGenerationSettledTask] = useState<RelationTaskState | null>(null)
 
+  const [generationChoice, setGenerationChoice] = useState<GenerationChoice | null>(null)
   const [promptPreviewOpen, setPromptPreviewOpen] = useState(false)
   const [promptPreviewLoading, setPromptPreviewLoading] = useState(false)
   const [promptPreviewImage, setPromptPreviewImage] = useState<TImage | null>(null)
@@ -219,6 +251,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       const taskId = await createGenerationTask(assetId, context.imageId, {
         prompt: (derived.prompt || '').trim(),
         images: derived.images,
+        generationChoice,
       })
       return { taskId }
     },
@@ -376,7 +409,8 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       if (img.view_angle) byAngle.set(img.view_angle, img)
     })
 
-    return DEFAULT_ANGLES.slice(0, count).map((angle) => {
+    const angles = [...new Set([...DEFAULT_ANGLES.slice(0, count), ...images.flatMap(img => img.view_angle ? [img.view_angle] : [])])]
+    return angles.map((angle) => {
       const image = byAngle.get(angle) ?? null
       return {
         angle,
@@ -571,11 +605,16 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   const openPromptPreview = async (image: TImage) => {
     if (!assetId) return
 
+    const needsAnchor = humanAsset && image.view_angle !== 'FRONT'
+    if (needsAnchor && (!confirmedAnchor || !images.some(item => item.file_id === confirmedAnchor))) {
+      message.warning('请先选择并确认主形象，其他视角将以这张图片保持人物与服装一致')
+      return
+    }
     try {
       setPromptPreviewOpen(true)
       setPromptPreviewLoading(true)
       setPromptPreviewImage(image)
-      const nextContext = { imageId: image.id, images: [], useSuggestedImages: true }
+      const nextContext = { imageId: image.id, images: needsAnchor ? [confirmedAnchor] : [], useSuggestedImages: !needsAnchor }
       promptDraft.hydrate({
         base: { prompt: '' },
         context: nextContext,
@@ -585,10 +624,15 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
         context: nextContext,
       })
       if (derived) {
+        const prompt = needsAnchor
+          ? `${derived.prompt}
+
+人物多视图要求：以关联图片1为同一人物的主形象基准，保持面部身份、年龄、体型比例、发型、服装款式与颜色。仅生成一张${ANGLE_LABEL_MAP[image.view_angle!]}全身视图，单人、完整构图；不要三联画、拼图或多个重复人物。不可见部分在保持同一人物与服装的前提下合理补足。`
+          : derived.prompt
         promptDraft.hydrate({
-          base: { prompt: derived.prompt },
-          context: { imageId: image.id, images: derived.images, useSuggestedImages: true },
-          derived,
+          base: { prompt },
+          context: { ...nextContext, images: derived.images },
+          derived: { ...derived, prompt },
         })
       }
     } catch {
@@ -604,6 +648,11 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       return
     }
     if (!assetId || !promptPreviewImage) return
+    if (humanAsset && promptPreviewImage.view_angle !== 'FRONT' &&
+        (!confirmedAnchor || promptPreviewRefFileIds.length !== 1 || promptPreviewRefFileIds[0] !== confirmedAnchor || !images.some(item => item.file_id === confirmedAnchor))) {
+      message.warning('主形象参考已变化，请关闭预览并重新打开生成')
+      return
+    }
     const prompt = (promptPreviewDraft || '').trim()
     if (!prompt) {
       message.warning('请输入提示词')
@@ -618,6 +667,9 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
         message.error('生成任务创建失败：缺少任务 ID')
         return
       }
+      setPromptPreviewOpen(false)
+      window.dispatchEvent(new CustomEvent('jellyfish:task-accepted',{detail:{taskId,title:'资产图片生成'}}))
+      message.success('图片在后台生成，可继续编辑其他资产')
       setGenerationTask({
         taskId,
         status: 'pending',
@@ -745,6 +797,8 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
         </div>
       </Card>
 
+      {assetNavigateRelationType&&<WebResultCandidates targetType={assetNavigateRelationType} entityId={assetId} onAdopt={async()=>{setImages(await listImages(assetId))}}/>}
+      {extraContent}
       <Collapse
         defaultActiveKey={['base', 'views']}
         items={[
@@ -815,17 +869,8 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
                   />
                 </div>
                 <div>
-                  <div className="text-gray-600 text-sm mb-1">视觉风格</div>
-                  <ProjectVisualStyleAndStyleFields
-                    disabled={smartDetectBusy || savingBase}
-                    visual_style={formVisualStyle}
-                    style={formStyle}
-                    options={projectStyleOptions}
-                    onChange={(next) => {
-                      setFormVisualStyle(next.visual_style)
-                      setFormStyle(next.style)
-                    }}
-                  />
+                  <div className="text-gray-600 text-sm mb-1">创作设定</div>
+                  {assetNavigateRelationType && <CreativeDirectionButton scope={assetNavigateRelationType as 'actor' | 'character' | 'scene' | 'prop' | 'costume'} entityId={assetId} label="编辑创作设定" />}
                 </div>
                 <Button type="primary" onClick={() => void handleSaveBaseInfo()} loading={savingBase || smartDetectLoading}>
                   保存基础信息
@@ -835,8 +880,21 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
           },
           {
             key: 'views',
-            label: '多镜头图片',
+            label: humanAsset ? '三视图与多角度参考' : '多镜头图片',
             children: (
+              <>
+              {humanAsset && <Card size="small" style={{ marginBottom: 16 }}>
+                <Alert type="info" showIcon message="先确认主形象，再生成侧面与背面" description="建立槽位不调用模型、不产生生成费用。每个角度单独生成、单独确认费用，生成后检查身份和服装；三视图不会自动全部加入视频参考。重新进入页面需再次确认主形象。" />
+                <Space wrap style={{ marginTop: 12 }}>
+                  <Button onClick={() => void prepareThreeViews()} loading={creatingViews} disabled={!!generationTask}>建立三视图槽位</Button>
+                  <Select aria-label="主形象参考" placeholder="选择已生成的主形象" style={{ minWidth: 210 }} value={anchorFileId || undefined}
+                    onChange={value => { setAnchorFileId(value); setConfirmedAnchor('') }}
+                    options={images.filter(item => item.file_id).map(item => ({ value: item.file_id!, label: `${ANGLE_LABEL_MAP[item.view_angle || 'FRONT']} · 图片 ${item.id}` }))} />
+                  <Button disabled={!anchorFileId} onClick={() => setConfirmedAnchor(anchorFileId)}>确认主形象</Button>
+                  {confirmedAnchor && <Tag color="green">已确认主形象</Tag>}
+                  {anchorFileId && <Image width={72} height={90} style={{ objectFit: 'contain' }} src={buildFileDownloadUrl(anchorFileId)} />}
+                </Space>
+              </Card>}
               <Row gutter={[16, 16]}>
                 {slotItems.map((slot) => (
                   <Col xs={24} sm={12} lg={8} xl={6} key={slot.angle}>
@@ -849,7 +907,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
                       imageHeightClassName="h-44"
                       extra={slot.image ? <Tag color="blue">ID {slot.image.id}</Tag> : null}
                       footer={
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <Button
                             type="primary"
                             size="small"
@@ -859,13 +917,14 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
                           >
                             生成
                           </Button>
+                          {slot.image&&assetNavigateRelationType&&assetId&&<ManualMediaButton target={{target_type:assetNavigateRelationType as 'actor'|'character'|'scene'|'prop'|'costume',entity_id:assetId,slot_id:slot.image.id}} title={ANGLE_LABEL_MAP[slot.angle]+' · 修改图片'} onAdopted={async()=>{setImages(await listImages(assetId));setConfirmedAnchor('')}}/>}
                           <Button
                             size="small"
                             icon={<EditOutlined />}
                             disabled={!slot.image}
                             onClick={() => slot.image && void openHistoryModal(slot.image)}
                           >
-                            编辑
+                            历史版本
                           </Button>
                         </div>
                       }
@@ -873,6 +932,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
                   </Col>
                 ))}
               </Row>
+              </>
             ),
           },
           ...(assetNavigateRelationType && assetId
@@ -943,6 +1003,21 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
         cancelText="取消"
         confirmLoading={Boolean(promptPreviewImage && generatingByImageId[promptPreviewImage.id])}
         onOk={() => void confirmGenerateWithPrompt()}
+        footer={(_, { OkBtn, CancelBtn }) => <Space wrap><CancelBtn /><GenerationChannelActions apiAction={<OkBtn/>} webAction={
+          <WebImageButton key={`${assetId}:${promptPreviewImage?.id}`}
+            disabled={!promptPreviewImage || !promptPreviewDraft.trim()}
+            prepare={async () => {
+              // Preserve the same portrait anchor guard used by the API channel.
+              if (!assetId || !promptPreviewImage || !assetNavigateRelationType) throw new Error('请选择图片槽位')
+              if (humanAsset && promptPreviewImage.view_angle !== 'FRONT' && (!confirmedAnchor || promptPreviewRefFileIds.length !== 1 || promptPreviewRefFileIds[0] !== confirmedAnchor || !images.some(item => item.file_id === confirmedAnchor))) throw new Error('主形象参考已变化，请重新打开预览')
+              const targetType=assetNavigateRelationType as WebImageRequest['target_type']
+              const entityId=assetId,slotId=promptPreviewImage.id,prompt=promptPreviewDraft,refs=[...promptPreviewRefFileIds]
+              const target=await StudioWebGenerationService.targetApiV1StudioWebGenerationTargetsTargetTypeEntityIdSlotIdGet({targetType,entityId,slotId})
+              return {target_type:targetType,entity_id:entityId,slot_id:slotId,expected_version:target.version,prompt,reference_file_ids:refs}
+            }}
+            onAccepted={taskId=>{setPromptPreviewOpen(false);setGenerationTask({taskId,status:'pending',progress:0,cancelRequested:false});setGenerationSettledTask(null)}}
+          />}/></Space>}
+
         destroyOnClose
         width={900}
       >
@@ -952,14 +1027,15 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
           </div>
         ) : (
           <div className="space-y-3">
+            <GenerationOptionsPanel category="image" references={promptPreviewRefFileIds.length} onChange={setGenerationChoice} />
             <div>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="text-xs text-gray-500">关联图片（智能推荐，可选）</div>
+                <div className="text-xs text-gray-500">{humanAsset && promptPreviewImage?.view_angle !== 'FRONT' ? '已确认主形象（本次生成的唯一图片参考）' : '关联图片（智能推荐，可选）'}</div>
                 <Space size={4}>
                   <Button
                     size="small"
                     type="text"
-                    disabled={promptDraft.context.useSuggestedImages}
+                    disabled={(humanAsset && promptPreviewImage?.view_angle !== 'FRONT') || promptDraft.context.useSuggestedImages}
                     onClick={async () => {
                       const context = { ...promptDraft.context, useSuggestedImages: true }
                       promptDraft.setContext(context)
@@ -973,7 +1049,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
                     size="small"
                     type="text"
                     danger
-                    disabled={promptPreviewRefFileIds.length === 0}
+                    disabled={(humanAsset && promptPreviewImage?.view_angle !== 'FRONT') || promptPreviewRefFileIds.length === 0}
                     onClick={() => {
                       promptDraft.setContext((current) => ({ ...current, images: [], useSuggestedImages: false }))
                       promptDraft.setDerived(promptDraft.derived ? { ...promptDraft.derived, images: [] } : null)
@@ -1003,6 +1079,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
                           shape="circle"
                           icon={<CloseCircleOutlined />}
                           className="absolute -right-2 -top-2 z-10"
+                          disabled={humanAsset && promptPreviewImage?.view_angle !== 'FRONT'}
                           onClick={() => {
                             const images = promptPreviewRefFileIds.filter((item) => item !== fid)
                             promptDraft.setContext((current) => ({ ...current, images, useSuggestedImages: false }))

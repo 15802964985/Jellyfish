@@ -209,6 +209,10 @@ class ShotDetail(Base,TimestampMixin):
         default=list,
         comment="尚未绑定音频文件的对白/旁白/字幕/BGM/SFX/静音计划",
     )
+    frame_reference_selections: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, default=dict,
+        comment="按 first/key/last 保存参考文件顺序；缺键自动推荐，空列表明确不参考",
+    )
     prompt_template_id: Mapped[str | None] = mapped_column(
         String(64),
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),

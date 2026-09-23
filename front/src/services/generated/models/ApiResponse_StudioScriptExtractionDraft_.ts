@@ -21,4 +21,3 @@ export type ApiResponse_StudioScriptExtractionDraft_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

@@ -66,6 +66,9 @@ class GenerationSubmitter:
         snapshot: ResolvedGenerationSnapshot,
     ) -> GenerationAccepted:
         """在调用方的同一数据库事务中写入任务、关联、媒体快照和 Outbox。"""
+        if command.request.quality_review_task_id or command.request.quality_revision_task_id:
+            from app.services.generation.quality_review_workflow import validate_video_review_lineage
+            await validate_video_review_lineage(db, command=command, snapshot=snapshot)
         task_id = uuid4().hex
         if command.operation.value == 'quality_preflight':
             media_versions = [(await FileResolver(db).snapshot(reference)).model_dump(mode='json')
@@ -91,6 +94,24 @@ class GenerationSubmitter:
             status=GenerationTaskStatus.pending,
             payload=_task_payload(command=command, snapshot=snapshot),
         )
+        if command.operation.value == 'quality_preflight':
+            from app.services.generation.quality_review_workflow import review_metadata
+            metadata = review_metadata(task.payload)
+            task.payload = {**task.payload, 'quality_review': {'action': metadata.get('action'), 'scope': metadata.get('scope'), 'stage': (metadata.get('generation_context') or {}).get('stage', 'before'), 'output_file_id': (metadata.get('generation_context') or {}).get('output_file_id')}}
+        # Preserve names and non-secret configuration even if the model is later renamed or removed.
+        from app.models.llm import ModelConfigRevision, Model, Provider
+        from app.core.integrations.traced_http import sanitize
+        from app.core.integrations.adapter_version import adapter_version
+        revision = await db.get(ModelConfigRevision, snapshot.model_revision_id)
+        model = await db.get(Model, snapshot.model_id)
+        provider = await db.get(Provider, model.provider_id) if model else None
+        if revision:
+            task.payload = {**task.payload, "call_identity": sanitize({
+                "provider_key": revision.provider_key, "provider_name": provider.name if provider else None,
+                "model_id": snapshot.model_id, "model_name": revision.model_name,
+                "model_revision_id": revision.id, "model_parameters": revision.model_params,
+                "endpoint_config": revision.endpoint_config, "adapter_version": adapter_version(),
+            })}
         db.add(task)
         # GenerationTask 与其 Link/媒体快照/Outbox 之间没有 ORM relationship 可供
         # SQLAlchemy 推导插入顺序。先刷入父任务，避免 MySQL 在同一 flush 中先插入

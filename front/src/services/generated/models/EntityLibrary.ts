@@ -28,4 +28,3 @@ export type EntityLibrary = {
      */
     total_entries: number;
 };
-

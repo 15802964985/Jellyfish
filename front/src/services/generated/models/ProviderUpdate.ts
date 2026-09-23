@@ -44,4 +44,3 @@ export type ProviderUpdate = {
      */
     api_secret?: (string | null);
 };
-

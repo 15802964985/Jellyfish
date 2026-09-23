@@ -20,4 +20,3 @@ export type ScriptDivisionResult = {
      */
     notes?: (string | null);
 };
-

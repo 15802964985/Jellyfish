@@ -8,4 +8,3 @@ export type ShotCharacterLinkCreate = {
     index?: number;
     note?: string;
 };
-

@@ -14,4 +14,3 @@ export type PaginatedData_ShotLinkedAssetItem_ = {
      */
     pagination: Pagination;
 };
-

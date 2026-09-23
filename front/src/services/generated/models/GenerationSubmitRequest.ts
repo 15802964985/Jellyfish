@@ -15,11 +15,13 @@ import type { VideoMediaInput_Input } from './VideoMediaInput_Input';
  */
 export type GenerationSubmitRequest = {
     model_id?: (string | null);
+    expected_model_revision_id?: (string | null);
     execution_prompt?: (string | null);
     media?: (ImageMediaInput | VideoMediaInput_Input | VideoEditMediaInput | null);
     render_id?: (string | null);
+    quality_review_task_id?: (string | null);
+    quality_revision_task_id?: (string | null);
     quality_source_fingerprint?: (string | null);
     quality_review_retry_id?: (string | null);
     operation_input: (TextChatInput | ScriptOperationInput | ImageGenerationOperationInput | VideoGenerationOperationInput | VideoEditOperationInput);
 };
-

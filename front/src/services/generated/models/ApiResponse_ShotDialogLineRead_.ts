@@ -21,4 +21,3 @@ export type ApiResponse_ShotDialogLineRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

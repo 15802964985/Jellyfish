@@ -123,6 +123,8 @@ async def test_kling_catalog_uses_static_model_map_without_network() -> None:
     assert result.source == "provider_catalog"
     assert {(item.name, item.category.value) for item in result.models} == {
         ("kling-3.0-turbo", "video"),
+        ("kling-3.0-omni", "video"),
+        ("kling-o1", "video"),
         ("kling-3.0", "video"),
         ("kling-v3", "image"),
     }
@@ -151,6 +153,7 @@ async def test_volcengine_plan_falls_back_when_models_endpoint_is_missing(
         ("doubao-seed-2.0-lite", "text"),
         ("doubao-seedream-5.0-lite", "image"),
         ("doubao-seedance-1.5-pro", "video"),
+        ("doubao-seedance-2-5-260628", "video"),
     }
 
 

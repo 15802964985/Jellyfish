@@ -27,4 +27,3 @@ export type StudioShotDraftDialogueLine = {
      */
     target_name?: (string | null);
 };
-

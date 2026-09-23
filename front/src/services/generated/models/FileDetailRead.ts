@@ -58,4 +58,3 @@ export type FileDetailRead = {
     checksum?: string;
     usages?: Array<FileUsageRead>;
 };
-

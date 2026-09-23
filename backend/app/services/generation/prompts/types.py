@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.core.contracts.media import VideoSubjectMediaReference
+
 from enum import Enum
 from typing import Annotated, Literal, Protocol
 
@@ -57,10 +59,12 @@ class ShotVideoPromptRenderInput(BaseModel):
 
     kind: Literal["shot_video"] = "shot_video"
     shot_id: str = Field(min_length=1)
-    reference_mode: Literal["first", "last", "key", "first_last", "first_last_key", "text_only"]
+    reference_mode: Literal["first", "last", "key", "first_last", "first_last_key", "text_only", "subjects"]
     prompt: str | None = None
+    subjects: list[VideoSubjectMediaReference] = Field(default_factory=list, max_length=9)
     image_file_ids: list[str] = Field(default_factory=list)
     template_id: str | None = None
+    model_revision_id: str | None = None
 
 
 PromptRenderInput = Annotated[

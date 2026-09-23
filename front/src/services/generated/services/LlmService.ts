@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_dict_ } from '../models/ApiResponse_dict_';
 import type { ApiResponse_DocumentationEvidence_ } from '../models/ApiResponse_DocumentationEvidence_';
 import type { ApiResponse_ImageGenerationOptionsRead_ } from '../models/ApiResponse_ImageGenerationOptionsRead_';
 import type { ApiResponse_list_ModelScenarioRead__ } from '../models/ApiResponse_list_ModelScenarioRead__';
@@ -19,9 +20,12 @@ import type { ApiResponse_ProviderModelCatalogRead_ } from '../models/ApiRespons
 import type { ApiResponse_ProviderModelImportResult_ } from '../models/ApiResponse_ProviderModelImportResult_';
 import type { ApiResponse_ProviderRead_ } from '../models/ApiResponse_ProviderRead_';
 import type { ApiResponse_VideoGenerationOptionsRead_ } from '../models/ApiResponse_VideoGenerationOptionsRead_';
+import type { GenerationDefaultsUpdate } from '../models/GenerationDefaultsUpdate';
 import type { ModelCategoryKey } from '../models/ModelCategoryKey';
 import type { ModelCreate } from '../models/ModelCreate';
+import type { ModelRuleAction } from '../models/ModelRuleAction';
 import type { ModelSettingsUpdate } from '../models/ModelSettingsUpdate';
+import type { ModelSyncSettings } from '../models/ModelSyncSettings';
 import type { ModelUpdate } from '../models/ModelUpdate';
 import type { ProviderCreate } from '../models/ProviderCreate';
 import type { ProviderModelImportRequest } from '../models/ProviderModelImportRequest';
@@ -30,6 +34,137 @@ import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class LlmService {
+    /**
+     * 模型接口同步状态
+     * Return only supported/configured scope and official-source change records.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static getModelSyncReportApiV1LlmModelSyncGet(): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/model-sync',
+        });
+    }
+    /**
+     * 手动检查模型接口更新
+     * Queue the same distributed-lease-protected scan used by startup and Beat.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static triggerModelSyncApiV1LlmModelSyncPost(): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/llm/model-sync',
+        });
+    }
+    /**
+     * 保存模型默认生成规格
+     * Save only the explicitly selected default through the model revision service.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static setGenerationDefaultApiV1LlmModelsModelIdGenerationDefaultsPatch({
+        modelId,
+        requestBody,
+    }: {
+        modelId: string,
+        requestBody: GenerationDefaultsUpdate,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/llm/models/{model_id}/generation-defaults',
+            path: {
+                'model_id': modelId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 回退或恢复官方兼容规则
+     * Apply a version-checked rule action; never rewrite provider endpoint or credentials.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static changeModelRuleApiV1LlmModelSyncSourceIdRulesPost({
+        sourceId,
+        requestBody,
+    }: {
+        sourceId: string,
+        requestBody: ModelRuleAction,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/llm/model-sync/{source_id}/rules',
+            path: {
+                'source_id': sourceId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 设置模型接口检查周期
+     * Update cadence without modifying model defaults, endpoints or source trust policy.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static updateModelSyncSettingsApiV1LlmModelSyncSettingsPatch({
+        requestBody,
+    }: {
+        requestBody: ModelSyncSettings,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/v1/llm/model-sync/settings',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 读取当前生成模型规格和计费依据
+     * Use saved exact model configuration to expose implemented choices without provider generation.
+     * @returns ApiResponse_dict_ Successful Response
+     * @throws ApiError
+     */
+    public static getGenerationSpecificationApiV1LlmGenerationSpecificationGet({
+        category,
+        modelId,
+        ratio,
+        references,
+        editing = false,
+    }: {
+        category: 'image' | 'video',
+        modelId?: (string | null),
+        ratio?: (string | null),
+        references?: number,
+        editing?: boolean,
+    }): CancelablePromise<ApiResponse_dict_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/generation-specification',
+            query: {
+                'category': category,
+                'model_id': modelId,
+                'ratio': ratio,
+                'references': references,
+                'editing': editing,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
     /**
      * Get Model Overview
      * Read registered model support and saved configurations without inference or remote discovery.

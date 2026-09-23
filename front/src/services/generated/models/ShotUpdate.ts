@@ -13,4 +13,3 @@ export type ShotUpdate = {
     script_excerpt?: (string | null);
     generated_video_file_id?: (string | null);
 };
-

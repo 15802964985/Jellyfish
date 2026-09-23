@@ -35,4 +35,3 @@ export type GenerationTaskLinkRead = {
      */
     id: number;
 };
-

@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { CreativeFields } from './CreativeFields';
 import type { ProjectStyle } from './ProjectStyle';
 import type { ProjectVisualStyle } from './ProjectVisualStyle';
 export type ProjectCreate = {
@@ -41,9 +42,9 @@ export type ProjectCreate = {
      * 聚合统计（JSON）
      */
     stats?: Record<string, any>;
+    creative_direction?: (CreativeFields | null);
     /**
      * 项目 ID
      */
     id: string;
 };
-

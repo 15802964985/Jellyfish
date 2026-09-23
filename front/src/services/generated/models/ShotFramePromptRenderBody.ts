@@ -10,4 +10,3 @@ export type ShotFramePromptRenderBody = {
     prompt?: string;
     images?: Array<ShotLinkedAssetItem>;
 };
-

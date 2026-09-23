@@ -41,4 +41,3 @@ export type StudioAssetDraft = {
      */
     view_count?: number;
 };
-

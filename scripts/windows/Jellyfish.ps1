@@ -122,6 +122,17 @@ function Assert-PublishablePaths {
     }
 }
 
+# 索引锁可能属于仍在运行的 Git；只诊断，不按锁龄自动删除或继续提交。
+function Assert-GitIndexUnlocked {
+    $lockName = [string](Invoke-Native 'git' @('rev-parse', '--git-path', 'index.lock'))
+    if (-not $lockName) { throw '无法确定 Git 索引锁位置，已停止。' }
+    $lockPath = if ([IO.Path]::IsPathRooted($lockName)) { $lockName } else { Join-Path $projectRoot $lockName }
+    if (Test-Path -LiteralPath $lockPath) {
+        $lock = Get-Item -LiteralPath $lockPath
+        throw "Git 索引被锁定：$lockPath（最后更新：$($lock.LastWriteTime)）。请先等待其他 Git 操作完成并关闭旧提交窗口；若操作已异常退出，核实没有 Git 进程后再备份移走残留锁。本脚本不会自动删除锁，尚未执行本轮暂存、提交或推送。"
+    }
+}
+
 try {
     Set-Location -LiteralPath $projectRoot
     Write-Host "项目目录：$projectRoot"
@@ -134,6 +145,7 @@ try {
         if ($branch -ne $expectedBranch) { throw "当前分支为 $branch；本脚本仅提交 $expectedBranch，不自动切分支。" }
         $remoteUrls = @(Invoke-Native 'git' @('remote', 'get-url', '--push', '--all', 'origin'))
         if ($remoteUrls.Count -ne 1 -or $remoteUrls[0] -ne $expectedRemote) { throw 'origin 推送地址不是预期个人仓库。' }
+        Assert-GitIndexUnlocked
         $conflicts = @(Invoke-Native 'git' @('diff', '--name-only', '--diff-filter=U'))
         if ($conflicts.Count -gt 0) { throw '存在未解决的合并冲突，请先处理。' }
         # 同时检查已跟踪及未忽略新文件，防止已跟踪密钥绕过 .gitignore。
@@ -146,6 +158,7 @@ try {
         Write-Host '提交前应已完成测试、LC/PL 语义审查及文档同步；脚本不会代替这些工作。'
         if (-not $Preview) {
             Confirm-Action '即将提交全部未忽略改动并推送到上方个人分支。请确认已检查密钥、差异和二开文档。'
+            Assert-GitIndexUnlocked
             Invoke-Native 'git' @('add', '-A')
             # add 后再扫描实际索引，防止预检查与暂存间新加入的敏感路径绕过检查。
             Assert-PublishablePaths @(Invoke-Native 'git' @('-c', 'core.quotepath=false', 'ls-files', '--cached'))
@@ -182,6 +195,7 @@ try {
                 }
                 Wait-Http 'http://127.0.0.1:8000/health'
                 Wait-Http 'http://127.0.0.1:7788/'
+                & (Join-Path $PSScriptRoot 'Start-WebDesktop.ps1') -KeepAlive
                 # HTTP 检查期间应用可能退出，成功前再次核对所有常驻容器。
                 foreach ($service in $services) { Wait-Service $containers[$service] $service ($service -in @('mysql', 'redis')) }
                 Write-Host '容器已启动。页面：http://127.0.0.1:7788；API：http://127.0.0.1:8000/docs' -ForegroundColor Green

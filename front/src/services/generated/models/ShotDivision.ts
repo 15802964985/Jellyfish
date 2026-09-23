@@ -31,4 +31,3 @@ export type ShotDivision = {
      */
     time_of_day?: ('DAY' | 'NIGHT' | 'DAWN' | 'DUSK' | 'UNKNOWN' | '日' | '夜' | '黎明' | '黄昏' | '不明' | '未知' | null);
 };
-

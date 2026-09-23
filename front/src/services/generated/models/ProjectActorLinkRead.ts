@@ -25,4 +25,3 @@ export type ProjectActorLinkRead = {
      */
     thumbnail?: string;
 };
-

@@ -12,7 +12,7 @@ export function GenerationQualityPanel({ report }: { report: unknown }) {
       <summary className="cursor-pointer font-medium focus-visible:outline focus-visible:outline-2">
         生成依据与质量规则 · {facts.length} 条依据 · {rules.length} 条约束
       </summary>
-      <p className="mt-2 text-amber-700">基础编译不收费；尚未做 AI 或图像检查。修改内容后请重新渲染，以下报告对应上次渲染版本。</p>
+      <p className="mt-2 text-amber-700">读取镜头和关联资产，按系统通用规则免费整理。依据和约束会参与提示词补充；来源追溯不代表全文发送。以下对应上次发送预览，尚未做 AI 或图片检查。</p>
       <div className="max-h-60 overflow-auto space-y-2 mt-2">
         {warnings.map((item, index) => <p key={index}>{item}</p>)}
         {facts.map((item, index) => <div key={`fact-${index}`}><span className="font-medium">依据 {String(item.source ?? '')}：</span>{String(item.text ?? '')}</div>)}

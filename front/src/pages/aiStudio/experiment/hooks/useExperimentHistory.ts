@@ -129,9 +129,8 @@ export function useExperimentHistory(
       setHasMoreHistory(items.length === pageSize)
     } catch (reason) {
       if (requestVersion !== requestVersionRef.current) return
-      setMessages(adoptedMessagesBySession.get(sessionId) ?? [])
-      setHistoryPage(1)
-      setHasMoreHistory(false)
+      // 读取失败不清空当前任务/历史；切换会话已在effect中独立清空。
+      setMessages(current => mergeExperimentMessages(current, adoptedMessagesBySession.get(sessionId) ?? []))
       setError(reason instanceof Error ? reason : new Error('加载实验室历史失败'))
     } finally {
       if (requestVersion === requestVersionRef.current) setLoading(false)

@@ -1,3 +1,4 @@
+import { PreviewImage } from '../../../../components/PreviewImage'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Checkbox, Empty, Input, Modal, Pagination, Select, Space, Spin, Switch, Tag, Upload, message } from 'antd'
 import {
@@ -62,7 +63,7 @@ const ROLE_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
 function preview(file: FileRead) {
   const src = buildFilePreviewUrl(file.id)
   if (file.type === 'image') {
-    return <img src={src} alt={file.name} className="h-36 w-full bg-slate-50 object-contain p-1" />
+    return <PreviewImage src={src} alt={file.name} className="h-36 w-full bg-slate-50 object-contain p-1" />
   }
   if (file.type === 'video') {
     return <video src={src} className="h-36 w-full bg-slate-950 object-contain" controls preload="metadata" />

@@ -21,4 +21,3 @@ export type ApiResponse_ShotPreparationStateRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

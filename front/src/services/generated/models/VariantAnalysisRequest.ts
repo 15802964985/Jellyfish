@@ -27,4 +27,3 @@ export type VariantAnalysisRequest = {
      */
     script_division?: (Record<string, any> | null);
 };
-

@@ -9,4 +9,3 @@ export type CostumeInfoAnalysisResult = {
     issues: Array<string>;
     optimized_description: string;
 };
-

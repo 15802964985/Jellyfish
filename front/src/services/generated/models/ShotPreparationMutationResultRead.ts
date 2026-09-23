@@ -17,4 +17,3 @@ export type ShotPreparationMutationResultRead = {
      */
     state: ShotPreparationStateRead;
 };
-

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NavigateFunction } from 'react-router-dom'
-import { StudioChaptersService, StudioShotsService } from '../../../services/generated'
+import { StudioChaptersService, StudioShotsService, StudioScriptImportsService } from '../../../services/generated'
 import { StudioEntitiesApi } from '../../../services/studioEntities'
 import { getChapterShotsPath, getChapterStudioPath } from '../project/ProjectWorkbench/routes'
 import type { TaskUiItem } from './taskUiStore'
@@ -11,6 +11,7 @@ type ResolvedTaskMeta = {
 }
 
 const CHAPTER_RELATION_TYPES = new Set([
+  'chapter',
   'chapter_division',
   'script_extraction',
   'consistency_check',
@@ -49,10 +50,18 @@ function metaKeyForTask(task: TaskUiItem): string | null {
   return null
 }
 
+/** 按服务端绑定对象恢复业务入口，镜头回跳保留原镜头选择。 */
 async function resolveTaskMeta(task: TaskUiItem): Promise<ResolvedTaskMeta | null> {
   const relationType = task.navigateRelationType ?? task.relationType
   const relationEntityId = task.navigateRelationEntityId ?? task.relationEntityId
 
+  if (relationType === 'experiment_session' && relationEntityId) {
+    return { sourceLabel: '实验室会话', navigateTo: `/lab?session=${encodeURIComponent(relationEntityId)}` }
+  }
+  if (relationType === 'script_import' && relationEntityId) {
+    const response = await StudioScriptImportsService.getScriptImportApiApiV1StudioScriptImportsImportIdGet({ importId: relationEntityId })
+    return response.data ? { sourceLabel: '剧本导入分析', navigateTo: `/projects/${response.data.project_id}?tab=chapters&importId=${encodeURIComponent(relationEntityId)}` } : null
+  }
   if (relationType && relationEntityId && CHAPTER_RELATION_TYPES.has(relationType)) {
     const res = await StudioChaptersService.getChapterApiV1StudioChaptersChapterIdGet({
       chapterId: relationEntityId,
@@ -61,11 +70,11 @@ async function resolveTaskMeta(task: TaskUiItem): Promise<ResolvedTaskMeta | nul
     if (!chapter) return null
     return {
       sourceLabel: chapter.title ? `章节：${chapter.title}` : `章节：${relationEntityId}`,
-      navigateTo: getChapterShotsPath(chapter.project_id, chapter.id),
+      navigateTo: ['consistency_check', 'script_optimization', 'script_simplification'].includes(task.relationType || '') ? `/projects/${chapter.project_id}?tab=chapters&edit=${encodeURIComponent(chapter.id)}` : getChapterShotsPath(chapter.project_id, chapter.id),
     }
   }
 
-  if (relationType && relationEntityId && (SHOT_RELATION_TYPES.has(relationType) || relationType === 'shot')) {
+  if (relationType && relationEntityId && (SHOT_RELATION_TYPES.has(relationType) || ['shot', 'shot_detail'].includes(relationType))) {
     const shotRes = await StudioShotsService.getShotApiV1StudioShotsShotIdGet({
       shotId: relationEntityId,
     })
@@ -85,7 +94,7 @@ async function resolveTaskMeta(task: TaskUiItem): Promise<ResolvedTaskMeta | nul
       sourceLabel: shot.title
         ? `镜头：${shot.title}（第 ${shot.index} 镜）`
         : `镜头：${relationEntityId}`,
-      navigateTo: getChapterStudioPath(chapter.project_id, chapter.id),
+      navigateTo: `${getChapterStudioPath(chapter.project_id, chapter.id)}?shotId=${encodeURIComponent(shot.id)}`,
     }
   }
 
@@ -200,6 +209,7 @@ export function useResolvedTaskCenterTasks(
             [key]: meta,
           }))
         })
+        .catch(() => { /* 临时读取失败保留任务状态，下次刷新重试 */ })
         .finally(() => {
           loadingKeysRef.current.delete(key)
         })

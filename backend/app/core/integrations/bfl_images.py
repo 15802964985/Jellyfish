@@ -1,3 +1,5 @@
+from app.core.contracts.generation_recovery import confirm_media_receipt
+from app.core.integrations.traced_http import create_http_client
 """BFL image jobs mapped to the existing artifact/publication pipeline."""
 import asyncio
 from urllib.parse import urlsplit
@@ -42,7 +44,7 @@ def build_bfl_body(inp: ImageGenerationInput) -> dict:
             if inp.target_ratio and inp.target_ratio not in profiles:
                 raise ValueError("当前 BFL 画幅尚未映射")
             width, height = profiles[inp.target_ratio or "1:1"]
-        if min(width, height) < 64 or width * height > 4_000_000:
+        if min(width, height) < 64 or width % 16 or height % 16 or width * height > 4_000_000:
             raise ValueError("BFL 图片尺寸超出当前适配范围")
         body.update(width=width, height=height)
     return body
@@ -56,7 +58,7 @@ class BflImageApiAdapter:
         base = (cfg.base_url or "https://api.bfl.ai/v1").rstrip("/")
         headers = {"x-key": cfg.api_key}
         async with asyncio.timeout(timeout_s):
-            async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=False) as client:
+            async with create_http_client(timeout=timeout_s, follow_redirects=False) as client:
                 response = await client.post(f"{base}/{inp.model}", headers=headers, json=body)
                 raise_provider_error(response, provider="bfl", api_key=cfg.api_key)
                 created = response.json()
@@ -65,6 +67,7 @@ class BflImageApiAdapter:
                 trusted_bfl = (origin.hostname or "").endswith(".bfl.ai") and (poll.hostname or "").endswith(".bfl.ai")
                 if not created.get("id") or poll.scheme != "https" or poll.username or poll.password or poll.port not in {None, 443} or (poll.hostname != origin.hostname and not trusted_bfl):
                     raise ValueError("BFL 未返回可信查询地址或任务 ID；不会再次创建任务")
+                await confirm_media_receipt(str(created["id"]))
                 while True:
                     response = await client.get(poll_url, headers=headers)
                     raise_provider_error(response, provider="bfl", api_key=cfg.api_key)

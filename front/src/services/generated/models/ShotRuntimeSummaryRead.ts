@@ -28,4 +28,3 @@ export type ShotRuntimeSummaryRead = {
      */
     active_task_count: number;
 };
-

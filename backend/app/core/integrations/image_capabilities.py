@@ -100,12 +100,11 @@ def clear_image_model_capability_overrides(*, provider: ProviderKey | None = Non
 def resolve_image_capability(*, provider: ProviderKey, model: str | None) -> ImageModelCapability:
     """Resolve only explicitly implemented image protocols; never inherit another vendor."""
     if provider == "jimeng":
-        from app.core.integrations.jimeng_media import IMAGE_MODEL, SIZES
-        if model is not None and model != IMAGE_MODEL:
-            raise ValueError("即梦图片型号未核验")
+        from app.core.integrations.jimeng_media import IMAGE_V3, image_profiles
+        profiles = image_profiles(model or IMAGE_V3, 1 if model == "jimeng_i2i_v30" else 0)
         return ImageModelCapability(supports_seed=True, supports_watermark=True, max_n=1,
-            supported_ratios=set(SIZES), allowed_sizes=set(SIZES.values()),
-            ratio_size_profiles={r: {"standard": s} for r, s in SIZES.items()})
+            supported_ratios=set(profiles), allowed_sizes={size for tiers in profiles.values() for size in tiers.values()},
+            ratio_size_profiles=profiles)
     if provider in {"zhipu", "hunyuan"}:
         from app.core.integrations.domestic_media import IMAGE_MODELS, SIZES, GLM_SIZES
         if model is not None and model not in IMAGE_MODELS[provider]:
@@ -125,6 +124,9 @@ def resolve_image_capability(*, provider: ProviderKey, model: str | None) -> Ima
     if provider not in {"openai", "vidu", "kling", "aliyun_bailian", "volcengine", "bfl"}:
         raise ValueError(f"Image generation is not implemented for {provider}")
     if provider == "bfl":
+        from app.core.integrations.bfl_images import BFL_MODELS
+        if model is not None and model not in BFL_MODELS:
+            raise ValueError("BFL 精确型号尚未接通，不能继承其他型号的图片能力")
         return ImageModelCapability(supports_seed=True, supports_watermark=False, max_n=1,
             supported_ratios={"16:9", "9:16", "1:1", "4:3", "3:4"})
     if provider == "openai":

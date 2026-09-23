@@ -6,7 +6,7 @@ from app.bootstrap import bootstrap_all_registries
 from app.core.contracts.model_recommendations import ModelScenarioRead, ScenarioModelChoice
 from app.core.integrations.video_capabilities import resolve_video_capability
 from app.core.integrations.image_capabilities import resolve_image_capability
-from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
+from app.core.integrations.video_edit_registry import edit_capability, editing_only
 from app.models.llm import Model, Provider, ModelCategoryKey
 from app.services.llm.provider_registry import resolve_provider_key, get_provider_spec
 
@@ -57,12 +57,14 @@ def _supports(model: Model, key: str, scenario: str, *, check_configuration: boo
         return False, "镜头配音执行链未接通此供应商"
     if category == ModelCategoryKey.image:
         resolve_image_capability(provider=key, model=model.name)
+        if scenario == "concept" and key == "jimeng" and model.name == "jimeng_i2i_v30":
+            return False, "此固定图生图标识必须提供参考图；不是纯文生图"
         if scenario == "concept" and key == "vidu" and model.name == "viduq1":
             return False, "此型号需要参考图，不作为纯文字概念图候选"
         if scenario == "reference_image":
             supported = {"volcengine": {"doubao-seedream-5.0-lite"},
                 "aliyun_bailian": {"wan2.7-image", "wan2.7-image-pro"},
-                "hunyuan": {"hy-image-v3"}, "vidu": {"viduq2", "viduq1"}, "kling": {"kling-v3"}}
+                "bfl": {"flux-kontext-pro"}, "jimeng": {"即梦AI-图片生成3.0", "jimeng_i2i_v30"}, "hunyuan": {"hy-image-v3"}, "vidu": {"viduq2", "viduq1"}, "kling": {"kling-v3"}}
             if model.name in supported.get(key, set()):
                 return True, "代码已映射参考图；数量、图像内容及实际请求仍须在生成前检查"
             if key == "minimax":
@@ -70,19 +72,17 @@ def _supports(model: Model, key: str, scenario: str, *, check_configuration: boo
             return False, "参考图语义和数量需逐型号核验；不以图片类别自动认证"
         return True, "文生图适配存在，具体型号与参数仍需接入核查"
     if scenario == "edit":
-        return VIDEO_EDIT_MODELS.get(key) == model.name, "仅接受独立编辑适配器的精确型号"
-    if spec.video_operations == ("video_edit",):
+        return bool(edit_capability(key, model.name)), "按精确型号验证原视频编辑协议"
+    if editing_only(key, model.name):
         return False, "此型号仅用于已有视频编辑"
     cap = resolve_video_capability(provider=key, model=model.name)
-    if key == "jimeng" and scenario != "first_last":
-        return False, "当前即梦只开放首尾双帧视频，请选择首尾帧过渡场景"
     if scenario == "text_video":
         return cap.supports_text_to_video and not cap.requires_first_frame and not cap.requires_subject_reference, "纯文字入口不自动补图"
     if scenario == "first_last":
         return cap.supports_first_frame and cap.supports_last_frame, "使用前须提供合规首帧和尾帧"
     if scenario == "subjects":
         return cap.supports_subject_image_reference and cap.max_subjects is not None and cap.max_subjects > 1, f"主体上限：{cap.max_subjects or '待核对'}；不是任意多图"
-    return cap.supports_first_frame and not cap.requires_subject_reference, "使用前须提供合规首帧"
+    return cap.supports_first_frame and not cap.requires_subject_reference and not cap.requires_last_frame, "使用前须提供合规首帧"
 
 
 def recommend_for_models(rows: list[tuple[Model, Provider]], *, domestic_only: bool = True) -> list[ModelScenarioRead]:

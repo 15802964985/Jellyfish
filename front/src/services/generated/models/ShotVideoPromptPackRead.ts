@@ -90,4 +90,3 @@ export type ShotVideoPromptPackRead = {
      */
     negative_prompt?: string;
 };
-

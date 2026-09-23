@@ -82,6 +82,7 @@ async def link_existing_asset_for_preparation(
     shot_id: str,
     entity_type: ShotPreparationLinkEntityType | str,
     linked_entity_id: str,
+    candidate_id: int | None = None,
 ) -> ShotPreparationStateRead:
     """在准备页内关联现有实体，并返回最新准备态。"""
     entity_type_value = (
@@ -89,7 +90,21 @@ async def link_existing_asset_for_preparation(
         if isinstance(entity_type, ShotPreparationLinkEntityType)
         else ShotPreparationLinkEntityType(entity_type)
     )
+    from fastapi import HTTPException
+    from app.models.studio import Chapter, Shot, Character, ShotExtractedCandidate
+    from app.services.studio.shot_extracted_candidates import mark_linked
+    shot = await db.get(Shot, shot_id)
+    chapter = await db.get(Chapter, chapter_id)
+    if not shot or not chapter or shot.chapter_id != chapter_id or chapter.project_id != project_id:
+        raise HTTPException(422, "镜头、章节与项目不匹配")
+    if candidate_id is not None:
+        candidate = await db.get(ShotExtractedCandidate, candidate_id)
+        if not candidate or candidate.shot_id != shot_id or getattr(candidate.candidate_type, 'value', candidate.candidate_type) != entity_type_value.value:
+            raise HTTPException(422, "候选不属于当前镜头或资产类型不匹配")
     if entity_type_value == ShotPreparationLinkEntityType.character:
+        character = await db.get(Character, linked_entity_id)
+        if not character or character.project_id != project_id:
+            raise HTTPException(422, "角色不属于当前项目")
         links = await list_shot_character_links(db, shot_id=shot_id)
         max_index = max((int(link.index or 0) for link in links), default=-1)
         await upsert_shot_character_link(
@@ -111,4 +126,6 @@ async def link_existing_asset_for_preparation(
                 asset_id=linked_entity_id,
             ),
         )
+    if candidate_id is not None:
+        await mark_linked(db, candidate_id=candidate_id, linked_entity_id=linked_entity_id)
     return await build_shot_preparation_state(db, shot_id=shot_id)

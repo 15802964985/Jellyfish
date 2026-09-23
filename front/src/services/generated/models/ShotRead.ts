@@ -50,4 +50,3 @@ export type ShotRead = {
      */
     extraction: ShotExtractionSummaryRead;
 };
-

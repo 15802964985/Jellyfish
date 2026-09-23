@@ -16,6 +16,7 @@ from app.core.integrations.vidu.video import ViduVideoApiAdapter
 from app.core.integrations.volcengine.video import VolcengineVideoApiAdapter
 from app.core.integrations.aliyun.video import AliyunVideoApiAdapter
 from app.core.contracts.provider import ProviderConfig
+from app.core.contracts.generation_recovery import confirm_media_receipt
 from app.core.tasks.registry import resolve_task_adapter
 from app.core.contracts.video_generation import VideoGenerationInput, VideoGenerationResult
 from app.core.task_manager.types import BaseTask
@@ -66,6 +67,7 @@ class AbstractVideoGenerationTask(BaseTask, ABC):
     async def run(self, *args: Any, **kwargs: Any) -> AsyncIterator[Any] | None:  # type: ignore[override]
         try:
             await self._create_task()
+            await confirm_media_receipt(self._provider_task_id)
             self._result = await self._poll_and_get_result()
             if self._result is not None:
                 self._provider_task_id = self._result.provider_task_id

@@ -19,4 +19,3 @@ export type TaskCancelRead = {
      */
     effective_immediately?: boolean;
 };
-

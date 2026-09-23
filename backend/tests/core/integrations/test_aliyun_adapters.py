@@ -198,3 +198,48 @@ async def test_aliyun_video_cancel_uses_common_task_endpoint(
         timeout_s=30,
     )
     assert result == "request-9"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target_kind", ["asset_image_slot", "shot_frame_slot", "experiment_session"])
+async def test_wan_pro_preview_snapshot_reaches_adapter(monkeypatch, target_kind) -> None:
+    """复现 preview 档位经真实 Worker 投影到百炼请求，覆盖资产、关键帧和实验室。"""
+    from unittest.mock import AsyncMock
+    from app.core.contracts.generation import ResolvedGenerationSnapshot
+    from app.services.studio import image_task_runner
+
+    snapshot = ResolvedGenerationSnapshot.model_validate({
+        "model_id": "wan-model", "model_revision_id": "frozen-revision",
+        "canonical_target": {"kind": target_kind, "entity_id": "entity-1", "slot_id": "9"},
+        "expected_version_id": 1, "execution_prompt": "保持同一人物，生成背面视图",
+        "operation_input": {"kind": "image_generation", "size": "1024x1024",
+                            "count": 1, "resolution_profile": "preview", "target_ratio": "1:1"},
+        "media": {"references": [{"file_id": "front-view", "media_kind": "image", "ordinal": 0}]},
+    })
+    session = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(model_name="wan2.7-image-pro")))
+    resolver = SimpleNamespace(resolve_task_reference=AsyncMock(
+        return_value=SimpleNamespace(content=b"png-bytes", content_type="image/png")))
+    monkeypatch.setattr(image_task_runner, "FileResolver", lambda db: resolver)
+    inp = await image_task_runner._resolve_snapshot_image_input(session, task_id="failed-task-fixture", snapshot=snapshot)
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """验证真实适配器投递精确像素和有序参考图，不把内部档位发送给供应商。"""
+        body = json.loads(request.content)
+        requests.append(body)
+        assert str(request.url) == "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+        assert body["model"] == "wan2.7-image-pro"
+        assert body["parameters"] == {"n": 1, "size": "1024*1024"}
+        assert body["input"]["messages"][0]["content"] == [
+            {"image": "data:image/png;base64,cG5nLWJ5dGVz"}, {"text": snapshot.execution_prompt}]
+        return httpx.Response(200, json={"output": {"choices": [
+            {"message": {"content": [{"image": "https://result.example/back.png"}]}}]}})
+
+    _patch_httpx_client(monkeypatch, httpx.MockTransport(handler))
+    result = await AliyunImageApiAdapter().generate(
+        cfg=ProviderConfig(provider="aliyun_bailian", api_key="test-only",
+                           base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"),
+        inp=inp, timeout_s=30)
+    assert len(requests) == 1
+    assert result.images[0].url == "https://result.example/back.png"
+    assert snapshot.media.references[0].file_id == "front-view"

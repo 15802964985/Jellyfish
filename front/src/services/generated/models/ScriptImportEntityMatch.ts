@@ -8,4 +8,3 @@ export type ScriptImportEntityMatch = {
     name: string;
     score: number;
 };
-

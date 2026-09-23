@@ -14,4 +14,3 @@ export type PaginatedData_ShotDialogLineRead_ = {
      */
     pagination: Pagination;
 };
-

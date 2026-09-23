@@ -70,6 +70,7 @@ type NotifyExistingTaskOptions = {
   cancellingMessage: string
 }
 
+/** 统一提交与本地跟踪，并通知全局运行时；任务受理后允许离开业务页面。 */
 export async function executeAsyncTaskCreate<T extends AsyncTaskCreateLike>({
   request,
   trackTaskData,
@@ -87,7 +88,8 @@ export async function executeAsyncTaskCreate<T extends AsyncTaskCreateLike>({
       return null
     }
     trackTaskData({ task_id: data.task_id, status: data.status })
-    message.success(data.reused ? reusedMessage : startedMessage)
+    window.dispatchEvent(new CustomEvent('jellyfish:task-accepted', {detail:{taskId:data.task_id}}))
+    message.success((data.reused ? reusedMessage : startedMessage) + '；可离开页面，在任务中心查看')
     return data
   } catch (error) {
     message.error(getErrorMessage(error, fallbackErrorMessage))

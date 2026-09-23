@@ -25,4 +25,3 @@ export type VariantAnalysisResult = {
      */
     notes?: (string | null);
 };
-

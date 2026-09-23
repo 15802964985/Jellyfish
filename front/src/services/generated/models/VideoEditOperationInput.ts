@@ -10,6 +10,8 @@ export type VideoEditOperationInput = {
     client_request_id: string;
     preserve_instructions?: string;
     keep_audio?: boolean;
+    resolution?: (string | null);
+    seconds?: (number | null);
     reference_positions?: Array<number>;
     external_transfer_confirmed: boolean;
     billing_confirmed: boolean;

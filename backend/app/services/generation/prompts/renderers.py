@@ -13,6 +13,7 @@ def _quality_preview_report(report, evidence, prompt: str) -> dict:
     data['sources'] = evidence.model_dump(mode='json')['sources']
     return data
 
+from app.services.studio.creative_direction import read_direction, compile_direction
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,11 +87,13 @@ class AssetImagePromptRenderer:
 
         context = build_asset_image_context(base=base, images=render_input.reference_file_ids)
         preview = derive_asset_image_preview(base=base, context=context)
+        creative = await read_direction(db, render_input.entity_type, render_input.entity_id)
+        preview.prompt = compile_direction(preview.prompt, creative, 'asset', refresh=True)
         return RenderedPromptSnapshot(
             render_id=_render_id(),
             renderer=self.name,
             execution_prompt=preview.prompt,
-            variables_snapshot=base.merged_variables,
+            variables_snapshot={**base.merged_variables, "creative_direction": creative.model_dump(mode="json")},
             template_id=base.template_id,
             template_version=base.template_version,
             recommended_media=_image_media(preview.images),
@@ -143,6 +146,8 @@ class ShotFramePromptRenderer:
             items=render_input.images,
         )
         preview = derive_frame_preview(base=base, context=context)
+        creative = await read_direction(db, 'shot', render_input.shot_id)
+        preview.rendered_prompt = compile_direction(preview.rendered_prompt, creative, 'frame', refresh=True)
         evidence = await collect_quality_sources(db, shot_id=render_input.shot_id, prompt=preview.rendered_prompt)
         variables_snapshot = {
             "shot_id": render_input.shot_id,
@@ -174,6 +179,33 @@ class ShotFramePromptRenderer:
         )
 
 
+def compile_video_preview_profile(prompt, *, provider_key, model_name, reference_mode, images, subjects=()):
+    """预览复用提交时的厂商规范和相同帧槽位，让预检看到的文本与实际任务一致。"""
+    from app.core.contracts.generation import GenerationModality, GenerationTargetKind
+    from app.core.contracts.media import MediaReference, VideoFrameMediaReferences, VideoMediaInput
+    from app.services.generation.prompt_profiles import apply_generation_prompt_profile
+    from app.services.studio.generation.video.build_context import REQUIRED_FRAMES_BY_MODE, validate_images_count
+    validate_images_count(reference_mode, images)
+    if reference_mode == 'subjects' or subjects:
+        from fastapi import HTTPException
+        from app.core.integrations.video_capabilities import supports_studio_subject_images, resolve_video_capability, validate_video_options
+        from app.core.contracts.video_generation import VideoGenerationInput
+        if reference_mode != 'subjects' or not subjects or not supports_studio_subject_images(provider_key, model_name):
+            raise HTTPException(422, '主体参考模式、图片或所选型号不符合已核验协议')
+        cap = resolve_video_capability(provider=provider_key, model=model_name)
+        validate_video_options(provider=provider_key, model=model_name, input_=VideoGenerationInput(
+            prompt=prompt or 'preview', ratio=cap.default_ratio or '16:9',
+            subject_references=[s.model_dump() for s in subjects]))
+    slots = VideoFrameMediaReferences()
+    for kind, file_id in zip(REQUIRED_FRAMES_BY_MODE[reference_mode], images):
+        reference = MediaReference(file_id=file_id, media_kind='image')
+        if kind.value == 'key': slots.keys.append(reference)
+        else: setattr(slots, kind.value, reference)
+    return apply_generation_prompt_profile(prompt=prompt, modality=GenerationModality.video,
+        target_kind=GenerationTargetKind.shot_video, provider_key=provider_key,
+        model_name=model_name, media=VideoMediaInput(frames=slots, subjects=list(subjects))).prompt or ''
+
+
 class ShotVideoPromptRenderer:
     """将镜头视频模板、镜头上下文和参考帧渲染为统一快照。"""
 
@@ -185,6 +217,9 @@ class ShotVideoPromptRenderer:
         if not isinstance(render_input, ShotVideoPromptRenderInput):
             raise ValueError("shot_video renderer requires shot_video input")
 
+        if (render_input.subjects or render_input.reference_mode == 'subjects') and not render_input.model_revision_id:
+            from fastapi import HTTPException
+            raise HTTPException(422, '主体参考预览必须绑定本次视频模型版本')
         base = build_video_base_draft(shot_id=render_input.shot_id, prompt=render_input.prompt)
         context = await build_video_context(
             db,
@@ -194,6 +229,17 @@ class ShotVideoPromptRenderer:
             template_id=render_input.template_id,
         )
         preview = await derive_video_preview(db, base=base, context=context)
+        if render_input.model_revision_id:
+            from fastapi import HTTPException
+            from app.models.llm import ModelConfigRevision
+            revision = await db.get(ModelConfigRevision, render_input.model_revision_id)
+            if revision is None:
+                raise HTTPException(409, '视频模型版本已不可读取，请刷新模型参数后重新预览')
+            preview.rendered_prompt = compile_video_preview_profile(preview.rendered_prompt,
+                provider_key=revision.provider_key, model_name=revision.model_name,
+                reference_mode=context.reference_mode, images=context.images, subjects=render_input.subjects)
+        creative = await read_direction(db, 'shot', render_input.shot_id)
+        preview.rendered_prompt = compile_direction(preview.rendered_prompt, creative, 'video', refresh=True)
         evidence = await collect_quality_sources(db, shot_id=render_input.shot_id, prompt=preview.rendered_prompt)
         return RenderedPromptSnapshot(
             render_id=_render_id(),

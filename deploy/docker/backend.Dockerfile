@@ -27,5 +27,8 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
 
+# Dependencies are frozen at build time for API, worker and beat alike.
+ENV UV_NO_SYNC=1
+
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 

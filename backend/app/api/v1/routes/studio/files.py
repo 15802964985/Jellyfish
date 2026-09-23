@@ -19,6 +19,9 @@ from app.services.studio.files import (
     update_file_meta as update_file_meta_service,
     upload_file,
 )
+from app.schemas.studio.files import FileDeleteImpactRead
+from app.services.studio.file_deletion import get_file_delete_impact
+
 router = APIRouter()
 
 
@@ -178,3 +181,11 @@ async def delete_file_api(
 ) -> ApiResponse[None]:
     await delete_file(db, file_id=file_id)
     return empty_response()
+
+
+@router.get("/{file_id}/delete-impact", response_model=ApiResponse[FileDeleteImpactRead], summary="查询文件关联及是否允许删除")
+async def get_file_delete_impact_api(
+    file_id: str, db: AsyncSession = Depends(get_db, scope="function"),
+) -> ApiResponse[FileDeleteImpactRead]:
+    """收参并返回业务关联检查，不执行删除或解除引用。"""
+    return success_response(await get_file_delete_impact(db, file_id=file_id))

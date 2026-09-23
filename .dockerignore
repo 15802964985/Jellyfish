@@ -17,3 +17,6 @@ backend/.pytest_cache
 .git
 **/.env
 backups/
+
+# Browser sessions, credentials and local generation evidence stay on Windows.
+local-browser/

@@ -11,4 +11,3 @@ export type ShotFrameImageCreate = {
     height?: (number | null);
     format?: string;
 };
-

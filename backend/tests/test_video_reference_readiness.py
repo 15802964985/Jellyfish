@@ -72,3 +72,15 @@ def test_agent_plan_rejection_keeps_diagnostics_and_does_not_rewrite_endpoint():
     assert 'req-plan-test' in str(caught.value)
     assert '不会自动切换' in str(caught.value)
     assert str(caught.value.request.url) == url
+
+
+@pytest.mark.asyncio
+async def test_subject_readiness_and_duration_follow_current_model():
+    """Required image counts and exact duration limits are checked before any paid submission."""
+    from app.services.studio.shot_video_readiness import _duration_for_model
+    db = ModelSession('happyhorse-1.1-r2v')
+    assert (await _model_reference_mode_ready(db, 'subjects', subject_image_count=2)).ok
+    assert not (await _model_reference_mode_ready(db, 'subjects', subject_image_count=0)).ok
+    assert not (await _model_reference_mode_ready(db, 'subjects', subject_image_count=10)).ok
+    assert not (await _duration_for_model(db, 16, None)).ok
+    assert (await _duration_for_model(db, 5, None)).ok

@@ -41,4 +41,3 @@ export type ChapterCreate = {
      */
     id: string;
 };
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from pydantic import BaseModel, ConfigDict, Field
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -249,6 +250,7 @@ async def link_existing_asset_for_preparation_api(
         shot_id=shot_id,
         entity_type=body.entity_type,
         linked_entity_id=body.linked_entity_id,
+        candidate_id=body.candidate_id,
     )
     return success_response(
         ShotPreparationMutationResultRead(
@@ -290,9 +292,11 @@ async def preview_shot_video_prompt(
 async def get_shot_video_readiness_api(
     shot_id: str,
     reference_mode: str = Query("text_only", description="参考模式：first/last/key/first_last/first_last_key/text_only"),
+    model_id: str | None = Query(None),
+    subject_image_count: int = Query(0, ge=0, le=50),
     db: AsyncSession = Depends(get_db, scope="function"),
 ) -> ApiResponse[ShotVideoReadinessRead]:
-    data = await get_shot_video_readiness(db, shot_id=shot_id, reference_mode=reference_mode)
+    data = await get_shot_video_readiness(db, shot_id=shot_id, reference_mode=reference_mode, model_id=model_id, subject_image_count=subject_image_count)
     return success_response(data)
 
 
@@ -824,3 +828,19 @@ async def delete_project_costume_link(
 ) -> ApiResponse[None]:
     await delete_project_asset_link_service(db, entity_type="costume", link_id=link_id)
     return empty_response()
+
+
+class ShotVideoAdoptionBody(BaseModel):
+    """Explicit candidate selection with the current version observed by the user."""
+    model_config = ConfigDict(extra='forbid')
+    file_id: str = Field(min_length=1)
+    expected_current_file_id: str | None
+
+
+@router.post('/{shot_id}/video-adoption', response_model=ApiResponse[dict], summary='采用镜头视频用于成片')
+async def adopt_shot_video_api(shot_id: str, body: ShotVideoAdoptionBody, db: AsyncSession = Depends(get_db)):
+    """Accept identifiers only; the service verifies ownership and protects concurrent selection."""
+    from app.services.studio.shot_video_adoption import adopt_shot_video
+    file_id = await adopt_shot_video(db, shot_id=shot_id, file_id=body.file_id,
+        expected_current_file_id=body.expected_current_file_id)
+    return success_response({'file_id': file_id})

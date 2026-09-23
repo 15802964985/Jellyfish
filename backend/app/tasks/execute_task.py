@@ -71,7 +71,13 @@ def run_task_celery(task_id: str) -> None:
             return
         task_kind = (row.task_kind or "").strip() or str((row.payload or {}).get("task_kind") or "").strip()
     executor = task_executor_registry.resolve(task_kind)
-    executor.run(task_id)
+    from app.core.integrations.traced_http import call_sink
+    from app.services.generation.call_audit import make_call_sink
+    token = call_sink.set(make_call_sink(task_id))
+    try:
+        executor.run(task_id)
+    finally:
+        call_sink.reset(token)
 
 
 @celery_app.task(name="task.reap_text_streams")
@@ -92,3 +98,31 @@ def reap_text_streams_celery() -> list[str]:
 def dispatch_generation_outbox_celery() -> int:
     """由 Celery Beat 投递已提交但尚未发送的统一生成任务。"""
     return GenerationOutboxDispatcher().dispatch_pending()
+
+
+@celery_app.task(name="task.sync_model_contracts")
+def sync_model_contracts_celery(force: bool = False) -> dict:
+    """Check only supported/configured official sources; database lease prevents duplicate startup/periodic scans."""
+    reset_db_runtime()
+    async def run_sync() -> dict:
+        """Dispose the worker event-loop database runtime after each bounded synchronization."""
+        from app.services.llm.model_governance import sync_official_sources
+        try:
+            return await sync_official_sources(force=force)
+        finally:
+            await close_db()
+    return asyncio.run(run_sync())
+
+
+@celery_app.task(name="task.recover_media")
+def recover_media_celery():
+    """Resume interrupted media work from private receipts without repeating generation submissions."""
+    reset_db_runtime()
+    async def run():
+        """Release the worker database engine after the bounded recovery scan."""
+        from app.services.generation.recovery import recover_interrupted_media
+        try:
+            return await recover_interrupted_media()
+        finally:
+            await close_db()
+    return asyncio.run(run())

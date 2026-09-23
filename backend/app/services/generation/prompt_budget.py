@@ -13,9 +13,9 @@ def inspect_prompt_budget(*, provider: str, model: str, prompt: str, modality: s
     from app.core.integrations.minimax_images import IMAGE_MODELS as MINIMAX_IMAGES
     if provider == "minimax":
         if modality == "image" and model in MINIMAX_IMAGES:
-            limit, source = 1500, "https://platform.minimaxi.com/docs/api-reference/image-generation-i2i"
+            limit, source = 1500, "https://platform.minimax.cn/docs/api-reference/image-generation-i2i"
         elif modality == "video" and model in HAILUO_MODELS:
-            limit, source = 2000, "https://platform.minimaxi.com/docs/api-reference/video-generation-i2v"
+            limit, source = 2000, "https://platform.minimax.cn/docs/api-reference/video-generation-i2v"
     elif provider in IMAGE_MODELS:
         if modality == "video" and model in VIDEO_MODELS[provider]:
             limit = 512 if provider == "zhipu" else 200
@@ -25,8 +25,11 @@ def inspect_prompt_budget(*, provider: str, model: str, prompt: str, modality: s
             limit = 2000 if provider == "zhipu" else 8192
             source = "https://docs.bigmodel.cn/api-reference/模型-api/图像生成" if provider == "zhipu" else "https://cloud.tencent.com/document/product/1823/135745"
             conservative = provider == "zhipu"
-    elif provider == "jimeng" and (modality, model) in {("image", "t2i_v40_jimeng"), ("video", "jimeng_i2v_first_tail_v30")}:
-        limit, source = 800, "https://www.volcengine.com/docs/85621/" + ("1863351" if modality == "image" else "1791184")
+    elif provider == "jimeng":
+        from app.core.integrations.jimeng_media import IMAGE_NAMES, VIDEO_ROUTES, VIDEO_V3, IMAGE_MODEL
+        if (modality == "image" and model in IMAGE_NAMES) or (modality == "video" and model in {*VIDEO_ROUTES.values(), VIDEO_V3}):
+            document = "1863351" if model == IMAGE_MODEL else "1616429" if "3.0" in model or "v30" in model else "1817045"
+            limit, source = 800, "https://docs.volcengine.com/docs/85621/" + (document if modality == "image" else "1792710")
     if provider == 'aliyun_bailian' and modality == 'video':
         if model in ('wan2.7-t2v', 'wan2.7-t2v-2026-06-12'):
             limit, source = 5000, 'https://help.aliyun.com/zh/model-studio/text-to-video-api-reference'

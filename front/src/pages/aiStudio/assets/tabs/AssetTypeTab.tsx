@@ -212,7 +212,7 @@ export function AssetTypeTab({
                 <Col xs={24} sm={12} md={8} lg={6} key={a.id}>
                   <AssetImageCard
                     asset={a}
-                    assetLabel={label}
+                    assetLabel={label} assetType={tabKey}
                     listImages={adapter.listImages}
                     createImageSlot={adapter.createImageSlot as any}
                     renderPrompt={adapter.renderPrompt}

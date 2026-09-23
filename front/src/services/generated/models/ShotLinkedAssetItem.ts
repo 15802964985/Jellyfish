@@ -3,13 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * 按分镜聚合返回的关联资产条目（角色/道具/场景/服装）。
+ * 分镜参考条目，包括关联资产图片及主动补选的文件。
  */
 export type ShotLinkedAssetItem = {
     /**
      * 实体类型：character/prop/scene/costume
      */
-    type: 'character' | 'prop' | 'scene' | 'costume';
+    type: ('character' | 'prop' | 'scene' | 'costume' | string);
     /**
      * 实体 ID（如 character_id/prop_id/scene_id/costume_id）
      */
@@ -31,4 +31,3 @@ export type ShotLinkedAssetItem = {
      */
     thumbnail?: string;
 };
-

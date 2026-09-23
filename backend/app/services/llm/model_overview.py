@@ -5,10 +5,11 @@ from fastapi import HTTPException
 
 from app.bootstrap import bootstrap_all_registries
 from app.core.contracts.model_recommendations import (
-    ModelOverviewConfiguration, ModelOverviewItem, ModelOverviewRead, ModelScenarioRead,
+    ModelOverviewConfiguration, ModelOverviewItem, ModelOverviewRead, ModelScenarioRead, ModelModeContract,
 )
 from app.core.integrations.model_catalog import builtin_provider_catalog
 from app.core.integrations.video_capabilities import resolve_video_capability
+from app.core.integrations.video_edit_registry import editing_only
 from app.models.llm import Model, Provider, ModelCategoryKey
 from app.services.llm.provider_registry import list_registered_providers, resolve_provider_key
 from app.services.llm.scenario_recommendations import SCENARIOS, DOMESTIC, _supports, recommend_for_models
@@ -20,6 +21,47 @@ def _provider_key(provider: Provider) -> str:
         return resolve_provider_key(provider)
     except (ValueError, HTTPException):
         return provider.adapter_key or "unknown"
+
+
+def _mode_contracts(model, key, category, candidate, evidence):
+    """Project actual adapter constraints by operation without inventing unknown vendor support."""
+    contracts = []
+    precise = [source for source in evidence if source["scope"] == "model"]
+    source = (precise or evidence)[0]["url"] if evidence else None
+    for scene, title, scene_category, requirement, _ in SCENARIOS:
+        if scene_category != category or scene in {"performance", "simplify"}:
+            continue
+        supported, reason, parameters = False, "精确型号尚待核验", {}
+        if candidate:
+            try:
+                supported, reason = _supports(model, key, scene, check_configuration=False)
+                if supported and category == "video":
+                    if scene == "edit":
+                        from app.core.integrations.video_edit_registry import edit_capability
+                        cap = edit_capability(key, model.name)
+                        parameters = {"resolutions": list(cap.resolutions), "output_seconds": list(cap.durations),
+                            "source_seconds": [cap.min_seconds, cap.max_seconds], "max_reference_images": cap.max_images,
+                            "instructions": cap.instructions}
+                    else:
+                        cap = resolve_video_capability(provider=key, model=model.name)
+                        parameters = {"resolutions": list(cap.resolutions), "seconds": sorted(cap.allowed_seconds or []),
+                            "seconds_range": [cap.min_seconds, cap.max_seconds],
+                            "requires_first_frame": cap.requires_first_frame, "requires_last_frame": cap.requires_last_frame}
+                        if scene == "subjects":
+                            parameters.update(max_subjects=cap.max_subjects, max_images_per_subject=cap.max_images_per_subject,
+                                max_total_images=cap.max_total_subject_images,
+                                can_combine_frame_references=cap.supports_subject_reference_with_frame_reference)
+                elif supported and category == "image":
+                    from app.core.integrations.image_capabilities import resolve_image_capability
+                    cap = resolve_image_capability(provider=key, model=model.name)
+                    parameters = {"sizes": sorted(cap.allowed_sizes or []), "ratios": sorted(cap.supported_ratios or []),
+                        "max_outputs": cap.max_n}
+            except (ValueError, KeyError, HTTPException):
+                supported, reason, parameters = False, "此模式的精确参数尚待核验", {}
+        contracts.append(ModelModeContract(key=scene, title=title, requirement=requirement,
+            implementation="integrated" if supported else "unverified", reason=reason, parameters=parameters,
+            evidence_status="model_source_bound" if precise else "protocol_only" if evidence else "missing", source_url=source))
+    return contracts
 
 
 def build_model_overview(rows: list[tuple[Model, Provider]], providers: list[Provider],
@@ -78,7 +120,7 @@ def build_model_overview(rows: list[tuple[Model, Provider]], providers: list[Pro
                 if supported:
                     scene_keys.append(scene)
                     limitations.append(reason)
-            if category == "video" and scene_keys and spec.video_operations != ("video_edit",):
+            if category == "video" and scene_keys and not editing_only(key, name):
                 cap = resolve_video_capability(provider=key, model=name)
                 if cap.allowed_seconds:
                     limitations.append("时长仅支持：" + "/".join(str(n) for n in sorted(cap.allowed_seconds)) + "秒")
@@ -109,13 +151,17 @@ def build_model_overview(rows: list[tuple[Model, Provider]], providers: list[Pro
                 status="configured" if usable else "needs_attention", reasons=reasons))
         status = "not_configured" if not accounts else (
             "configured" if any(a.status == "configured" for a in accounts) else "needs_attention")
+        from app.services.llm.official_sources import model_sources
+        evidence = model_sources(key, category, name, spec.official_documentation if spec else None)
+        precise = [source for source in evidence if source["scope"] == "model"]
+        limitations.append("已绑定型号接口文档；仍需核对账户地域/套餐及真实结果" if precise else "当前仅有类别/协议级来源，尚未建立精确型号完整官方证据；场景来自本地执行约束")
         items.append(ModelOverviewItem(
             key=":".join(identity), provider_key=key, provider_name=spec.display_name if spec else key,
             model_name=name, category=category, integration="integrated" if candidate and scene_keys else "unverified",
             configuration_status=status, scenario_keys=scene_keys, limitations=list(dict.fromkeys(limitations)),
-            configurations=accounts,
+            configurations=accounts, mode_contracts=_mode_contracts(model, key, category, candidate, evidence),
             provider_ids=[p.id for p in providers if _provider_key(p) == key],
-            official_documentation=spec.official_documentation if spec else None))
+            official_documentation=(precise or evidence)[0]["url"] if evidence else None))
     items.sort(key=lambda item: (not bool(item.configurations), item.provider_name, item.category, item.model_name))
     return ModelOverviewRead(models=items, scenarios=[
         ModelScenarioRead(key=key, title=title, requirement=requirement, guidance=guidance)

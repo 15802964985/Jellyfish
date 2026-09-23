@@ -1,10 +1,18 @@
+import { WebImageButton } from '../../../../components/WebImageButton'
+import { CreativePromptPreview, useCreativePrompt } from '../../../../components/CreativePromptPreview'
+import { ImageRegionSelector } from '../../components/ImageRegionSelector'
+import type { ImageEditRegion } from '../../../../services/generated'
+import { BackgroundTaskNotice } from '../../components/BackgroundTaskNotice'
+import { PreviewImage } from '../../../../components/PreviewImage'
+import { GenerationOptionsPanel } from '../../components/GenerationOptionsPanel'
+import { reviewGenerationRequest, type GenerationChoice } from '../../components/GenerationParameterDialog'
 /**
  * 图片实验室模态。
  *
  * 该组件只处理图片生成特有的输入、异步任务和结果呈现；会话选择及页面布局由
  * ExperimentLabPage 统一维护，从而避免图片实验室继续作为独立页面存在。
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Dropdown, Empty, Modal, Spin, Tag, Upload, message } from 'antd'
 import { ClearOutlined, CloseOutlined, FolderOpenOutlined, PictureOutlined, UploadOutlined } from '@ant-design/icons'
 import type { UploadFile } from 'antd'
@@ -49,6 +57,7 @@ type ImageLabMessage = {
   status?: string
   resultUrls?: string[]
   error?: string
+  sourceFileId?: string
   referenceFileIds?: string[]
   inputSnapshot?: ExperimentInputSnapshot
 }
@@ -87,6 +96,7 @@ function toImageLabMessage(item: ExperimentMessageRead): ImageLabMessage {
     id: item.id, role: item.role === 'user' ? 'user' : 'assistant', content: item.content ?? '',
     taskId: item.task_id ?? undefined, status: item.status ?? undefined,
     resultUrls: extractImageUrls(payload.result as Record<string, unknown> | undefined),
+    sourceFileId: typeof (payload.result as Record<string,unknown> | undefined)?.source_file_id === 'string' ? String((payload.result as Record<string,unknown>).source_file_id) : undefined,
     error: typeof payload.error === 'string' ? payload.error : undefined,
     referenceFileIds: Array.isArray(payload.reference_file_ids)
       ? payload.reference_file_ids.filter((id): id is string => typeof id === 'string') : [],
@@ -101,6 +111,9 @@ function toImageLabMessage(item: ExperimentMessageRead): ImageLabMessage {
  * 能立即刷新历史，避免等待路由状态更新造成空白。
  */
 export function ImageExperimentMode({ sessionId, ensureSession, clearSessionMessages, render }: ImageExperimentModeProps) {
+  const [region, setRegion] = useState<ImageEditRegion | null>(null)
+  const [sourceRatio, setSourceRatio] = useState<string | null>(null)
+  const [generationChoice, setGenerationChoice] = useState<GenerationChoice | null>(null)
   const [activeSessionId, setActiveSessionId] = useState(sessionId)
   const [models, setModels] = useState<ModelRead[]>([])
   const [templates, setTemplates] = useState<PromptTemplateRead[]>([])
@@ -110,6 +123,7 @@ export function ImageExperimentMode({ sessionId, ensureSession, clearSessionMess
   const [templateValues, setTemplateValues] = useState<Record<string, string>>({})
   const [draft, setDraft] = useState('')
   const [referenceFileIds, setReferenceFileIds] = useState<string[]>([])
+  useEffect(() => { setRegion(null); setSourceRatio(null) }, [referenceFileIds.join('|'), modelId])
   const [modelsLoading, setModelsLoading] = useState(false)
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -211,11 +225,19 @@ export function ImageExperimentMode({ sessionId, ensureSession, clearSessionMess
   }
 
   /** 在首条有效输入前创建会话，再经固定统一入口提交图片异步任务。 */
+  const submitLock = useRef(false)
+
+  /** 防止同一事件周期的双击；服务端继续校验跨标签页的相同运行请求。 */
+  const creativePreview = useCreativePrompt(activeSessionId ? 'lab' : 'global', activeSessionId || 'system', 'frame', currentPrompt)
+
   const handleSubmit = async () => {
+    if (!creativePreview.prompt || creativePreview.error) return message.warning(creativePreview.error || "请等待当前创作设定预览完成")
+    if (submitLock.current) return
     if (!modelId) return message.warning('请选择图片模型')
     if (!currentPrompt) return message.warning(selectedTemplate ? '请填写模板变量，生成有效提示词' : '请输入图片提示词')
+    if (region && !sourceRatio) return message.warning('原图比例不在当前框选支持范围，请先裁成标准比例；未提交生成')
+    submitLock.current = true
     setSubmitting(true)
-    if (!selectedTemplate) setDraft('')
     try {
       const session = activeSessionId ? undefined : await ensureSession('image')
       const targetSessionId = session?.id ?? activeSessionId
@@ -223,21 +245,26 @@ export function ImageExperimentMode({ sessionId, ensureSession, clearSessionMess
       setActiveSessionId(targetSessionId)
       const response = await StudioGenerationTasksService.submitImageLabGenerationTaskApiV1StudioGenerationTasksLabsImageSessionsSessionIdTasksPost({
         sessionId: targetSessionId,
-        requestBody: {
+        requestBody: await reviewGenerationRequest({
           model_id: modelId,
-          execution_prompt: currentPrompt,
+          execution_prompt: creativePreview.prompt,
           media: {
             references: referenceFileIds.map((fileId, ordinal) => ({ file_id: fileId, media_kind: 'image', ordinal })),
           },
-          operation_input: { kind: 'image_generation' },
-        },
+          operation_input: { kind: 'image_generation', edit_region: region, target_ratio: region ? sourceRatio : undefined },
+        }, undefined, generationChoice),
       })
       const created = response.data
       if (!created?.task_id || !created.messages?.length) throw new Error('创建图片任务未返回正式消息')
       // 创建接口已在同一事务中返回正式 user/task 消息，直接接管，避免本地伪消息重复。
+      window.dispatchEvent(new CustomEvent('jellyfish:task-accepted',{detail:{taskId:created.task_id,title:'实验室图片生成'}}))
       history.adoptCanonicalMessages(targetSessionId, created.messages)
+      if (!selectedTemplate) setDraft('')
       message.success('图片生成任务已创建')
-    } catch { message.error('创建图片生成任务失败，请检查模型、参考图和服务配置') } finally { setSubmitting(false) }
+    } catch (error) {
+      const detail = (error as { body?: { detail?: unknown } })?.body?.detail
+      message.error(typeof detail === 'string' ? detail : '创建图片生成任务失败，请检查模型、参考图和服务配置')
+    } finally { submitLock.current = false; setSubmitting(false) }
   }
 
   /** 清空当前会话历史，并同步清除图片任务展示。 */
@@ -264,9 +291,10 @@ export function ImageExperimentMode({ sessionId, ensureSession, clearSessionMess
     )
   }
 
-  const disabled = submitting || Boolean(runningTask)
+  const disabled = submitting
   const extra = <Button icon={<ClearOutlined />} disabled={!messages.length || disabled || !clearSessionMessages} onClick={() => void handleClear}>清空历史</Button>
   const historyContent = <>
+    <BackgroundTaskNotice active={Boolean(runningTask)} />
     {history.loading ? <div className="h-72 flex items-center justify-center"><Spin /></div> : null}
     {history.hasMoreHistory ? <Button size="small" loading={history.loadingMore} onClick={() => void history.loadMore()}>加载更早消息</Button> : null}
     {!history.loading && !messages.length ? <ExperimentEmptyState description="选择图片模型并输入提示词，开始一轮图片实验" /> : null}
@@ -284,18 +312,25 @@ export function ImageExperimentMode({ sessionId, ensureSession, clearSessionMess
         >
             <div className="whitespace-pre-wrap">{item.content}</div>
             {isUser ? <ExperimentHistoryReferences files={files} references={(item.referenceFileIds ?? []).map((id) => ({ id, label: '参考图' }))} /> : null}
-            {item.taskId ? <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">{isRunning ? <Spin size="small" /> : null}<span>任务状态：{statusText}</span></div> : null}
+            {item.taskId&&history.messages.some(row=>row.task_id===item.taskId&&!!row.payload?.web_request)&&<a className="block mt-2" href={`/web-generation/${item.taskId}`}>继续原网页任务 / 查看模型与账号</a>}{item.taskId ? <div className="mt-2 flex items-center gap-2 text-sm text-slate-600">{isRunning ? <Spin size="small" /> : null}<span>任务状态：{statusText}</span></div> : null}
             {item.error ? <div className="mt-2 text-sm text-red-600">{item.error}</div> : null}
-            {item.resultUrls?.length ? <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{item.resultUrls.map((url, index) => <img key={`${url}-${index}`} src={url} alt={`生成结果 ${index + 1}`} className="w-full rounded-lg border border-gray-200 object-contain" />)}</div> : null}
+            {item.sourceFileId && <div className="mt-3"><strong>框选修正前 · 原图</strong><PreviewImage src={buildFileDownloadUrl(item.sourceFileId)} alt="框选修正原图" className="max-h-64 object-contain" /><strong>修正后 · 新文件（原图仍保留）</strong></div>}{item.resultUrls?.length ? <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{item.resultUrls.map((url, index) => <PreviewImage key={`${url}-${index}`} src={url} alt={`生成结果 ${index + 1}`} className="w-full rounded-lg border border-gray-200 object-contain" />)}</div> : null}
         </ExperimentMessageBubble>
       })}
     </div>
   </>
-  const composer = <ExperimentComposer
+  /** Freeze the lab session and final creative prompt before leaving for the web task. */
+  const prepareWeb = async () => {
+    if (!creativePreview.prompt || creativePreview.error) throw new Error(creativePreview.error || '请等待提示词准备完成')
+    const prompt=creativePreview.prompt,refs=[...referenceFileIds]
+    const session=activeSessionId?{id:activeSessionId}:await ensureSession('image')
+    return {target_type:'lab_image' as const,entity_id:session.id,expected_version:1,prompt,reference_file_ids:refs,edit_region:region}
+  }
+  const composer = <ExperimentComposer webAction={<WebImageButton prepare={prepareWeb} disabled={disabled}/> }
       submitting={disabled} submitDisabled={disabled} submitLabel="生成图片" onSubmit={() => void handleSubmit()}
-      options={<ExperimentOptionBar models={models.map((model) => ({ id: model.id, name: model.name }))} templates={templates.map((template) => ({ id: template.id, name: template.name, version: template.version, preview: template.preview, category: imagePromptCategoryLabels[template.category] }))} modelId={modelId} templateId={templateId} modelsLoading={modelsLoading} templatesLoading={templatesLoading} disabled={disabled} modelLabel="图片模型" modelPlaceholder="选择已登记的图片模型" onModelChange={setModelId} onTemplateChange={handleSelectTemplate} onModelOpenChange={(open) => { if (open) void loadModels() }} onTemplateOpenChange={(open) => { if (open) void loadTemplates() }} />}
-      contextActions={<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 border-l border-slate-200 pl-2"><Dropdown trigger={['click']} disabled={uploading || disabled} dropdownRender={() => <div className="min-w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"><Upload className="block w-full" accept="image/*" showUploadList={false} beforeUpload={handleUploadReference} disabled={uploading || disabled}><Button type="text" block icon={<UploadOutlined />} loading={uploading} className="!justify-start">上传图片</Button></Upload><Button type="text" block icon={<FolderOpenOutlined />} className="!justify-start" onClick={() => setLibraryOpen(true)}>从资料库选择</Button></div>}><Button size="small" icon={<PictureOutlined />} loading={uploading}>参考图</Button></Dropdown>{selectedReferences.map((file) => <div key={file.id} className="group relative h-9 w-9 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm" title={file.name}><img src={buildFileDownloadUrl(file.id)} alt={file.name} className="h-full w-full object-cover" /><button type="button" aria-label={`移除参考图：${file.name}`} className="absolute inset-0 hidden items-center justify-center bg-slate-900/50 text-white group-hover:flex focus:flex" onClick={() => setReferenceFileIds((current) => current.filter((id) => id !== file.id))}><CloseOutlined /></button></div>)}{referenceFileIds.length ? <Button size="small" type="text" onClick={() => setReferenceFileIds([])} disabled={disabled}>清空</Button> : null}</div>}
-    ><ExperimentPromptEditor template={selectedTemplate} templateValues={templateValues} draft={draft} placeholder="描述你想生成的图片…" minRows={5} disabled={disabled} onDraftChange={setDraft} onTemplateValuesChange={setTemplateValues} onUseFreeInput={(renderedPrompt) => { setTemplateId(undefined); setTemplateValues({}); setDraft(renderedPrompt) }} /></ExperimentComposer>
-  const overlays = <Modal title="从资料库选择参考图" open={libraryOpen} onCancel={() => setLibraryOpen(false)} footer={<Button type="primary" onClick={() => setLibraryOpen(false)}>完成</Button>} width={820}><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">{files.map((file) => { const selected = referenceFileIds.includes(file.id); return <button key={file.id} type="button" onClick={() => setReferenceFileIds((current) => selected ? current.filter((id) => id !== file.id) : [...current, file.id])} className={`overflow-hidden rounded border text-left ${selected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}><img src={buildFileDownloadUrl(file.id)} alt={file.name} className="h-28 w-full object-cover" /><div className="truncate p-2 text-xs">{file.name}</div></button> })}</div>{!files.length ? <Empty description="资料库中暂无图片" /> : null}</Modal>
-  return render({ history: historyContent, composer, extra, overlays, disabled })
+      options={<><GenerationOptionsPanel category="image" modelId={modelId} references={referenceFileIds.length} ratio={region ? sourceRatio : undefined} onChange={setGenerationChoice} /><ExperimentOptionBar models={models.map((model) => ({ id: model.id, name: model.name }))} templates={templates.map((template) => ({ id: template.id, name: template.name, version: template.version, preview: template.preview, category: imagePromptCategoryLabels[template.category] }))} modelId={modelId} templateId={templateId} modelsLoading={modelsLoading} templatesLoading={templatesLoading} disabled={disabled} modelLabel="图片模型" modelPlaceholder="选择已登记的图片模型" onModelChange={setModelId} onTemplateChange={handleSelectTemplate} onModelOpenChange={(open) => { if (open) void loadModels() }} onTemplateOpenChange={(open) => { if (open) void loadTemplates() }} /></>}
+      contextActions={<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 border-l border-slate-200 pl-2"><Dropdown trigger={['click']} disabled={uploading || disabled} dropdownRender={() => <div className="min-w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-lg"><Upload className="block w-full" accept="image/*" showUploadList={false} beforeUpload={handleUploadReference} disabled={uploading || disabled}><Button type="text" block icon={<UploadOutlined />} loading={uploading} className="!justify-start">上传图片</Button></Upload><Button type="text" block icon={<FolderOpenOutlined />} className="!justify-start" onClick={() => setLibraryOpen(true)}>从资料库选择</Button></div>}><Button size="small" icon={<PictureOutlined />} loading={uploading}>参考图</Button></Dropdown>{selectedReferences.map((file) => <div key={file.id} className="group relative h-9 w-9 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm" title={file.name}><PreviewImage src={buildFileDownloadUrl(file.id)} alt={file.name} className="h-full w-full object-cover" /><button type="button" aria-label={`移除参考图：${file.name}`} className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center rounded-bl bg-slate-900/70 text-white" onClick={() => setReferenceFileIds((current) => current.filter((id) => id !== file.id))}><CloseOutlined /></button></div>)}{referenceFileIds.length ? <Button size="small" type="text" onClick={() => setReferenceFileIds([])} disabled={disabled}>清空</Button> : null}</div>}
+    >{referenceFileIds.length === 1 && ['即梦AI-图片生成3.0','jimeng_i2i_v30','flux-kontext-pro'].includes(generationChoice?.spec?.model_name ?? '') && <ImageRegionSelector fileId={referenceFileIds[0]} value={region} onChange={setRegion} onRatio={setSourceRatio} disabled={disabled} />}<CreativePromptPreview result={creativePreview} /><ExperimentPromptEditor template={selectedTemplate} templateValues={templateValues} draft={draft} placeholder="描述你想生成的图片…" minRows={5} disabled={disabled} onDraftChange={setDraft} onTemplateValuesChange={setTemplateValues} onUseFreeInput={(renderedPrompt) => { setTemplateId(undefined); setTemplateValues({}); setDraft(renderedPrompt) }} /></ExperimentComposer>
+  const overlays = <Modal title="从资料库选择参考图" open={libraryOpen} onCancel={() => setLibraryOpen(false)} footer={<Button type="primary" onClick={() => setLibraryOpen(false)}>完成</Button>} width={820}><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">{files.map((file) => { const selected = referenceFileIds.includes(file.id); return <button key={file.id} type="button" onClick={() => setReferenceFileIds((current) => selected ? current.filter((id) => id !== file.id) : [...current, file.id])} className={`overflow-hidden rounded border text-left ${selected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}><PreviewImage src={buildFileDownloadUrl(file.id)} alt={file.name} className="h-28 w-full object-cover" /><div className="truncate p-2 text-xs" title={file.name}>选择：{file.name}</div></button> })}</div>{!files.length ? <Empty description="资料库中暂无图片" /> : null}</Modal>
+  return render({ history: historyContent, composer, extra, overlays, disabled: submitting })
 }

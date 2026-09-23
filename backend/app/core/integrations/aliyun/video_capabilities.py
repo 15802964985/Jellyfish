@@ -35,6 +35,8 @@ _HAPPYHORSE_T2V = VideoModelCapability(
     max_key_frames=0,
 )
 _HAPPYHORSE_I2V = VideoModelCapability(
+    resolutions=("480P", "720P", "1080P"),
+    resolution_source="https://help.aliyun.com/zh/model-studio/happyhorse-image-to-video-api-reference",
     supports_seed=True,
     supports_watermark=True,
     allowed_ratios=set(ALLOWED_RATIOS),
@@ -47,25 +49,15 @@ _HAPPYHORSE_I2V = VideoModelCapability(
     requires_first_frame=True,
 )
 _HAPPYHORSE_R2V = VideoModelCapability(
-    supports_seed=True,
-    supports_watermark=True,
-    allowed_ratios={"16:9", "9:16", "1:1"},
-    default_ratio="16:9",
-    min_seconds=2,
-    max_seconds=10,
-    supports_text_to_video=False,
-    supports_first_frame=False,
-    supports_last_frame=False,
-    max_key_frames=0,
-    supports_subject_image_reference=True,
-    supports_subject_video_reference=True,
-    supports_subject_audio_reference=True,
-    max_subjects=5,
-    max_images_per_subject=5,
-    max_videos_per_subject=5,
-    max_audios_per_subject=1,
-    max_media_per_subject=5,
-    requires_subject_reference=True,
+    supports_seed=True, supports_watermark=True,
+    allowed_ratios=set(ALLOWED_RATIOS), default_ratio="16:9",
+    min_seconds=3, max_seconds=15,
+    supports_text_to_video=False, supports_first_frame=False, supports_last_frame=False,
+    max_key_frames=0, supports_subject_image_reference=True,
+    max_subjects=9, max_images_per_subject=9, max_media_per_subject=9,
+    max_total_subject_images=9, requires_subject_reference=True,
+    resolutions=("480P", "720P", "1080P"),
+    resolution_source="https://help.aliyun.com/zh/model-studio/happyhorse-reference-to-video-api-reference",
 )
 _WAN27 = VideoModelCapability(
     supports_seed=True,

@@ -71,6 +71,9 @@ services:
       context: ../..
       dockerfile: deploy/docker/backend.Dockerfile
     environment:
+      # 依赖已在镜像构建期 uv sync --no-dev 装好；运行时 uv run 默认会再同步（连 dev 依赖一起），
+      # 网络不通时容器会启动失败，这里强制跳过运行时同步。
+      UV_NO_SYNC: "1"
       DATABASE_URL: mysql+aiomysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -89,6 +92,8 @@ services:
       CORS_ORIGINS: http://localhost:7788,http://127.0.0.1:7788
       # 可选
       OPENAI_API_KEY: ${OPENAI_API_KEY-}
+      # 本机网页执行器（desktop-host）与后端轮询鉴权共用；缺失则执行器无法报到在线、无法提交 fork 命令。
+      WEB_GENERATION_RUNNER_TOKEN: ${WEB_GENERATION_RUNNER_TOKEN}
     ports:
       - "8000:8000"
     depends_on:

@@ -14,6 +14,7 @@ REQUIRED_FRAMES_BY_MODE: dict[str, tuple[ShotFrameType, ...]] = {
     "first_last": (ShotFrameType.first, ShotFrameType.last),
     "first_last_key": (ShotFrameType.first, ShotFrameType.last, ShotFrameType.key),
     "text_only": (),
+    "subjects": (),
 }
 
 

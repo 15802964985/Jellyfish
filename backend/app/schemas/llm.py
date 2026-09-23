@@ -133,6 +133,8 @@ class VideoGenerationOptionsRead(BaseModel):
     max_videos_per_subject: int | None = Field(None, description="单主体视频上限")
     max_audios_per_subject: int | None = Field(None, description="单主体参考音频上限")
     max_media_per_subject: int | None = Field(None, description="单主体图片与视频共享槽位上限")
+    max_total_subject_images: int | None = Field(None, description="全部主体参考图片总数上限")
+    studio_subject_images_verified: bool = Field(False, description="工作室主体图片链路已按精确协议核验")
     max_total_subject_videos: int | None = Field(None, description="所有主体视频总数上限")
 
 

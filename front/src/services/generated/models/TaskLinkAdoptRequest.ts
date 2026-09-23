@@ -23,4 +23,3 @@ export type TaskLinkAdoptRequest = {
      */
     task_id: string;
 };
-

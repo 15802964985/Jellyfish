@@ -10,7 +10,8 @@ from app.core.contracts.provider import ProviderKey
 
 ResponseFormat = Literal["url", "b64_json"]
 ImageTargetRatio = Literal["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "3:2", "2:3"]
-ImageResolutionProfile = Literal["standard", "high"]
+# 共享档位覆盖已接入模型；是否可选及具体尺寸仍由精确模型规格校验。
+ImageResolutionProfile = Literal["preview", "standard", "high", "ultra"]
 ImagePurpose = Literal["generic", "video_reference", "asset_image"]
 
 
@@ -50,7 +51,7 @@ class ImageGenerationInput(BaseModel):
     )
     resolution_profile: ImageResolutionProfile | None = Field(
         None,
-        description="输出分辨率档位，如 standard / high；由供应商适配层映射为最终 size",
+        description="输出分辨率档位 preview / standard / high / ultra；按当前模型能力选择并映射为最终 size",
     )
     purpose: ImagePurpose = Field(
         "generic",

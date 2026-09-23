@@ -44,4 +44,3 @@ export type ProviderRead = {
      */
     id: string;
 };
-

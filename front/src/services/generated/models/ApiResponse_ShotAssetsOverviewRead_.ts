@@ -21,4 +21,3 @@ export type ApiResponse_ShotAssetsOverviewRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

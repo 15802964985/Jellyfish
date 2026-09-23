@@ -10,4 +10,3 @@ export type ShotFrameImageUpdate = {
     height?: (number | null);
     format?: (string | null);
 };
-

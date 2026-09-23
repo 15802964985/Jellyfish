@@ -2,8 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ReviewGenerationContext_Input } from './ReviewGenerationContext_Input';
 /**
- * Opt-in review with separately selected images, never a guarantee of visual correctness.
+ * 显式提交一次预检或基于已保存建议调整，不因读取历史产生模型调用。
  */
 export type QualityReviewRequest = {
     model_id: string;
@@ -11,4 +12,10 @@ export type QualityReviewRequest = {
     external_and_billing_confirmed: boolean;
     retry_request_id?: (string | null);
     image_file_ids?: Array<string>;
+    generation_context?: (ReviewGenerationContext_Input | null);
+    scope?: 'video' | 'first' | 'key' | 'last';
+    action?: 'review' | 'revise' | 'review_and_revise';
+    source_task_id?: (string | null);
+    reference_report_task_id?: (string | null);
+    user_constraints?: string;
 };

@@ -4,6 +4,7 @@ import { ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
 import App from './App.tsx'
+import { OverflowTextHints } from './components/OverflowTextHints'
 import 'antd/dist/reset.css'
 import './index.css'
 import './i18n'
@@ -24,6 +25,7 @@ const RootApp: React.FC = () => {
         },
       }}
     >
+      <OverflowTextHints />
       <App />
     </ConfigProvider>
   )

@@ -13,4 +13,3 @@ export type AssetFileLinkCreate = {
     enabled?: boolean;
     note?: string;
 };
-

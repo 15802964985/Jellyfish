@@ -102,6 +102,14 @@ async def _build_asset_prompt(
         "quality_level": image_row.quality_level,
         "format": image_row.format,
     }
+    from app.services.studio.creative_direction import read_direction
+    scope = relation_type.removesuffix('_image')
+    entity_id = getattr(image_row, scope+'_id', None)
+    if entity_id:
+        creative = await read_direction(db,scope,entity_id)
+        variables['visual_style'] = ' · '.join(filter(None,[creative.effective.get('presentation'),creative.effective.get('treatment')]))
+        variables['style'] = ' · '.join(filter(None,[creative.effective.get('primary_genre'),*(creative.effective.get('secondary_genres') or [])]))
+        variables['creative_direction'] = creative.effective
     variables.update(extra_variables or {})
     rendered = await build_prompt_with_template_snapshot(
         db,

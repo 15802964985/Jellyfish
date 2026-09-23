@@ -15,4 +15,3 @@ export type ScriptDocumentBlock = {
     duplicate_of?: (string | null);
     metadata?: Record<string, any>;
 };
-

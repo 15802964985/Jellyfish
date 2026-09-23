@@ -21,4 +21,3 @@ export type ApiResponse_ShotFrameImageRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

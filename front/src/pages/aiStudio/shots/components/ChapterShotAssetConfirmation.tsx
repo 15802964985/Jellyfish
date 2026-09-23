@@ -30,6 +30,7 @@ type ChapterShotAssetConfirmationProps = {
   onToggleExpanded: (kind: AssetKind) => void
   onIgnoreCandidate: (asset: AssetVM) => void
   onHandleNewAsset: (asset: AssetVM) => void
+  onCreateAsset: (kind: AssetKind) => void
 }
 
 function assetDetailUrl(kind: AssetKind, id: string, projectId: string) {
@@ -49,6 +50,7 @@ export function ChapterShotAssetConfirmation({
   onToggleExpanded,
   onIgnoreCandidate,
   onHandleNewAsset,
+  onCreateAsset,
 }: ChapterShotAssetConfirmationProps) {
   const pendingCount = Object.values(unionAssets).reduce(
     (sum, items) => sum + items.filter((item) => item.status === 'new').length,
@@ -79,14 +81,15 @@ export function ChapterShotAssetConfirmation({
           ? '已执行提取，但当前没有识别到资产候选'
           : '当前没有待确认的资产候选'
 
+  /** Keep candidate evidence readable and show live matched photos before confirmation. */
   const renderAssetCard = (asset: AssetVM) => {
-    const existence = existenceByKindName[asset.kind][asset.name]
-    const actionLabel = existence ? (existence.exists ? '关联' : '新建') : '…'
+    const existence = existenceByKindName[asset.kind][asset.name.trim()]
+    const actionLabel = '选择 / 新建'
     const candidateBusy = asset.candidateId ? !!candidateActionIds[asset.candidateId] : false
     const footer =
       asset.status === 'new' ? (
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-[11px] text-gray-500 truncate">
+        <div className="flex flex-col gap-2">
+          <div className="text-xs text-gray-500 whitespace-normal break-words">
             {existence
               ? existence.linked_to_project
                 ? '项目内可关联'
@@ -107,7 +110,7 @@ export function ChapterShotAssetConfirmation({
                 忽略
               </Button>
             ) : null}
-            <Button size="small" disabled={!existence || candidateBusy} onClick={() => onHandleNewAsset(asset)}>
+            <Button size="small" disabled={candidateBusy} onClick={() => onHandleNewAsset(asset)}>
               {actionLabel}
             </Button>
           </div>
@@ -116,7 +119,7 @@ export function ChapterShotAssetConfirmation({
         <div className="text-[11px] text-gray-500">当前镜头已关联</div>
       )
     return (
-      <div key={`${asset.kind}:${asset.name}`} className="col-span-12 md:col-span-6 xl:col-span-3 2xl:col-span-2">
+      <div key={`${asset.kind}:${asset.name}`} className="min-w-0">
         <DisplayImageCard
           title={
             <div className="flex items-center justify-between gap-2 min-w-0">
@@ -130,18 +133,19 @@ export function ChapterShotAssetConfirmation({
                       window.open(assetDetailUrl(asset.kind, asset.id!, projectId), '_blank', 'noopener,noreferrer')
                     }
                   >
-                    <span className="truncate inline-block max-w-[140px] align-bottom">{asset.name}</span>
+                    <span className="whitespace-normal break-words text-left" title={asset.name}>{asset.name}</span>
                   </Button>
                 ) : (
-                  <Tooltip title="该资产仅提取结果，尚未落库">
-                    <span className="truncate inline-block max-w-[140px] text-gray-400 cursor-not-allowed align-bottom">{asset.name}</span>
+                  <Tooltip title={asset.description || asset.name}>
+                    <span className="whitespace-normal break-words text-slate-700">{asset.name}</span>
                   </Tooltip>
                 )}
               </div>
               {asset.status === 'linked' ? <Tag color="blue">已关联</Tag> : <Tag color="magenta">新提取</Tag>}
             </div>
           }
-          imageUrl={resolveAssetUrl(asset.thumbnail)}
+          imageUrl={resolveAssetUrl(asset.thumbnail || existence?.thumbnail)}
+          meta={<><div className="text-xs break-words">{existence?.matched_name && asset.status === "new" ? `匹配资产：${existence.matched_name}（待确认关联）` : ""}</div>{asset.description && <details className="text-xs mt-2"><summary>查看提取描述</summary><p className="whitespace-pre-wrap break-words">{asset.description}</p></details>}</>}
           imageAlt={asset.name}
           enablePreview
           hoverable={false}
@@ -166,11 +170,12 @@ export function ChapterShotAssetConfirmation({
           <div className="text-xs text-gray-600 font-medium">
             {titleLabel}（{items.length}）
           </div>
-          {items.length > 12 ? (
+          <div className="flex flex-wrap gap-2"><Button size="small" onClick={() => onCreateAsset(kind)}>新建{titleLabel}</Button>
+          {hiddenCount > 0 || expanded ? (
             <Button type="link" size="small" onClick={() => onToggleExpanded(kind)}>
               {expanded ? '收起' : `更多（+${hiddenCount}）`}
             </Button>
-          ) : null}
+          ) : null}</div>
         </div>
         {items.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-xs text-slate-500">
@@ -188,7 +193,7 @@ export function ChapterShotAssetConfirmation({
                   当前镜头还没有关联{titleLabel}
                 </div>
               ) : (
-                <div className="grid grid-cols-12 gap-2">
+                <div className="preparation-asset-grid">
                   {linkedVisible.map((asset) => renderAssetCard(asset))}
                 </div>
               )}
@@ -204,7 +209,7 @@ export function ChapterShotAssetConfirmation({
                   当前没有待确认的{titleLabel}候选
                 </div>
               ) : (
-                <div className="grid grid-cols-12 gap-2">
+                <div className="preparation-asset-grid">
                   {candidateVisible.map((asset) => renderAssetCard(asset))}
                 </div>
               )}

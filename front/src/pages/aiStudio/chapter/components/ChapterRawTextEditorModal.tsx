@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { BackgroundTaskNotice } from '../../components/BackgroundTaskNotice'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Card, Collapse, Empty, Input, List, Modal, Space, Spin, Tag, message } from 'antd'
 import {
   CloseCircleOutlined,
@@ -43,6 +44,8 @@ export function ChapterRawTextEditorModal({
   chapterId: string | undefined
   onSaved?: (next: { rawText?: string; condensedText?: string }) => void
 }) {
+  const currentChapter = useRef(chapterId); currentChapter.current = chapterId
+  const [proposal, setProposal] = useState<{kind:'simplify'|'optimize'; text:string; chapterId:string; taskId:string}|null>(null)
   const consistencyTaskCopy = TASK_COPY.consistencyCheck
   const simplifyTaskCopy = TASK_COPY.scriptSimplify
   const optimizeTaskCopy = TASK_COPY.scriptOptimize
@@ -68,6 +71,7 @@ export function ChapterRawTextEditorModal({
       readErrorMessage: '读取一致性检查结果失败',
       failedFallbackMessage: '一致性检查失败',
       onSucceeded: (resultValue) => {
+        if(currentChapter.current !== chapterId)return
         setConsistencyResult(resultValue as ScriptConsistencyCheckResult)
         const result = resultValue as Record<string, any>
         if (result?.has_issues) {
@@ -83,7 +87,7 @@ export function ChapterRawTextEditorModal({
         message.error('读取一致性检查结果失败')
       },
     })
-  }, [])
+  }, [chapterId])
 
   const applySimplifyResult = useCallback(async (taskId: string) => {
     await handleTaskResultSafely(taskId, {
@@ -96,13 +100,8 @@ export function ChapterRawTextEditorModal({
           message.error('智能精简失败：未返回有效内容')
           return
         }
-        setCondensedText(simplified)
-        if (mode === 'compare') {
-          setCompareCondensed(simplified)
-        } else {
-          setMode('condensed')
-          setEditorText(simplified)
-        }
+        if (currentChapter.current !== chapterId || !chapterId) return
+        setProposal({kind:'simplify',text:simplified,chapterId,taskId})
         message.success('智能精简完成')
       },
       onFailed: (errorMessage) => {
@@ -112,7 +111,7 @@ export function ChapterRawTextEditorModal({
         message.error('读取智能精简结果失败')
       },
     })
-  }, [mode])
+  }, [chapterId])
 
   const applyOptimizeResult = useCallback(async (taskId: string) => {
     await handleTaskResultSafely(taskId, {
@@ -125,10 +124,8 @@ export function ChapterRawTextEditorModal({
           message.error('一键优化失败：未返回有效内容')
           return
         }
-        setRawText(optimized)
-        setEditorText(optimized)
-        setMode('raw')
-        setCompareRaw(optimized)
+        if (currentChapter.current !== chapterId || !chapterId) return
+        setProposal({kind:'optimize',text:optimized,chapterId,taskId})
         message.success('一键优化完成')
       },
       onFailed: (errorMessage) => {
@@ -138,9 +135,10 @@ export function ChapterRawTextEditorModal({
         message.error('读取一键优化结果失败')
       },
     })
-  }, [])
+  }, [chapterId])
 
   const { task: consistencyTask, settledTask: consistencySettledTask, trackTaskData: trackConsistencyTaskData, applyCancelData: applyConsistencyCancelData } = useCancelableRelationTask({
+    retainResult: true,
     enabled: open && !!chapterId,
     relationType: CONSISTENCY_CHECK_RELATION_TYPE,
     relationEntityId: chapterId,
@@ -148,6 +146,7 @@ export function ChapterRawTextEditorModal({
   })
 
   const { task: simplifyTask, settledTask: simplifySettledTask, trackTaskData: trackSimplifyTaskData, applyCancelData: applySimplifyCancelData } = useCancelableRelationTask({
+    retainResult: true,
     enabled: open && !!chapterId,
     relationType: SCRIPT_SIMPLIFICATION_RELATION_TYPE,
     relationEntityId: chapterId,
@@ -155,6 +154,7 @@ export function ChapterRawTextEditorModal({
   })
 
   const { task: optimizeTask, settledTask: optimizeSettledTask, trackTaskData: trackOptimizeTaskData, applyCancelData: applyOptimizeCancelData } = useCancelableRelationTask({
+    retainResult: true,
     enabled: open && !!chapterId,
     relationType: SCRIPT_OPTIMIZATION_RELATION_TYPE,
     relationEntityId: chapterId,
@@ -191,9 +191,12 @@ export function ChapterRawTextEditorModal({
   useEffect(() => {
     if (!open) return
     if (!chapterId) return
+    let disposed = false
+    setConsistencyResult(null)
     setLoading(true)
     StudioChaptersService.getChapterApiV1StudioChaptersChapterIdGet({ chapterId })
       .then((res) => {
+        if (disposed) return
         const data = res.data
         const nextRaw = data?.raw_text ?? ''
         const nextCondensed = data?.condensed_text ?? ''
@@ -205,12 +208,12 @@ export function ChapterRawTextEditorModal({
         setEditorText(nextRaw)
         setCompareRaw(nextRaw)
         setCompareCondensed(nextCondensed)
-        setConsistencyResult(null)
       })
       .catch(() => {
-        message.error('加载章节失败')
+        if (!disposed) message.error('加载章节失败')
       })
-      .finally(() => setLoading(false))
+      .finally(() => { if (!disposed) setLoading(false) })
+    return () => { disposed = true }
   }, [open, chapterId])
 
   const handleSmartSimplify = async () => {
@@ -470,8 +473,8 @@ export function ChapterRawTextEditorModal({
     return editorText !== savedCondensedText
   }, [compareCondensed, compareRaw, editorText, mode, savedCondensedText, savedRawText])
 
+  /** 任务执行不阻止关闭；仅对尚未保存的人工编辑单独询问保存。 */
   const handleRequestClose = () => {
-    if (actionsLoading) return
     if (!hasUnsavedChanges) {
       onClose()
       return
@@ -610,7 +613,7 @@ export function ChapterRawTextEditorModal({
         }}
         width={900}
         footer={
-          <Button type="primary" loading={actionsLoading} disabled={actionsLoading} onClick={handleRequestClose}>
+          <Button type="primary" onClick={handleRequestClose}>
             关闭
           </Button>
         }
@@ -619,6 +622,17 @@ export function ChapterRawTextEditorModal({
           body: { maxHeight: '70vh', overflow: 'auto', paddingTop: 12 },
         }}
       >
+        <BackgroundTaskNotice active={actionsLoading} />
+        {proposal && proposal.chapterId === chapterId && <Card size="small" title="AI处理结果 · 待采用" className="mb-3">
+          <p>结果不会自动覆盖当前编辑。可先复制核对，再决定是否替换。</p>
+          <Input.TextArea aria-label="待采用的章节处理结果" readOnly value={proposal.text} rows={6}/>
+          <Button className="mt-2" onClick={()=>{
+            if(proposal.kind==='simplify'){setCondensedText(proposal.text);setEditorText(proposal.text);setMode('condensed')}
+            else{setRawText(proposal.text);setEditorText(proposal.text);setMode('raw')}
+            try{sessionStorage.removeItem(`jellyfish_relation_task:${proposal.kind==='simplify'?SCRIPT_SIMPLIFICATION_RELATION_TYPE:SCRIPT_OPTIMIZATION_RELATION_TYPE}:${chapterId}`)}catch{/* 不影响采用 */}
+            setProposal(null)
+          }}>采用到编辑区（仍需保存）</Button>
+        </Card>}
         {loading ? (
           <div className="flex justify-center items-center py-10">
             <Spin />

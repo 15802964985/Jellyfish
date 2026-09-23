@@ -1,6 +1,7 @@
 """OpenAI Videos API：创建与查询。"""
 
 from __future__ import annotations
+from app.core.integrations.traced_http import create_http_client
 from app.core.integrations.response_errors import raise_provider_error
 
 from typing import Any
@@ -32,7 +33,7 @@ class OpenAIVideoApiAdapter:
         }
         body = build_create_video_body(input_)
 
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             r = await client.post(f"{base_url}/videos", headers=headers, json=body)
             raise_provider_error(r, provider=cfg.provider, api_key=cfg.api_key)
             data: dict[str, Any] = r.json()
@@ -56,7 +57,7 @@ class OpenAIVideoApiAdapter:
         base_url = (cfg.base_url or "https://api.openai.com/v1").rstrip("/")
         headers = {"Authorization": f"Bearer {cfg.api_key}"}
 
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             rr = await client.get(f"{base_url}/videos/{video_id}", headers=headers)
             raise_provider_error(rr, provider=cfg.provider, api_key=cfg.api_key)
             return rr.json()

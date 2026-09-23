@@ -10,7 +10,7 @@ def bootstrap_builtin_providers() -> None:
             ProviderSpec(key="jimeng", display_name="即梦（独立视觉 API）", aliases=("jimeng", "即梦"),
                 supported_categories=(ModelCategoryKey.image, ModelCategoryKey.video), requires_api_secret=True,
                 default_base_url="https://visual.volcengineapi.com",
-                official_documentation="https://www.volcengine.com/docs/85621/1863351"),
+                official_documentation="https://docs.volcengine.com/docs/85621/2533614?lang=zh"),
             ProviderSpec(key="zhipu", display_name="智谱 BigModel", aliases=("zhipu", "智谱", "bigmodel"),
                 supported_categories=(ModelCategoryKey.text, ModelCategoryKey.image, ModelCategoryKey.video),
                 default_base_url="https://open.bigmodel.cn/api/paas/v4", text_protocol="openai_chat",
@@ -39,7 +39,7 @@ def bootstrap_builtin_providers() -> None:
                 official_documentation="https://platform.claude.com/docs/en/build-with-claude/working-with-messages", text_protocol="anthropic_messages"),
             ProviderSpec(key="minimax", display_name="MiniMax", aliases=("minimax", "海螺"),
                 supported_categories=(ModelCategoryKey.text, ModelCategoryKey.audio, ModelCategoryKey.video, ModelCategoryKey.image), default_base_url="https://api.minimax.io/v1",
-                official_documentation="https://platform.minimaxi.com/docs/api-reference/api-overview", text_protocol="openai_chat"),
+                official_documentation="https://platform.minimax.cn/docs/api-reference/api-overview", text_protocol="openai_chat"),
             ProviderSpec(
                 key="openai",
                 text_protocol="openai_chat",

@@ -89,3 +89,21 @@ class FileDetailRead(FileRead):
     model_config = ConfigDict(from_attributes=True)
 
     usages: list[FileUsageRead] = Field(default_factory=list)
+
+
+class FileReferenceGroup(BaseModel):
+    """某类业务引用的计数与可定位明细，不包含任务或配置原文。"""
+
+    kind: str
+    label: str
+    count: int
+    items: list[str] = Field(default_factory=list, description="最多20条关联定位信息")
+
+
+class FileDeleteImpactRead(BaseModel):
+    """删除前关联检查结果；删除请求仍需重新核对。"""
+
+    file_id: str
+    can_delete: bool
+    reference_count: int
+    groups: list[FileReferenceGroup] = Field(default_factory=list)

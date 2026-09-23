@@ -42,4 +42,3 @@ export type ChapterRead = {
      */
     shot_count?: number;
 };
-

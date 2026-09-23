@@ -44,6 +44,7 @@ async def test_shot_frame_renderer_returns_prompt_snapshot_and_ordered_media(mon
     from unittest.mock import AsyncMock
     from app.core.contracts.generation_quality import QualitySourceBundle
     monkeypatch.setattr('app.services.generation.prompts.renderers.collect_quality_sources', AsyncMock(return_value=QualitySourceBundle()))
+    monkeypatch.setattr('app.services.generation.prompts.renderers.read_direction', AsyncMock(return_value=None))
     request = PromptRenderRequest(
         input=ShotFramePromptRenderInput(
             shot_id="shot-1",

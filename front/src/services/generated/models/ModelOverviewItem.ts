@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ModelModeContract } from './ModelModeContract';
 import type { ModelOverviewConfiguration } from './ModelOverviewConfiguration';
 /**
  * A catalogue or saved model, separating execution support from account setup.
@@ -14,6 +15,7 @@ export type ModelOverviewItem = {
     category: 'text' | 'image' | 'video' | 'audio';
     integration: 'integrated' | 'unverified';
     configuration_status: 'configured' | 'needs_attention' | 'not_configured';
+    mode_contracts?: Array<ModelModeContract>;
     scenario_keys?: Array<string>;
     limitations?: Array<string>;
     configurations?: Array<ModelOverviewConfiguration>;

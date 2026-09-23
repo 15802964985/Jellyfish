@@ -274,7 +274,13 @@ class AbstractAsyncDelegatingExecutor(AbstractWorkerTaskExecutor):
         timeout_seconds: float | None,
     ) -> None:
         try:
-            await self._run_async(task_id, run_args, timeout_seconds)
+            if self.task_kind in {"image_generation", "video_generation"}:
+                from app.services.generation.recovery import recovery_execution
+                async with recovery_execution(task_id) as owned:
+                    if owned:
+                        await self._run_async(task_id, run_args, timeout_seconds)
+            else:
+                await self._run_async(task_id, run_args, timeout_seconds)
         finally:
             try:
                 await close_db()

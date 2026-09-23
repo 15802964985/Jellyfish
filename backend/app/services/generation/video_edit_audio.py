@@ -15,8 +15,8 @@ async def retain_original_audio(db, *, artifact, source_content: bytes) -> None:
     """Preserve original audio without -shortest truncation or any additional paid request."""
     resolved = await FileResolver(db).resolve(MediaReference(file_id=artifact.file_id, media_kind='video'))
     from app.services.generation.video_edit_runtime import probe_edit_video
-    original_info = await probe_edit_video(source_content, 'runway')
-    edited_info = await probe_edit_video(resolved.content, 'runway')
+    original_info = await probe_edit_video(source_content, 'generic')
+    edited_info = await probe_edit_video(resolved.content, 'generic')
     if abs(original_info['seconds'] - edited_info['seconds']) > 0.2:
         raise ValueError('编辑结果时长与原片不同，不能无损对齐原音轨；结果未采用')
     with tempfile.TemporaryDirectory(prefix='jellyfish-edit-audio-') as directory:

@@ -62,4 +62,3 @@ export type ShotExtractedDialogueCandidateRead = {
      */
     updated_at: string;
 };
-

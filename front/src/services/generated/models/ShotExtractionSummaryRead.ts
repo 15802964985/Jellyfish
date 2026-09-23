@@ -32,4 +32,3 @@ export type ShotExtractionSummaryRead = {
      */
     pending_dialogue_count?: number;
 };
-

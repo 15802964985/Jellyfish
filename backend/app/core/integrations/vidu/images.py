@@ -1,6 +1,7 @@
 """Vidu Reference to Image API。"""
 
 from __future__ import annotations
+from app.core.integrations.traced_http import create_http_client
 
 import time
 from typing import Any
@@ -39,7 +40,7 @@ class ViduImageApiAdapter:
         base_url = (cfg.base_url or _DEFAULT_BASE_URL).rstrip("/")
         url = f"{base_url}/ent/v2/reference2image"
         headers = {"Authorization": f"Token {cfg.api_key}", "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             started_at = time.perf_counter()
             log_image_http_request(
                 provider="vidu",
@@ -73,7 +74,7 @@ class ViduImageApiAdapter:
 
         base_url = (cfg.base_url or _DEFAULT_BASE_URL).rstrip("/")
         headers = {"Authorization": f"Token {cfg.api_key}"}
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             response = await client.get(f"{base_url}/ent/v2/tasks/{task_id}/creations", headers=headers)
             _raise_for_status(response=response, operation="get image task")
             return response.json()

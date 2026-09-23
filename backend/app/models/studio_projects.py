@@ -244,3 +244,12 @@ __all__ = [
     "ProjectPropLink",
     "ProjectCostumeLink",
 ]
+
+
+class ProjectEdit(Base, TimestampMixin):
+    """项目剪辑工程独立持久化；不混入统计字段或旧的无归属时间线。"""
+
+    __tablename__ = "project_edits"
+    project_id: Mapped[str] = mapped_column(String(64), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    plan: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)

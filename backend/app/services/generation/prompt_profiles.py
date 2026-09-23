@@ -87,6 +87,21 @@ def apply_generation_prompt_profile(
                 if appended:
                     rules.append("aliyun_wan_reference_aliases")
 
+    if provider == "aliyun_bailian" and model == "happyhorse-1.1-r2v" and isinstance(media, VideoMediaInput):
+        # Native aliases must follow precisely the same ordering as the transmitted media array.
+        mappings = []
+        for subject in media.subjects:
+            for reference in sorted(subject.media, key=lambda item: item.ordinal):
+                if reference.media_kind == 'image':
+                    mappings.append(f"[Image {len(mappings) + 1}]={subject.name}")
+        if mappings:
+            # Replace only our generated mapping line when the user changes reference order.
+            text = '\n'.join(line for line in text.splitlines() if not line.startswith('主体图片映射：')).strip()
+            text, appended = _append_once(text,
+                "主体图片映射：" + "；".join(mappings) + "。按用途参考主体特征，动作与构图遵循本镜头提示词。",
+                marker="主体图片映射：")
+            if appended: rules.append('happyhorse_reference_aliases')
+
     if provider == "vidu" and isinstance(media, VideoMediaInput) and media.subjects:
         mentions = "、".join(f"@{subject.name}" for subject in media.subjects)
         text, appended = _append_once(

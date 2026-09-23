@@ -1,3 +1,4 @@
+import { CreativeDirectionContextButtons } from '../components/CreativeDirectionButton'
 import { useMemo } from 'react'
 import type React from 'react'
 import { Layout, Menu, theme, Dropdown, Space, Avatar, Select, Breadcrumb } from 'antd'
@@ -123,6 +124,11 @@ const MainLayout: React.FC = () => {
       label: <Link to="/assets">资产管理</Link>,
     },
     {
+      key: 'files',
+      icon: <FolderOutlined />,
+      label: <Link to="/files">文件管理</Link>,
+    },
+    {
       key: 'prompts',
       icon: <FileTextOutlined />,
       label: <Link to="/prompts">提示词模板</Link>,
@@ -239,6 +245,7 @@ const MainLayout: React.FC = () => {
           </Space>
 
           <Space size="middle">
+            <CreativeDirectionContextButtons />
             <Select
               size="small"
               value={language}

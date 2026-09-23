@@ -17,4 +17,3 @@ export type ScriptDocumentParseResult = {
     chapters?: Array<ParsedScriptChapter>;
     warnings?: Array<string>;
 };
-

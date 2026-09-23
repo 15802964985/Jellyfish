@@ -43,6 +43,10 @@ class _FakeTaskDB:
         rows = list(self.links.values())
         return _FakeResult(rows)
 
+    async def scalar(self, _statement):
+        """These response-envelope fixtures contain no browser-owned task to cancel."""
+        return None
+
     def add(self, obj: object) -> None:
         if isinstance(obj, GenerationTaskLink):
             if getattr(obj, "id", None) is None:
@@ -241,6 +245,8 @@ def test_list_tasks_returns_paginated_envelope(client: TestClient, monkeypatch) 
     body = response.json()
     assert body["data"]["items"] == [
         {
+            "model_name": None,
+            "provider_name": None,
             "task_id": "task-1",
             "task_kind": "script_divide",
             "status": "running",

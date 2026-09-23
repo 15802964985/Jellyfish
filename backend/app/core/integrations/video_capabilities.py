@@ -57,6 +57,7 @@ class VideoModelCapability:
     max_videos_per_subject: int | None = None
     max_audios_per_subject: int | None = None
     max_media_per_subject: int | None = None
+    max_total_subject_images: int | None = None
     max_total_subject_videos: int | None = None
     supports_text_to_video: bool = True
     supports_first_frame: bool = True
@@ -66,6 +67,10 @@ class VideoModelCapability:
     requires_last_frame: bool = False
     requires_subject_reference: bool = False
     allowed_seconds: set[int] | None = None
+    # Ordered by low-cost preference; only the exact adapter declares verified wire values.
+    supports_generate_audio: bool = False
+    resolutions: tuple[str, ...] = ()
+    resolution_source: str | None = None
 
 
 def register_video_model_capability(
@@ -135,13 +140,24 @@ def clear_video_model_capability_overrides(*, provider: ProviderKey | None = Non
 def resolve_video_capability(*, provider: ProviderKey, model: str | None) -> VideoModelCapability:
     """Reject unknown protocols instead of silently borrowing Volcengine capabilities."""
     if provider == "jimeng":
-        from app.core.integrations.jimeng_media import VIDEO_MODEL
-        if model is not None and model != VIDEO_MODEL:
-            raise ValueError("即梦视频型号未核验")
+        from app.core.integrations.jimeng_media import VIDEO_V3, VIDEO_ROUTES
+        if model is None:
+            return VideoModelCapability(supports_text_to_video=False, supports_first_frame=False,
+                supports_last_frame=False, max_key_frames=0, supports_watermark=False)
+        if model == VIDEO_V3:
+            mode, tiers = "auto", ("720P", "1080P")
+        elif model in VIDEO_ROUTES.values():
+            mode, tier = next(pair for pair, key in VIDEO_ROUTES.items() if key == model)
+            tiers = (tier,)
+        else:
+            raise ValueError("即梦视频服务版本未核验")
         return VideoModelCapability(supports_seed=True, supports_watermark=False,
             allowed_ratios={"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"}, default_ratio="16:9",
-            supports_text_to_video=False, requires_first_frame=True, requires_last_frame=True, max_key_frames=0,
-            allowed_seconds={5, 10}, min_seconds=5, max_seconds=10)
+            supports_text_to_video=mode in {"auto", "text"}, supports_first_frame=mode != "text",
+            supports_last_frame=mode in {"auto", "first_last"}, requires_first_frame=mode in {"first", "first_last"},
+            requires_last_frame=mode == "first_last", max_key_frames=0,
+            allowed_seconds={5, 10}, min_seconds=5, max_seconds=10, resolutions=tiers,
+            resolution_source="https://docs.volcengine.com/docs/85621/1792710?lang=zh")
     if provider in {"zhipu", "hunyuan"}:
         from app.core.integrations.domestic_media import VIDEO_MODELS
         if model is None:
@@ -165,7 +181,7 @@ def resolve_video_capability(*, provider: ProviderKey, model: str | None) -> Vid
             supports_text_to_video=model != "MiniMax-Hailuo-2.3-Fast",
             supports_last_frame=model == "MiniMax-Hailuo-02", max_key_frames=0,
             requires_first_frame=model == "MiniMax-Hailuo-2.3-Fast", allowed_seconds={6, 10},
-            min_seconds=6, max_seconds=10)
+            min_seconds=6, max_seconds=10, resolutions=("768P",))
     if provider not in {"openai", "vidu", "kling", "aliyun_bailian", "volcengine"}:
         raise ValueError(f"Video generation is not implemented for {provider}")
     if provider == "openai":
@@ -220,6 +236,10 @@ def validate_video_options(
     input_: VideoGenerationInput,
 ) -> None:
     cap = resolve_video_capability(provider=provider, model=model)
+    if getattr(input_, "resolution", None) is not None and input_.resolution not in cap.resolutions:
+        raise ValueError("当前模型不支持所选分辨率")
+    if getattr(input_, "generate_audio", None) is not None and not cap.supports_generate_audio:
+        raise ValueError("当前模型不支持配置原生音频")
     if input_.ratio and cap.allowed_ratios is not None and input_.ratio not in cap.allowed_ratios:
         raise ValueError(
             f"Unsupported ratio for provider={provider} model={model or '<default>'}: {input_.ratio}. "
@@ -271,6 +291,9 @@ def validate_video_options(
         )
     if cap.max_subjects is not None and len(subjects) > cap.max_subjects:
         raise ValueError(f"subject references must contain at most {cap.max_subjects} subjects")
+    total_images = sum(sum(r.media_kind == "image" for r in subject.media) for subject in subjects)
+    if cap.max_total_subject_images is not None and total_images > cap.max_total_subject_images:
+        raise ValueError(f"主体参考图片总数不能超过 {cap.max_total_subject_images} 张")
     total_subject_videos = sum(
         sum(reference.media_kind == "video" for reference in subject.media)
         for subject in subjects
@@ -297,3 +320,11 @@ def validate_video_options(
             raise ValueError(f"a subject supports at most {cap.max_audios_per_subject} reference audios")
         if cap.max_media_per_subject is not None and len(subject.media) > cap.max_media_per_subject:
             raise ValueError(f"a subject supports at most {cap.max_media_per_subject} reference media items")
+
+
+def supports_studio_subject_images(provider: str, model: str) -> bool:
+    """Expose only exact names whose native subject-image wire format is verified for the studio."""
+    return (provider, model.lower()) in {
+        ('aliyun_bailian', 'happyhorse-1.1-r2v'),
+        ('vidu', 'viduq2'), ('vidu', 'viduq1'), ('vidu', 'vidu2.0'),
+    }

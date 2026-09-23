@@ -14,4 +14,3 @@ export type PaginatedData_ShotRead_ = {
      */
     pagination: Pagination;
 };
-

@@ -9,4 +9,3 @@ export type SceneInfoAnalysisResult = {
     issues: Array<string>;
     optimized_description: string;
 };
-

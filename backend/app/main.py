@@ -63,9 +63,23 @@ async def lifespan(app: FastAPI):
 
         # boto3 是同步客户端，在线程中完成幂等 bucket 初始化，避免阻塞事件循环。
         await to_thread(init_storage)
-    yield
-    # 关闭时：清理资源
-    pass
+    # Queue an expiry-aware check in the worker; application startup never waits for official websites.
+    import asyncio
+    import logging
+    async def schedule_model_check():
+        """Enqueue asynchronously; a broker outage must not prevent API startup."""
+        from app.services.llm.model_governance import queue_sync
+        try:
+            await queue_sync()
+        except Exception:
+            logging.getLogger(__name__).warning("Model synchronization could not be queued; scheduled checks remain enabled")
+    startup_check = asyncio.create_task(schedule_model_check())
+    try:
+        yield
+    finally:
+        if not startup_check.done():
+            startup_check.cancel()
+
 
 
 app = FastAPI(

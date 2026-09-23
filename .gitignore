@@ -30,3 +30,18 @@ jellyfish.db
 
 # Local recovery snapshots can contain database records and credentials.
 /backups/
+
+# Machine-local Docker inventory snapshots
+/local-reports/
+
+# Private browser sessions and generation receipts
+/local-browser/
+
+# Hotfix rollback backups (kept until PL-017 image rebuild; delete after)
+/.hotfix-backup/
+
+# Agent workspace memory (session-local, not project source)
+/.workbuddy/
+
+# Local runtime logs and scratch files
+/.local/

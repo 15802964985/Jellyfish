@@ -21,4 +21,3 @@ export type ApiResponse_PaginatedData_ShotRead__ = {
      */
     meta?: (Record<string, any> | null);
 };
-

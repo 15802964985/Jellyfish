@@ -1,3 +1,5 @@
+import { Button, Space, message } from 'antd'
+import { CreativeDirectionButton } from '../../../components/CreativeDirectionButton'
 /** 统一实验室页面：负责会话与路由，模态组件仅负责各自的生成能力。 */
 import { useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -82,7 +84,7 @@ export default function ExperimentLabPage() {
   const renderLayout = (title: string) => (slots: LabSlots) => (
     <ExperimentLabLayout
       title={title}
-      extra={slots.extra}
+      extra={<Space wrap>{selectedSessionId ? <CreativeDirectionButton scope="lab" entityId={selectedSessionId} label="本次实验创作设定" /> : <Button onClick={() => { void ensureSession(selectedLabType).then(handleSelectSession).catch(() => message.error('创建实验草稿失败')) }}>先设置创作方向</Button>}{slots.extra}</Space>}
       sidebar={<ExperimentSessionSidebar
         value={selectedSessionId}
         sessions={sessions}

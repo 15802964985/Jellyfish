@@ -62,6 +62,17 @@ async def test_task_manager_create_persists_task_kind() -> None:
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def isolated_media_lease(monkeypatch):
+    """Executor unit tests isolate lease persistence, covered with real SQLite in test_media_recovery."""
+    from contextlib import asynccontextmanager
+    @asynccontextmanager
+    async def lease(task_id):
+        """Allow the unit runner without connecting to the application database."""
+        yield True
+    monkeypatch.setattr("app.services.generation.recovery.recovery_execution", lease)
+
+
 def test_run_task_celery_routes_by_task_kind(monkeypatch, tmp_path) -> None:
     db_path = tmp_path / "task-execute.db"
     sync_engine = create_engine(f"sqlite:///{db_path}", future=True)

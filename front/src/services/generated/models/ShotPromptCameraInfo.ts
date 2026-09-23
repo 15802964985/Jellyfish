@@ -23,4 +23,3 @@ export type ShotPromptCameraInfo = {
      */
     duration?: (number | null);
 };
-

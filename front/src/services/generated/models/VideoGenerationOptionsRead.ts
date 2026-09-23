@@ -103,8 +103,15 @@ export type VideoGenerationOptionsRead = {
      */
     max_media_per_subject?: (number | null);
     /**
+     * 全部主体参考图片总数上限
+     */
+    max_total_subject_images?: (number | null);
+    /**
+     * 工作室主体图片链路已按精确协议核验
+     */
+    studio_subject_images_verified?: boolean;
+    /**
      * 所有主体视频总数上限
      */
     max_total_subject_videos?: (number | null);
 };
-

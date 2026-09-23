@@ -11,4 +11,3 @@ export type ScriptImportCommitResult = {
     dialogue_line_ids?: Array<number>;
     reused?: boolean;
 };
-

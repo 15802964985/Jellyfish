@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Docker 中文镜像清单 · Jellyfish</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#192c3c;background:#f3f6f8}*{box-sizing:border-box}body{margin:0}header{background:#12364b;color:#fff;padding:28px 4vw;border-bottom:5px solid #24b8a5}h1{font-size:26px;margin:8px 0 12px}header p{color:#c9dce8;margin:8px 0;font-size:14px}main{padding:24px 4vw}.note{background:#e4f3f0;border-left:4px solid #168879;padding:14px 18px;line-height:1.8;margin-bottom:20px}.tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:14px}input,select,button{font:inherit;padding:10px 12px;border:1px solid #bacbd5;border-radius:5px;background:white;color:#192c3c}input{flex:1;min-width:220px}button{cursor:pointer}button:hover{background:#e4f3f0}:focus-visible{outline:3px solid #168879;outline-offset:2px}.table{overflow:auto;max-height:68vh;background:white;border:1px solid #d9e1e7}table{border-collapse:collapse;width:100%;min-width:980px}th{position:sticky;top:0;background:#eaf0f4;text-align:left;font-size:13px;z-index:1}td,th{padding:15px;vertical-align:top;border-bottom:1px solid #e0e7eb}td{font-size:14px;line-height:1.65}td:first-child{width:30%;overflow-wrap:anywhere}td:nth-child(2){width:20%}td:nth-child(3){width:22%}td:nth-child(4){width:23%}small{display:block;color:#657b8a;margin-top:6px;overflow-wrap:anywhere}.tag{display:block;font-family:Consolas,monospace;font-size:12px;margin-bottom:4px}.status{display:inline-block;border-radius:4px;background:#edf1f4;padding:2px 7px;margin-bottom:5px;white-space:nowrap}.active{background:#dff3e8;color:#19613d}#summary{font-size:14px;color:#526977;margin:12px 0}#empty{padding:24px;text-align:center}footer{font-size:13px;color:#617481;line-height:1.8;margin-top:16px}@media(max-width:600px){header,main{padding:20px}h1{font-size:22px}.table{max-height:60vh}}
+</style>
+<header><div>JELLYFISH / 本机维护</div><h1>Docker 中文镜像清单</h1><p id="time"></p></header>
+<main><div class="note"><strong>查看用途，再判断是否保留。</strong><br>Unused 仅表示没有容器引用，回滚版本和构建基础镜像也可能处于此状态。同一镜像的多个标签已合并。</div>
+<div class="tools"><input id="search" aria-label="搜索镜像" placeholder="搜索名称、用途、容器、保留原因…"><select id="filter" aria-label="引用状态"><option value="">全部引用状态</option><option>运行中引用</option><option>非运行容器引用</option><option>未被容器引用</option></select><button id="reset">清空筛选</button></div>
+<div id="summary" aria-live="polite"></div><div class="table"><table><thead><tr><th>镜像名称 / 标签</th><th>用途说明</th><th>引用状态 / 容器</th><th>保留原因</th><th>镜像大小</th></tr></thead><tbody id="rows"></tbody></table><div id="empty" hidden>没有匹配的镜像，请调整搜索条件。</div></div>
+<footer><strong>更新入口：</strong>重新双击项目根目录的「查看Docker镜像清单.cmd」，即可重新采集并打开。此页面是快照，浏览器刷新不会重新查询 Docker。<br>大小包含共享层，不能把各行大小相加当作实际磁盘占用；镜像不等于数据库或素材数据卷。此页仅查询，不执行删除。<p id="unresolved"></p></footer></main>
+<script id="inventory" type="application/json">__INVENTORY_JSON__</script>
+<script>
+const data=JSON.parse(document.querySelector('#inventory').textContent);
+document.querySelector('#time').textContent=`采集时间：${data.collected}　·　Docker context：${data.context}`;
+document.querySelector('#unresolved').textContent=data.unresolved.length?`另有 ${data.unresolved.length} 个容器引用的镜像不在当前镜像列表：${data.unresolved.join('、')}。保留容器并单独核对。`:'';
+/** Build text nodes so image tags and container names cannot inject HTML. */
+function element(tag,text,cls){const n=document.createElement(tag);n.textContent=text;if(cls)n.className=cls;return n}
+/** Apply local search/filter without changing the captured inventory or Docker state. */
+function render(){const q=document.querySelector('#search').value.trim().toLowerCase(),status=document.querySelector('#filter').value;
+const rows=data.rows.filter(r=>(!status||r.status===status)&&JSON.stringify(r).toLowerCase().includes(q));
+const body=document.querySelector('#rows');body.replaceChildren();
+for(const r of rows){const tr=document.createElement('tr'),name=document.createElement('td');for(const tag of r.tags.length?r.tags:['无标签镜像'])name.append(element('span',tag,'tag'));name.append(element('small',r.id));name.append(element('small','创建时间：'+new Date(r.created).toLocaleString('zh-CN')));tr.append(name,element('td',r.purpose));const refs=document.createElement('td');refs.append(element('span',r.status,'status'+(r.status==='运行中引用'?' active':'')));for(const ref of r.references)refs.append(element('small',ref));tr.append(refs,element('td',r.reason),element('td',r.size+' MiB'));body.append(tr)}
+document.querySelector('#summary').textContent=`显示 ${rows.length} / ${data.rows.length} 个独立镜像 · ${data.rows.filter(r=>r.status==='未被容器引用').length} 个未被容器引用`;
+document.querySelector('#empty').hidden=rows.length>0;}
+document.querySelector('#search').addEventListener('input',render);document.querySelector('#filter').addEventListener('change',render);document.querySelector('#reset').addEventListener('click',()=>{document.querySelector('#search').value='';document.querySelector('#filter').value='';render()});render();
+</script></html>

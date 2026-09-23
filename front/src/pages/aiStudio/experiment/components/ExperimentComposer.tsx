@@ -1,9 +1,13 @@
+import { GenerationChannelActions } from '../../../../components/GenerationChannelActions'
 /** Shared composer frame for submitting prompts in every experiment modality. */
 import type { ReactNode } from 'react'
 import { Button } from 'antd'
 import { SendOutlined } from '@ant-design/icons'
 
 type ExperimentComposerProps = {
+  channel?: 'api'|'web'
+  onChannelChange?: (value:'api'|'web')=>void
+  webAction?: ReactNode
   options: ReactNode
   contextActions?: ReactNode
   children: ReactNode
@@ -19,6 +23,8 @@ type ExperimentComposerProps = {
  * 选项始终位于底部工具栏，避免模型或提示词选择与当前输入内容脱节。
  */
 export function ExperimentComposer({
+  channel,onChannelChange,
+  webAction,
   options,
   contextActions,
   children,
@@ -37,9 +43,9 @@ export function ExperimentComposer({
           {options}
           {contextActions}
         </div>
-        <Button type="primary" icon={<SendOutlined />} loading={submitting} disabled={submitDisabled} onClick={onSubmit}>
+        {webAction ? <GenerationChannelActions channel={channel} onChannelChange={onChannelChange} webAction={webAction} apiAction={<Button type="primary" icon={<SendOutlined />} loading={submitting} disabled={submitDisabled} onClick={onSubmit}>{submitLabel}</Button>}/> : <Button type="primary" icon={<SendOutlined />} loading={submitting} disabled={submitDisabled} onClick={onSubmit}>
           {submitLabel}
-        </Button>
+        </Button>}
       </div>
     </div>
   )

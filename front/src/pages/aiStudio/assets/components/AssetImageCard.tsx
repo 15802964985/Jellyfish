@@ -1,3 +1,8 @@
+import { ManualMediaButton } from '../../../../components/ManualMediaButton'
+import { GenerationChannelActions } from '../../../../components/GenerationChannelActions'
+import { WebResultCandidates } from '../../../../components/WebResultCandidates'
+import { WebImageButton } from '../../../../components/WebImageButton'
+import { StudioWebGenerationService as Web } from '../../../../services/generated'
 /**
  * 资产列表中的统一展示卡片。
  *
@@ -28,6 +33,7 @@ export type AssetCardAsset = {
 
 type AssetImageCardProps = {
   asset: AssetCardAsset
+  assetType: 'actor'|'scene'|'prop'|'costume'
   assetLabel: string
   listImages: (assetId: string) => Promise<AssetImage[]>
   createImageSlot: (assetId: string, angle: string) => Promise<void>
@@ -56,6 +62,7 @@ function preferredImage(images: AssetImage[]): AssetImage | null {
 export function AssetImageCard({
   asset,
   assetLabel,
+  assetType,
   listImages,
   createImageSlot,
   renderPrompt,
@@ -64,6 +71,7 @@ export function AssetImageCard({
   onDelete,
   onDetails,
 }: AssetImageCardProps) {
+  const [channelOpen,setChannelOpen]=useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [images, setImages] = useState<AssetImage[]>([])
   const [imagesLoading, setImagesLoading] = useState(false)
@@ -102,6 +110,14 @@ export function AssetImageCard({
   })
 
   useEffect(() => {
+    // Load slot images as soon as the card mounts so the displayed thumbnail
+    // always reflects the actual prop_images table instead of the cached
+    // asset.thumbnail URL, which can be stale when a back-end regeneration
+    // wrote to a non-FRONT slot (multi-angle assets, view_count > 1).
+    void loadImages()
+  }, [loadImages])
+
+  useEffect(() => {
     if (previewOpen) void loadImages()
   }, [loadImages, previewOpen])
 
@@ -134,10 +150,25 @@ export function AssetImageCard({
     }
   }
 
+  /** Prepare the exact front slot and rendered references without submitting an API task. */
+  const prepareWeb = async () => {
+    const entityId=asset.id
+    let rows=await listImages(entityId)
+    let target=rows.find(image=>image.view_angle==='FRONT')??rows[0]
+    if(!target){await createImageSlot(entityId,'FRONT');rows=await listImages(entityId);target=rows.find(image=>image.view_angle==='FRONT')??rows[0]}
+    if(!target)throw new Error('无法创建图片槽位')
+    const draft=await renderPrompt(entityId,target.id)
+    const version=await Web.targetApiV1StudioWebGenerationTargetsTargetTypeEntityIdSlotIdGet({targetType:assetType,entityId,slotId:target.id})
+    return {target_type:assetType,entity_id:entityId,slot_id:target.id,expected_version:version.version,prompt:draft.prompt,reference_file_ids:draft.images}
+  }
   const thumbnailUrl = buildFileDownloadUrl(preferredImage(images)?.file_id) || resolveAssetUrl(asset.thumbnail)
 
   return (
     <>
+      <Modal open={channelOpen} title={`${asset.name} · 生成正面图`} onCancel={()=>setChannelOpen(false)} footer={null}>
+        <p>选择本次生成通道，参考材料来自当前资产设定。</p>
+        <GenerationChannelActions apiAction={<Button type="primary" loading={generating} onClick={()=>{setChannelOpen(false);void handleQuickGenerate()}}>API 生成</Button>} webAction={<WebImageButton prepare={prepareWeb} onAccepted={id=>{setChannelOpen(false);setGenerationTaskId(id)}}/>}/>
+      </Modal>
       <DisplayImageCard
         title={<span className="truncate">{asset.name}</span>}
         imageUrl={thumbnailUrl}
@@ -152,7 +183,7 @@ export function AssetImageCard({
               loading={generating || !!generationTaskId}
               onClick={(event) => {
                 event.stopPropagation()
-                void handleQuickGenerate()
+                setChannelOpen(true)
               }}
             >
               快速生成
@@ -162,7 +193,7 @@ export function AssetImageCard({
         onImageClick={openPreview}
         extra={<Tag color="blue">{assetLabel}</Tag>}
         actions={[
-          <Button key="generate" type="text" size="small" icon={<ThunderboltOutlined />} loading={generating || !!generationTaskId} onClick={() => void handleQuickGenerate()}>
+          <Button key="generate" type="text" size="small" icon={<ThunderboltOutlined />} loading={generating || !!generationTaskId} onClick={() => setChannelOpen(true)}>
             {thumbnailUrl ? '重新生成' : '快速生成'}
           </Button>,
           <Button key="edit" type="text" size="small" icon={<EditOutlined />} onClick={onEdit}>
@@ -173,6 +204,8 @@ export function AssetImageCard({
         ]}
         meta={
           <>
+            <ManualMediaButton target={{target_type:assetType,entity_id:asset.id,slot_id:preferredImage(images)?.id}} title={asset.name+' · 修改正面图'} onAdopted={async()=>{await loadImages()}}/>
+            <WebResultCandidates targetType={assetType} entityId={asset.id} onAdopt={async()=>{await loadImages()}}/>
             <div className="text-xs text-gray-500 mb-2 line-clamp-2">{asset.description || '暂无描述'}</div>
             <div className="flex flex-wrap gap-1">
               {(asset.tags ?? []).slice(0, 3).map((tag) => <Tag key={tag}>{tag}</Tag>)}
@@ -187,12 +220,12 @@ export function AssetImageCard({
         ) : generatedImages.length === 0 ? (
           <div className="h-80 flex flex-col items-center justify-center gap-3 text-gray-500">
             <span>暂未生成任何视角图片</span>
-            <Button type="primary" icon={<ThunderboltOutlined />} loading={generating || !!generationTaskId} onClick={() => void handleQuickGenerate()}>快速生成正面图</Button>
+            <Button type="primary" icon={<ThunderboltOutlined />} loading={generating || !!generationTaskId} onClick={() => setChannelOpen(true)}>快速生成正面图</Button>
           </div>
         ) : (
           <Space direction="vertical" size="middle" className="w-full">
             <div className="min-h-80 flex items-center justify-center rounded-md bg-gray-50 overflow-hidden">
-              {selectedImage?.file_id ? <Image preview={false} src={buildFileDownloadUrl(selectedImage.file_id)} alt={asset.name} className="max-h-[65vh] object-contain" /> : null}
+              {selectedImage?.file_id ? <Image preview src={buildFileDownloadUrl(selectedImage.file_id)} alt={asset.name} className="max-h-[65vh] object-contain" /> : null}
             </div>
             <div className="flex flex-wrap gap-2">
               {generatedImages.map((image) => (

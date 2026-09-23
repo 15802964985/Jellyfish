@@ -52,4 +52,3 @@ export type ProviderCreate = {
      */
     api_secret?: string;
 };
-

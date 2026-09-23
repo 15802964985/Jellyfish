@@ -1,6 +1,7 @@
 """OpenAI Images API（generations / edits）。"""
 
 from __future__ import annotations
+from app.core.integrations.traced_http import create_http_client
 from app.core.integrations.response_errors import raise_provider_error
 
 import time
@@ -53,7 +54,7 @@ class OpenAIImageApiAdapter:
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             if resolved_input.images:
                 body: dict[str, Any] = {
                     "prompt": resolved_input.prompt,

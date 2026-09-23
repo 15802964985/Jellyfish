@@ -1,7 +1,8 @@
+from app.core.integrations.traced_http import create_http_client
 """MiniMax HTTP TTS: explicit billing endpoint, one request, hex audio output.
 
 Contract checked 2026-09-08:
-https://platform.minimaxi.com/docs/api-reference/speech-t2a-http
+https://platform.minimax.cn/docs/api-reference/speech-t2a-http
 """
 from urllib.parse import urlsplit
 import httpx
@@ -51,7 +52,7 @@ def build_speech_request(*, model: str, params: dict, text: str, voice: str = ""
 async def generate_speech(*, model: str, params: dict, api_key: str, text: str, voice: str = "", instruction: str = "", language_type: str = "Chinese") -> tuple[bytes, str, str]:
     """Submit once with no redirect/retry; require successful final audio rather than HTTP 200 alone."""
     endpoint, body = build_speech_request(model=model, params=params, text=text, voice=voice, instruction=instruction, language_type=language_type)
-    async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=20), follow_redirects=False) as client:
+    async with create_http_client(timeout=httpx.Timeout(180, connect=20), follow_redirects=False) as client:
         response = await client.post(endpoint, headers={"Authorization": f"Bearer {api_key}"}, json=body)
         raise_provider_error(response, provider="minimax/audio", api_key=api_key)
         payload = response.json()

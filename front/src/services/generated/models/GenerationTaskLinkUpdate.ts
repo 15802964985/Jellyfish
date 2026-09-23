@@ -27,4 +27,3 @@ export type GenerationTaskLinkUpdate = {
      */
     status?: (string | null);
 };
-

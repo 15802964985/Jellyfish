@@ -1,3 +1,5 @@
+import { ManualMediaButton } from '../../../../../components/ManualMediaButton'
+import { PreviewImage } from '../../../../../components/PreviewImage'
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Empty, Input, Modal, Space, message, Pagination } from 'antd'
 import { EditOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons'
@@ -221,7 +223,8 @@ export function ScenesTab() {
                       </Button>
                     </Space>
                   }
-                  meta={
+                  footer={<ManualMediaButton target={{target_type:'scene',entity_id:l.scene_id}} title="修改正面图" onAdopted={loadLinks}/>}
+                meta={
                     <div className="space-y-1">
                       <div className="text-xs text-gray-600 line-clamp-2">{s?.description ?? '—'}</div>
                       <div className="text-xs text-gray-500 truncate">scene_id：{l.scene_id}</div>
@@ -301,7 +304,7 @@ export function ScenesTab() {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     {toThumbUrl(scene.thumbnail) ? (
-                      <img
+                      <PreviewImage
                         src={toThumbUrl(scene.thumbnail)}
                         alt=""
                         className="w-10 h-10 rounded object-cover shrink-0"

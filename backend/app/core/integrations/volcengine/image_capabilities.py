@@ -61,7 +61,16 @@ def _pick_override(model: str | None) -> ImageModelCapability | None:
 
 
 def resolve_volcengine_image_capability(model: str | None) -> ImageModelCapability:
-    return _pick_override(model) or _VOLCENGINE_DEFAULT
+    override = _pick_override(model)
+    if override:
+        return override
+    if model == "doubao-seedream-5.0-lite":
+        from app.core.integrations.documented_image_sizes import SEEDREAM_LITE_PROFILES
+        return ImageModelCapability(supports_seed=True, supports_watermark=True, min_n=1, max_n=15,
+            default_resolution_profile="standard", supported_ratios=set(SEEDREAM_LITE_PROFILES),
+            allowed_sizes={size for tiers in SEEDREAM_LITE_PROFILES.values() for size in tiers.values()},
+            ratio_size_profiles=SEEDREAM_LITE_PROFILES)
+    return _VOLCENGINE_DEFAULT
 
 
 def validate_volcengine_image_options(input_: ImageGenerationInput) -> None:

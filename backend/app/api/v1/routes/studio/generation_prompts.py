@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.core.contracts.media import VideoSubjectMediaReference
+
 from typing import Literal
 
 from fastapi import APIRouter, Depends
@@ -48,10 +50,12 @@ class ShotVideoPromptRenderBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    reference_mode: Literal["first", "last", "key", "first_last", "first_last_key", "text_only"]
+    reference_mode: Literal["first", "last", "key", "first_last", "first_last_key", "text_only", "subjects"]
     prompt: str | None = None
+    subjects: list[VideoSubjectMediaReference] = Field(default_factory=list, max_length=9)
     image_file_ids: list[str] = Field(default_factory=list)
     template_id: str | None = None
+    model_revision_id: str | None = Field(default=None, description='预览所用视频模型版本；提前编译同一版本的厂商提示词规范')
 
 
 @router.post(
@@ -133,7 +137,16 @@ async def render_shot_video_prompt(
                 prompt=body.prompt,
                 image_file_ids=body.image_file_ids,
                 template_id=body.template_id,
+                model_revision_id=body.model_revision_id,
+                subjects=body.subjects,
             )
         ),
     )
     return success_response(snapshot)
+
+
+@router.get("/shots/{shot_id}/frames/{frame_type}/draft", response_model=ApiResponse[dict], summary="免费整理单帧初始提示词")
+async def initial_frame_prompt(shot_id: str, frame_type: ShotFrameType, db: AsyncSession = Depends(get_db)) -> ApiResponse[dict]:
+    """返回只读初始草稿，由页面保留手动编辑与显式保存决定。"""
+    from app.services.generation.prompts.frame_guidance import build_initial_frame_prompt
+    return success_response(await build_initial_frame_prompt(db=db, shot_id=shot_id, frame_type=frame_type))

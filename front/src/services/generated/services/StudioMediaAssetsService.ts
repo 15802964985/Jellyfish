@@ -6,6 +6,7 @@ import type { ApiResponse_AssetFileLinkRead_ } from '../models/ApiResponse_Asset
 import type { ApiResponse_AudioAssetRead_ } from '../models/ApiResponse_AudioAssetRead_';
 import type { ApiResponse_list_AssetFileLinkRead__ } from '../models/ApiResponse_list_AssetFileLinkRead__';
 import type { ApiResponse_list_ShotAudioTrackRead__ } from '../models/ApiResponse_list_ShotAudioTrackRead__';
+import type { ApiResponse_ManualMediaState_ } from '../models/ApiResponse_ManualMediaState_';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
 import type { ApiResponse_PaginatedData_AudioAssetRead__ } from '../models/ApiResponse_PaginatedData_AudioAssetRead__';
 import type { ApiResponse_ShotAudioTrackRead_ } from '../models/ApiResponse_ShotAudioTrackRead_';
@@ -14,6 +15,7 @@ import type { AssetFileLinkCreate } from '../models/AssetFileLinkCreate';
 import type { AssetFileLinkUpdate } from '../models/AssetFileLinkUpdate';
 import type { AudioAssetCreate } from '../models/AudioAssetCreate';
 import type { AudioAssetUpdate } from '../models/AudioAssetUpdate';
+import type { ManualMediaSelection } from '../models/ManualMediaSelection';
 import type { ShotAudioTrackCreate } from '../models/ShotAudioTrackCreate';
 import type { ShotAudioTrackUpdate } from '../models/ShotAudioTrackUpdate';
 import type { ShotTtsTaskCreate } from '../models/ShotTtsTaskCreate';
@@ -333,6 +335,58 @@ export class StudioMediaAssetsService {
             path: {
                 'track_id': trackId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Manual Media Target Api
+     * Read the business slot for an explicit local media confirmation.
+     * @returns ApiResponse_ManualMediaState_ Successful Response
+     * @throws ApiError
+     */
+    public static manualMediaTargetApiApiV1StudioMediaAssetsManualSelectionGet({
+        targetType,
+        entityId,
+        slotId,
+        frameType = 'key',
+    }: {
+        targetType: 'actor' | 'character' | 'scene' | 'prop' | 'costume' | 'frame' | 'shot',
+        entityId: string,
+        slotId?: (number | null),
+        frameType?: 'first' | 'key' | 'last',
+    }): CancelablePromise<ApiResponse_ManualMediaState_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/media-assets/manual-selection',
+            query: {
+                'target_type': targetType,
+                'entity_id': entityId,
+                'slot_id': slotId,
+                'frame_type': frameType,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Adopt Manual Media Api
+     * Adopt a user-selected file; no model invocation or fake generation task is created.
+     * @returns ApiResponse_ManualMediaState_ Successful Response
+     * @throws ApiError
+     */
+    public static adoptManualMediaApiApiV1StudioMediaAssetsManualSelectionPost({
+        requestBody,
+    }: {
+        requestBody: ManualMediaSelection,
+    }): CancelablePromise<ApiResponse_ManualMediaState_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/media-assets/manual-selection',
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

@@ -1,4 +1,5 @@
 """Quality review uses explicit inputs, immutable revisions, and no network in tests."""
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
@@ -26,8 +27,11 @@ async def test_vision_media_is_resolved_only_at_execution(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('with_images', [False, True])
+@pytest.mark.parametrize('transport_failure', [False, True])
 @pytest.mark.parametrize('cancel', [False, True])
-async def test_quality_review_single_call_or_cancel_before_billing(monkeypatch, cancel):
+@pytest.mark.parametrize('combined', [False, True])
+async def test_quality_review_single_call_or_cancel_before_billing(monkeypatch, cancel, combined, with_images, transport_failure):
     """Real task persistence with one mocked model call and frozen endpoint options."""
     import app.services.generation.quality_review as worker
     import app.services.llm.runtime as runtime
@@ -37,7 +41,16 @@ async def test_quality_review_single_call_or_cancel_before_billing(monkeypatch, 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
-    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=[{'type':'text', 'text':'中风险：请核对道具相对比例。'}])))
+    model = SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(content=[{'type':'text', 'text':json.dumps({'revised_prompt':'完整单帧优化稿','changes':['中风险：比例需核对'],'unresolved':[]},ensure_ascii=False) if combined else '中风险：请核对道具相对比例。'}])))
+    if transport_failure:
+        import httpx
+        from openai import APIConnectionError
+        failure = APIConnectionError(request=httpx.Request('POST', 'https://example.invalid'))
+        failure.__cause__ = httpx.ReadError('sensitive transport message')
+        model.ainvoke.side_effect = failure
+    if with_images:
+        import app.services.generation.quality_vision as vision
+        monkeypatch.setattr(vision.FileResolver, 'resolve_task_reference', AsyncMock(return_value=SimpleNamespace(content_type='image/png', content=b'pixels')))
     factory_calls = []
     def factory(**kwargs):
         """Validate frozen configuration and forced no-retry policy."""
@@ -52,18 +65,28 @@ async def test_quality_review_single_call_or_cancel_before_billing(monkeypatch, 
         async with sessions() as db:
             db.add(Provider(id='p', name='aliyun_bailian', base_url='https://example.invalid', api_key='secret', status='enabled'))
             db.add(ModelConfigRevision(id='r', model_id='m', version_id=1, model_name='qwen3.8-max', category='text', provider_key='aliyun_bailian', credential_ref='provider:p', model_params={'max_retries': 8}))
-            db.add(GenerationTask(id='review', task_kind='quality_preflight', mode='async_polling', status='pending', payload={'snapshot': {'model_revision_id': 'r', 'operation_input': {'messages': [{'role': 'user', 'content': '检查道具', 'sequence': 1}]}}}))
+            db.add(GenerationTask(id='review', task_kind='quality_preflight', mode='async_polling', status='pending', payload={'snapshot': {'model_revision_id': 'r', 'operation_input': {'messages': [{'role': 'user', 'content': json.dumps({'workflow':'quality-review-v3','action':'review_and_revise','scope':'first'}) if combined else '检查道具', 'sequence': 1}]}}}))
+            if with_images:
+                row = await db.get(GenerationTask, 'review')
+                row.payload = {'snapshot': {**row.payload['snapshot'], 'media': ImageMediaInput(references=[MediaReference(file_id='img', media_kind='image', ordinal=0)]).model_dump(mode='json')}}
             await db.commit()
         await worker.run_quality_review_task('review', {})
         await worker.run_quality_review_task('review', {})
         async with sessions() as db:
             row = await db.get(GenerationTask, 'review')
-            assert row.status == ('cancelled' if cancel else 'succeeded'), row.error
-            if not cancel:
-                assert row.result['review_mode'] == 'text_only'
+            assert row.status == ('cancelled' if cancel else 'failed' if transport_failure else 'succeeded'), row.error
+            if not cancel and transport_failure:
+                assert 'APIConnectionError → ReadError' in row.error
+                assert 'sensitive transport message' not in row.error
+                assert f'实际参考图 {1 if with_images else 0} 张' in row.error
+            if not cancel and not transport_failure:
+                assert row.result['review_mode'] == ('image_and_text' if with_images else 'text_only')
                 assert row.result['visual_verified'] is False
                 assert '中风险' in row.result['text']
+                if combined: assert row.result['revision']['revised_prompt']=='完整单帧优化稿'
         assert model.ainvoke.await_count == (0 if cancel else 1)
+        if with_images and not cancel:
+            assert model.ainvoke.call_args.args[0][-1].content[-1]['image_url']['url'].startswith('data:image/png;base64,')
     finally:
         await engine.dispose()
 

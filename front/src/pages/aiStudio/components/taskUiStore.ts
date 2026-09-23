@@ -6,6 +6,8 @@ import { resolveTaskSourceLabel, resolveTaskTitle } from './taskCopy'
 
 export type TaskUiItem = {
   taskId: string
+  modelName?: string | null
+  providerName?: string | null
   taskKind?: string | null
   title?: string | null
   sourceLabel?: string | null
@@ -55,6 +57,8 @@ export function mergeTaskUiItems(
     return {
       taskId,
       taskKind: server?.task_kind ?? optimistic?.taskKind,
+      modelName: server?.model_name ?? optimistic?.modelName,
+      providerName: server?.provider_name ?? optimistic?.providerName,
       title: optimistic?.title ?? resolveTaskTitle(server?.task_kind),
       sourceLabel:
         optimistic?.sourceLabel ??

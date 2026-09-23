@@ -5,4 +5,3 @@
 export type ScriptImportAnalyzeRequest = {
     model_id: string;
 };
-

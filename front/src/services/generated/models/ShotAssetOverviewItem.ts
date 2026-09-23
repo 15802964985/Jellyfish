@@ -56,4 +56,3 @@ export type ShotAssetOverviewItem = {
      */
     is_linked: boolean;
 };
-

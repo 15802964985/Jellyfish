@@ -28,4 +28,3 @@ export type CostumeTimelineEntry = {
      */
     evidence?: Array<EvidenceSpan>;
 };
-

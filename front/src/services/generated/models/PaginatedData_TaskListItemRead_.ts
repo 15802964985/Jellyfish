@@ -14,4 +14,3 @@ export type PaginatedData_TaskListItemRead_ = {
      */
     pagination: Pagination;
 };
-

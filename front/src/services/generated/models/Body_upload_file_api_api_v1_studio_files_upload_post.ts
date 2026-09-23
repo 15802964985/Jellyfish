@@ -19,4 +19,3 @@ export type Body_upload_file_api_api_v1_studio_files_upload_post = {
     usage_kind?: (string | null);
     source_ref?: (string | null);
 };
-

@@ -15,6 +15,7 @@ from app.core.contracts.generation import (
 )
 from app.core.contracts.media import ImageMediaInput, MediaReference, VideoMediaInput, VideoEditMediaInput
 from app.core.integrations.video_capabilities import VideoModelCapability, resolve_video_capability
+from app.core.integrations.video_edit_registry import editing_only
 from app.models.experiment_sessions import ExperimentSession
 from app.models.llm import Model, ModelCategoryKey, ModelConfigRevision, ModelSettings, Provider, ProviderStatus
 from app.models.studio import Shot, ShotDetail, ShotFrameImage
@@ -59,23 +60,34 @@ class GenerationEntityGate:
         """将可验证的提交命令冻结为不含 ORM/凭据的执行快照。"""
         await self._validate_target(db, command)
         model, revision = await self._resolve_model(db, command)
+        if command.request.expected_model_revision_id and command.request.expected_model_revision_id != revision.id:
+            raise HTTPException(status_code=409, detail="模型配置已变化，请重新核对生成规格和费用")
         if command.operation.value == 'quality_preflight' and command.request.media is not None:
             from app.services.generation.quality_vision import supports_quality_vision
             if not isinstance(command.request.media, ImageMediaInput) or not supports_quality_vision(revision.provider_key, revision.model_name):
                 raise HTTPException(status_code=422, detail='该预检模型尚未接入视觉检查，请取消图片选择或改用已核验的百炼 Qwen 视觉型号')
         if command.operation.value == 'video_edit':
-            from app.core.integrations.video_edit_registry import VIDEO_EDIT_MODELS
-            if revision.model_name != VIDEO_EDIT_MODELS.get(revision.provider_key):
+            from app.core.integrations.video_edit_registry import edit_capability
+            if not edit_capability(revision.provider_key, revision.model_name):
                 raise HTTPException(status_code=400, detail='当前模型未实现视频编辑，请选择已接入的编辑模型')
             if not isinstance(command.request.media, VideoEditMediaInput):
                 raise HTTPException(status_code=422, detail='video edit source media required')
-        elif revision.provider_key in ('fal', 'runway'):
+        elif editing_only(revision.provider_key, revision.model_name):
             raise HTTPException(status_code=400, detail='当前供应商仅实现视频编辑，请使用编辑入口')
         media, execution_prompt = await self._resolve_asset_references(
             db,
             command=command,
             revision=revision,
         )
+        from app.services.studio.creative_direction import direction_for_target, compile_direction
+        creative = await direction_for_target(db, command.target)
+        purpose = 'asset' if command.target.kind == GenerationTargetKind.asset_image_slot else ('video' if command.modality == GenerationModality.video else 'frame')
+        if command.modality != GenerationModality.text:
+            execution_prompt = compile_direction(execution_prompt, creative, purpose)
+        from app.services.generation.image_region import validate_region
+        validate_region(command, revision, media)
+        if getattr(command.request.operation_input, "edit_region", None) is not None:
+            execution_prompt = (execution_prompt or "") + "\n局部修改：仅修改参考图红框内的内容，移除红框标记；保持整张原图构图、宽高比和其他区域不变。"
         await self._validate_media(db, media)
         from app.services.generation.domestic_preflight import validate_domestic_submission
         validate_domestic_submission(provider=revision.provider_key, model=revision.model_name,
@@ -108,17 +120,50 @@ class GenerationEntityGate:
         from app.services.generation.prompt_budget import require_prompt_budget
         budget = require_prompt_budget(provider=revision.provider_key, model=revision.model_name,
             prompt=prompt_profile.prompt or '', modality=command.modality.value) if prompt_profile.prompt else None
+        from app.services.generation.specifications import freeze_specification
+        resolved_operation, cost_estimate = await freeze_specification(db, revision, command.request.operation_input,
+            references=len(media.references) if isinstance(media, ImageMediaInput) else 0)
+        # 文本实验只编译本次用户输入，快照保留实际发送内容；预检消息不走此分支。
+        from app.core.contracts.text_generation import TextChatInput
+        if command.target.kind == GenerationTargetKind.experiment_session and isinstance(resolved_operation, TextChatInput):
+            messages = list(resolved_operation.messages)
+            for index in range(len(messages) - 1, -1, -1):
+                if messages[index].role == 'user':
+                    messages[index] = messages[index].model_copy(update={'content': compile_direction(messages[index].content, creative, 'script')})
+                    break
+            resolved_operation = resolved_operation.model_copy(update={'messages': messages})
+        if command.operation.value == 'video_edit':
+            from app.services.generation.video_edit_controls import preflight_edit
+            from app.core.contracts.video_edit import VideoEditOptions
+            from app.core.integrations.video_edit_registry import edit_capability
+            op = command.request.operation_input
+            cap = edit_capability(revision.provider_key, revision.model_name)
+            if len((command.request.execution_prompt or '') + op.preserve_instructions) + 10 > cap.prompt_limit:
+                raise HTTPException(status_code=422, detail='编辑提示词与保持要求超过当前模型长度限制')
+            preview = await preflight_edit(db, model_id=model.id, media=media,
+                options=VideoEditOptions(resolution=op.resolution, seconds=op.seconds),
+                positions=op.reference_positions, keep_audio=op.keep_audio, expected_revision=revision.id)
+            if cap.transport == 'url':
+                from app.services.generation.video_edit_media import validate_media_origin
+                try:
+                    validate_media_origin()
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+            resolved_operation = op.model_copy(update=preview.options.model_dump())
+            cost_estimate = preview.estimate
         return ResolvedGenerationSnapshot(
             model_id=model.id,
             model_revision_id=revision.id,
             canonical_target=command.target,
             expected_version_id=await self._target_version(db, command),
             media=media,
-            operation_input=command.request.operation_input,
+            operation_input=resolved_operation,
+            cost_estimate=cost_estimate,
             execution_prompt=prompt_profile.prompt,
             prompt_profile_rules=list(prompt_profile.applied_rules),
             credential_ref=revision.credential_ref,
             quality_sources=quality_sources,
+            creative_direction=creative.model_dump(mode="json") if creative else None,
             prompt_budget=budget,
             quality_trace=(
                 quality_trace_for_execution(prompt_profile.prompt)

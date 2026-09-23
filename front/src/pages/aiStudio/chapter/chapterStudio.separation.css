@@ -219,7 +219,8 @@
 
 /* Inspector spacing + group card feel */
 .cs-inspector {
-  padding: 20px 22px;
+  padding: 0;
+  overflow: hidden;
 }
 .cs-inspector-header {
   padding: 14px 18px;
@@ -323,7 +324,7 @@
 
 .cs-readiness-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -380,21 +381,28 @@
 }
 
 .cs-readiness-chip-wrap {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin: 0 8px 8px 0;
+  min-width: 0;
+  margin: 0 0 8px;
 }
 
 .cs-readiness-item__chips .ant-tag {
   margin-bottom: 0;
   margin-right: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .cs-readiness-chip-meta {
+  flex-shrink: 0;
+  white-space: nowrap;
   color: #64748b;
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.5;
 }
 
 .cs-readiness-tag-action {
@@ -458,3 +466,94 @@
   color: var(--cs-text-2);
   font-weight: 600;
 }
+
+/* Keep navigation visible while the narrow inspector content scrolls independently. */
+.cs-inspector-header { flex-shrink: 0; gap: 8px; }
+.cs-inspector-tabs { height: 100%; min-width: 0; }
+.cs-inspector-tabs > .ant-tabs-nav { margin: 0; padding: 0 12px; flex-shrink: 0; background: #fff; }
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-tab { padding: 12px 0; }
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-tab + .ant-tabs-tab { margin-left: 20px; }
+.cs-inspector-tabs > .ant-tabs-content-holder { min-height: 0; min-width: 0; overflow: auto; padding: 14px 12px; scrollbar-gutter: stable; }
+.cs-inspector-tabs .ant-tabs-tabpane { min-width: 0; }
+.cs-readiness-item { min-width: 0; overflow-wrap: anywhere; }
+.cs-readiness-item__header { flex-wrap: wrap; }
+
+/* Six inspector sections remain directly reachable, including at the minimum sidebar width. */
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-nav-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+  transform: none !important;
+}
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-tab {
+  margin: 0 !important;
+  padding: 10px 4px;
+  justify-content: center;
+  min-width: 0;
+  font-size: 12px;
+}
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-nav-operations,
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-ink-bar,
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-nav-wrap::before,
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-nav-wrap::after { display: none; }
+.cs-inspector-tabs > .ant-tabs-nav .ant-tabs-tab-active { border-radius: 6px; }
+
+
+/* 视频提示词弹窗限制在视口内，内容独立滚动，标题与生成/取消操作始终可见。 */
+.cs-prompt-preview.ant-modal {
+  top: 16px;
+  max-width: calc(100vw - 32px);
+  padding-bottom: 0;
+}
+.cs-prompt-preview .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+.cs-prompt-preview .ant-modal-header,
+.cs-prompt-preview .ant-modal-footer { flex: 0 0 auto; }
+.cs-prompt-preview .ant-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+/* 节拍可能包含长句，保留完整正文并自然换行，不允许标签撑宽弹窗。 */
+.cs-prompt-preview .cs-action-beat {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-end: 0;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+
+
+/* 视频确认工作台：编辑与实际提交稿形成对照，辅助信息分签，操作区沿用固定弹窗页脚。 */
+.cs-video-workbench { min-width: 0; padding: 16px; border: 1px solid #dbeafe; border-radius: 10px; background: #f8fbff; }
+.cs-video-workbench-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cs-video-workbench-head p, .cs-video-workbench-pane > p { margin: 6px 0 12px; color: #64748b; font-size: 12px; line-height: 1.7; }
+.cs-video-workbench-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.cs-video-workbench-pane { min-width: 0; }
+.cs-video-workbench-pane h3 { margin: 0; font-size: 14px; font-weight: 600; color: #0f172a; }
+.cs-video-workbench-final textarea { background: #f0f7ff; }
+.cs-video-workbench-note { margin: 12px 0 0; color: #64748b; font-size: 12px; line-height: 1.8; }
+.cs-video-input-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 12px 0; color: #475569; font-size: 12px; }
+.cs-video-input-summary strong { color: #0f172a; }
+.cs-video-tabs .ant-tabs-nav { position: sticky; top: 0; background: white; z-index: 2; }
+.cs-video-tabs .ant-tabs-tabpane { min-width: 0; }
+.cs-video-sources { padding: 12px 0; }
+@media (max-width: 1000px) { .cs-video-workbench-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .cs-video-workbench { padding: 10px; } .cs-video-tabs .ant-tabs-tab { font-size: 12px; } }
+
+.cs-video-shot-brief { border-left: 3px solid #1677ff; padding: 10px 14px; margin-bottom: 16px; background: #f8fbff; border-radius: 4px; }
+.cs-video-frame { flex: 0 0 auto; text-align: center; font-size: 12px; color: #475569; line-height: 2; }
+
+.cs-subject-reference { display:flex; gap:12px; align-items:flex-start; padding:12px; border:1px solid #dbe3ee; border-radius:8px; min-width:0; }
+.cs-subject-reference .ant-input { margin:6px 0; }
+@media(max-width:540px) { .cs-subject-reference { flex-direction:column; } }

@@ -4,6 +4,8 @@
 /* eslint-disable */
 import type { TaskStatus } from './TaskStatus';
 export type TaskListItemRead = {
+    model_name?: (string | null);
+    provider_name?: (string | null);
     task_id: string;
     /**
      * 业务任务类型
@@ -68,4 +70,3 @@ export type TaskListItemRead = {
      */
     navigate_relation_entity_id?: (string | null);
 };
-

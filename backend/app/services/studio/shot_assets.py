@@ -232,6 +232,11 @@ async def list_shot_linked_assets(
         for entity_id, info in fallback.items():
             dedicated.setdefault(entity_id, info)
 
+    from app.services.studio.character_appearances import selected_appearances
+    for character_id, look in (await selected_appearances(db, shot_id)).items():
+        views=look.data.get('views',[])
+        character_thumb[character_id]={'file_id':views[0]['file_id']} if views else {}
+
     items: list[ShotLinkedAssetItem] = []
     for cid, name in character_name.items():
         info = character_thumb.get(cid) or {}

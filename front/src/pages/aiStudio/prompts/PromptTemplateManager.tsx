@@ -1,3 +1,4 @@
+import { TemplateContextPreview } from './TemplateContextPreview'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FC, Key } from 'react'
 import { Card, Tree, Input, Row, Col, Tag, Pagination, Button, Modal, Form, Select, Switch, message } from 'antd'
@@ -436,7 +437,7 @@ const PromptTemplateManager: FC = () => {
                   </div>
                 )}
               >
-                <Tag>{categoryLabels[selected.category] || selected.category}</Tag>
+                <Tag>{categoryLabels[selected.category] || selected.category}</Tag><TemplateContextPreview key={`${selected.id}:${selected.version}`} template={selected}/>
                 <p className="text-gray-600 text-sm mt-2">{selected.preview}</p>
                 <pre className="mt-3 p-3 bg-gray-50 rounded text-xs overflow-auto max-h-48">
                   {selected.content}

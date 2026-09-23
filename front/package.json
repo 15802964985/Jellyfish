@@ -12,7 +12,7 @@
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "preview": "vite preview",
     "openapi:fetch": "node scripts/fetch-openapi.mjs",
-    "openapi:gen": "pnpm exec -- openapi --input ./openapi.json --output ./src/services/generated --client fetch --useOptions --useUnionTypes",
+    "openapi:gen": "pnpm exec -- openapi --input ./openapi.json --output ./src/services/generated --client fetch --useOptions --useUnionTypes && node scripts/normalize-generated-eof.mjs",
     "openapi:update": "pnpm run openapi:fetch && pnpm run openapi:gen"
   },
   "dependencies": {

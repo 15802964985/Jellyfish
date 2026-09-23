@@ -21,4 +21,3 @@ export type ApiResponse_ShotDetailRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

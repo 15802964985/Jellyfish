@@ -18,6 +18,10 @@ def build_create_video_request(input_: VideoGenerationInput) -> tuple[str, dict[
     validate_vidu_video_options(input_)
     references = _ordered_references(input_)
     body: dict[str, Any] = {"model": model, "prompt": (input_.prompt or "").strip(), "aspect_ratio": input_.ratio}
+    if getattr(input_, 'resolution', None) is not None:
+        body['resolution'] = input_.resolution
+    if getattr(input_, 'generate_audio', None) is not None:
+        body['audio'] = input_.generate_audio
     if input_.seconds is not None:
         body["duration"] = int(input_.seconds)
     if input_.seed is not None:

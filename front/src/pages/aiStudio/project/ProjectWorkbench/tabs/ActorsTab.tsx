@@ -1,3 +1,4 @@
+import { ManualMediaButton } from '../../../../../components/ManualMediaButton'
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Empty, Image, Input, Modal, Space, message, Pagination } from 'antd'
 import { EditOutlined, LinkOutlined, PlusOutlined, UserOutlined } from '@ant-design/icons'
@@ -263,7 +264,8 @@ export function ActorsTab() {
                       </Button>
                     </Space>
                   }
-                  meta={
+                  footer={<ManualMediaButton target={{target_type:'actor',entity_id:l.actor_id}} title="修改正面图" onAdopted={loadLinks}/>}
+                meta={
                     <div className="space-y-1">
                       <div className="text-xs text-gray-600 line-clamp-2">{a?.description ?? '—'}</div>
                       <div className="text-xs text-gray-500 truncate">actor_id：{l.actor_id}</div>

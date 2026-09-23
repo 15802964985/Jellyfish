@@ -26,6 +26,9 @@ class EntityNameExistenceItem(BaseModel):
     linked_to_project: bool = Field(..., description="是否已关联到该项目（角色等同于 exists）")
     linked_to_shot: bool = Field(False, description="是否已关联到请求中的 shot（未传 shot_id 时为 false）")
     asset_id: str | None = Field(None, description="命中的资产 ID（如 prop_id/scene_id/costume_id/character_id）")
+    matched_name: str | None = Field(None, description="实际匹配资产名称，不代表已关联")
+    thumbnail: str | None = Field(None, description="匹配资产当前图片")
+    file_id: str | None = Field(None, description="匹配资产图片文件 ID")
     link_id: int | None = Field(None, description="若已关联到项目，对应 Project*Link 的 id；否则为空")
 
 

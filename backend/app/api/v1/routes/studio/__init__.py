@@ -43,3 +43,12 @@ router.include_router(lab_generation_tasks.router, prefix="/generation-tasks/lab
 router.include_router(timeline.router, prefix="/timeline", tags=["studio/timeline"])
 router.include_router(media_assets.router, prefix="/media-assets", tags=["studio/media-assets"])
 router.include_router(shot_character_links.router, prefix="/shot-character-links", tags=["studio/shot-character-links"])
+
+from app.api.v1.routes.studio import creative_direction
+router.include_router(creative_direction.router, prefix="/creative-directions", tags=["studio/creative-directions"])
+
+from .character_appearances import router as character_appearances_router
+router.include_router(character_appearances_router, prefix="/character-appearances", tags=["studio/character-appearances"])
+
+from app.api.v1.routes.studio import web_generation
+router.include_router(web_generation.router, prefix="/web-generation", tags=["studio/web-generation"])

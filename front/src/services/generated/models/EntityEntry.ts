@@ -77,4 +77,3 @@ export type EntityEntry = {
      */
     variants?: Array<EntityVariant>;
 };
-

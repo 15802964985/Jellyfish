@@ -32,6 +32,10 @@ class _DummyDB:
 
         return self.session
 
+    async def execute(self, statement):
+        """Model an empty active-task query; real duplicate behavior has database-backed tests."""
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
+
     async def commit(self) -> None:
         """记录任务和消息完成同一事务提交。"""
 

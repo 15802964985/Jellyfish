@@ -103,6 +103,8 @@ class TaskListItemView:
     task_kind: str
     status: TaskStatus
     progress: int
+    model_name: str | None = None
+    provider_name: str | None = None
     cancel_requested: bool = False
     cancel_requested_at_ts: Optional[float] = None
     started_at_ts: Optional[float] = None

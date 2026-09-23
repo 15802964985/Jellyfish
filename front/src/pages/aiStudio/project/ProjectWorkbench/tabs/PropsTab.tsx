@@ -1,3 +1,5 @@
+import { ManualMediaButton } from '../../../../../components/ManualMediaButton'
+import { PreviewImage } from '../../../../../components/PreviewImage'
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Empty, Input, Modal, Space, message, Pagination } from 'antd'
 import { EditOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons'
@@ -239,7 +241,8 @@ function LinkedAssetTab({
                       </Button>
                     </Space>
                   }
-                  meta={
+                  footer={<ManualMediaButton target={{target_type:kind,entity_id:assetId}} title="修改正面图" onAdopted={loadLinks}/>}
+                meta={
                     <div className="space-y-1">
                       <div className="text-xs text-gray-600 line-clamp-2">{asset?.description ?? '—'}</div>
                       <div className="text-xs text-gray-500 truncate">{`${kind}_id：${assetId}`}</div>
@@ -318,7 +321,7 @@ function LinkedAssetTab({
                 <div key={a.id} className="flex items-center justify-between gap-3 rounded border border-gray-200 p-2 hover:bg-gray-50">
                   <div className="flex items-center gap-2 min-w-0">
                     {resolveAssetUrl(a.thumbnail) ? (
-                      <img src={resolveAssetUrl(a.thumbnail)} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+                      <PreviewImage src={resolveAssetUrl(a.thumbnail)} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
                     ) : (
                       <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-400 shrink-0">—</div>
                     )}

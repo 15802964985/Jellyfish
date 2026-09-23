@@ -1,3 +1,4 @@
+import { reviewGenerationRequest, type GenerationChoice } from '../components/GenerationParameterDialog'
 import { StudioGenerationPromptsService, StudioGenerationTasksService } from '../../../services/generated'
 import type { GenerationSubmitRequest, RenderedPromptSnapshot } from '../../../services/generated'
 import { StudioEntitiesApi } from '../../../services/studioEntities'
@@ -29,7 +30,7 @@ function normalizeUpdateImagePayload(payload: UpdateImagePayload): UpdateImagePa
  * 预览接口仍负责读取资产事实和渲染提示词；提交阶段只冻结最终提示词与
  * FileItem 标识，避免把可变 URL 或资产目标再次放入请求体。
  */
-function createImageGenerationRequest(payload: { prompt: string; images: string[] }): GenerationSubmitRequest {
+function createImageGenerationRequest(payload: { prompt: string; images: string[]; generationChoice?: GenerationChoice | null }): GenerationSubmitRequest {
   return {
     model_id: null,
     execution_prompt: payload.prompt,
@@ -113,11 +114,11 @@ export const assetAdapters = {
     renderPrompt: async (id: string, imageId: number) => {
       return renderAssetImagePrompt('character', id, imageId)
     },
-    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
+    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[]; generationChoice?: GenerationChoice | null }) => {
       const res = await StudioGenerationTasksService.submitCharacterImageGenerationTaskApiV1StudioGenerationTasksCharactersCharacterIdSlotsSlotIdTasksPost({
         characterId: id,
         slotId: imageId,
-        requestBody: createImageGenerationRequest(payload),
+        requestBody: await reviewGenerationRequest(createImageGenerationRequest(payload), undefined, payload.generationChoice),
       })
       return res.data?.task_id ?? null
     },
@@ -147,11 +148,11 @@ export const assetAdapters = {
     renderPrompt: async (id: string, imageId: number) => {
       return renderAssetImagePrompt('actor', id, imageId)
     },
-    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
+    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[]; generationChoice?: GenerationChoice | null }) => {
       const res = await StudioGenerationTasksService.submitActorImageGenerationTaskApiV1StudioGenerationTasksActorsActorIdSlotsSlotIdTasksPost({
         actorId: id,
         slotId: imageId,
-        requestBody: createImageGenerationRequest(payload),
+        requestBody: await reviewGenerationRequest(createImageGenerationRequest(payload), undefined, payload.generationChoice),
       })
       return res.data?.task_id ?? null
     },
@@ -181,12 +182,12 @@ export const assetAdapters = {
     renderPrompt: async (id: string, imageId: number) => {
       return renderAssetImagePrompt('scene', id, imageId)
     },
-    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
+    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[]; generationChoice?: GenerationChoice | null }) => {
       const res = await StudioGenerationTasksService.submitAssetImageGenerationTaskApiV1StudioGenerationTasksAssetsAssetTypeAssetIdSlotsSlotIdTasksPost({
         assetType: 'scene',
         assetId: id,
         slotId: imageId,
-        requestBody: createImageGenerationRequest(payload),
+        requestBody: await reviewGenerationRequest(createImageGenerationRequest(payload), undefined, payload.generationChoice),
       })
       return res.data?.task_id ?? null
     },
@@ -216,12 +217,12 @@ export const assetAdapters = {
     renderPrompt: async (id: string, imageId: number) => {
       return renderAssetImagePrompt('prop', id, imageId)
     },
-    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
+    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[]; generationChoice?: GenerationChoice | null }) => {
       const res = await StudioGenerationTasksService.submitAssetImageGenerationTaskApiV1StudioGenerationTasksAssetsAssetTypeAssetIdSlotsSlotIdTasksPost({
         assetType: 'prop',
         assetId: id,
         slotId: imageId,
-        requestBody: createImageGenerationRequest(payload),
+        requestBody: await reviewGenerationRequest(createImageGenerationRequest(payload), undefined, payload.generationChoice),
       })
       return res.data?.task_id ?? null
     },
@@ -251,12 +252,12 @@ export const assetAdapters = {
     renderPrompt: async (id: string, imageId: number) => {
       return renderAssetImagePrompt('costume', id, imageId)
     },
-    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
+    createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[]; generationChoice?: GenerationChoice | null }) => {
       const res = await StudioGenerationTasksService.submitAssetImageGenerationTaskApiV1StudioGenerationTasksAssetsAssetTypeAssetIdSlotsSlotIdTasksPost({
         assetType: 'costume',
         assetId: id,
         slotId: imageId,
-        requestBody: createImageGenerationRequest(payload),
+        requestBody: await reviewGenerationRequest(createImageGenerationRequest(payload), undefined, payload.generationChoice),
       })
       return res.data?.task_id ?? null
     },

@@ -8,4 +8,3 @@ export type ShotExtractedCandidateLinkRequest = {
      */
     linked_entity_id: string;
 };
-

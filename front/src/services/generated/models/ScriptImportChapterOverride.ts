@@ -7,4 +7,3 @@ export type ScriptImportChapterOverride = {
     theme?: (string | null);
     screenplay_text?: (string | null);
 };
-

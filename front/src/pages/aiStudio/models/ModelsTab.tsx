@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import { isVideoEditOnlyModel } from '../components/modelPurpose'
 import {
   Alert,
+  AutoComplete,
   Layout,
   Input,
   Button,
@@ -250,6 +251,7 @@ export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider
     () => providers.find((provider) => provider.id === selectedFormProviderId),
     [providers, selectedFormProviderId],
   )
+  const isJimengForm = selectedFormProvider ? resolveProviderSpec(selectedFormProvider)?.key === 'jimeng' : false
   const supportedFormCategories = useMemo(() => {
     const spec = selectedFormProvider ? resolveProviderSpec(selectedFormProvider) : null
     if (!spec) return []
@@ -270,9 +272,23 @@ export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider
   }, [selectedFormCategory, selectedFormProvider, supportedProviders])
 
   useEffect(() => {
-    if (modelEditing || !selectedFormProviderId) return
-    void loadFormCatalog(selectedFormProviderId)
-  }, [modelEditing, selectedFormProviderId])
+    // Both edit and create use the current provider; discard late responses after switching or closing.
+    setFormCatalog(null)
+    if (!modelModalOpen || !selectedFormProviderId) return
+    let active = true
+    setFormCatalogLoading(true)
+    const request = LlmService.getProviderModelCatalogApiV1LlmProvidersProviderIdModelsCatalogGet({
+      providerId: selectedFormProviderId,
+    })
+    void request.then((response) => {
+      if (active) setFormCatalog(response.data ?? null)
+    }).catch(() => {
+      if (active) message.error('获取模型列表失败，仍可手动填写模型名称')
+    }).finally(() => {
+      if (active) setFormCatalogLoading(false)
+    })
+    return () => { active = false; request.cancel() }
+  }, [modelModalOpen, selectedFormProviderId])
 
   const handleSaveModel = async () => {
     try {
@@ -283,6 +299,14 @@ export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider
           params = JSON.parse(String(values.params))
       } catch {
         message.error('参数格式需为合法 JSON')
+        return
+      }
+      if (!params || Array.isArray(params) || typeof params !== 'object') {
+        message.error('参数需为 JSON 对象，不能是数组或 null')
+        return
+      }
+      if (unsupportedProviderWarning) {
+        message.error(unsupportedProviderWarning)
         return
       }
       if (modelEditing) {
@@ -413,21 +437,6 @@ export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider
     if (item.provider_ids.length > 1) message.info('此厂商有多个账户，请选择要使用的供应商配置。')
   }
 
-  /** 在添加表单中读取供应商目录；密钥仅在后端用于出站请求。 */
-  const loadFormCatalog = async (providerId: string) => {
-    setFormCatalogLoading(true)
-    try {
-      const response = await LlmService.getProviderModelCatalogApiV1LlmProvidersProviderIdModelsCatalogGet({
-        providerId,
-      })
-      setFormCatalog(response.data ?? null)
-    } catch {
-      setFormCatalog(null)
-      message.error('获取模型列表失败，仍可手动填写模型名称')
-    } finally {
-      setFormCatalogLoading(false)
-    }
-  }
 
   /** 基于已有模型打开「添加模型」浮窗，预填字段，名称追加「-复制」。 */
   const openCopyModelModal = (source: ModelRead) => {
@@ -965,7 +974,7 @@ export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider
               onChange={(providerId: string) => {
                 const preset = overviewPresetForProvider(overviewPresetRef.current, providerId)
                 if (!preset) overviewPresetRef.current = null
-                form.setFieldsValue(preset ?? { category: undefined, names: [] })
+                form.setFieldsValue({ name: undefined, names: [], category: undefined, ...preset })
               }}
             />
           </Form.Item>
@@ -974,21 +983,36 @@ export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider
               disabled={!selectedFormProviderId}
               placeholder={selectedFormProviderId ? '选择模型类别' : '请先选择供应商'}
               options={categorySelectOptions}
-              onChange={() => form.setFieldsValue({ names: [] })}
+              onChange={() => form.setFieldsValue({ name: undefined, names: [] })}
             />
           </Form.Item>
+          {isJimengForm && <Alert type="info" showIcon className="mb-4" message="先选择已开通的服务版本" description="生成时按参考图、参考模式和分辨率匹配官方req_key。目录来自系统已核验适配，不表示账户已经开通；旧固定接口配置可在此编辑改选服务版本。" />}
           {modelEditing ? (
-            <Form.Item name="name" label="模型名称" rules={[{ required: true, message: '请输入模型名称' }]}>
-              <Input placeholder="例如：GPT-4" />
+            <Form.Item name="name" label={isJimengForm ? "服务版本" : "模型名称"} rules={[{ required: true, message: '请输入模型名称' }]}>
+              {isJimengForm ? <Select
+                disabled={!selectedFormCategory} loading={formCatalogLoading}
+                placeholder="选择已开通的服务版本"
+                options={(formCatalog?.models ?? []).filter(candidate => candidate.category === selectedFormCategory)
+                  .map(candidate => ({ value: candidate.name, label: candidate.name }))}
+              /> : (
+              <AutoComplete
+                disabled={!selectedFormCategory}
+                placeholder="选择当前类别的模型，或填写自定义模型名称"
+                options={(formCatalog?.models ?? [])
+                  .filter((candidate) => candidate.category === selectedFormCategory)
+                  .map((candidate) => ({ value: candidate.name }))}
+                filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+              />
+              )}
             </Form.Item>
           ) : (
-            <Form.Item name="names" label="模型名称" rules={[{ required: true, message: '请选择或输入至少一个模型名称' }]}>
+            <Form.Item name="names" label={isJimengForm ? "服务版本" : "模型名称"} rules={[{ required: true, message: '请选择或输入至少一个模型名称' }]}>
               <Select
-                mode="tags"
+                mode={isJimengForm ? "multiple" : "tags"}
                 tokenSeparators={[',', '，']}
                 loading={formCatalogLoading}
                 disabled={!selectedFormCategory}
-                placeholder={selectedFormCategory ? '可多选目录模型，或直接输入模型名称后回车' : '请先选择供应商和类别'}
+                placeholder={selectedFormCategory ? (isJimengForm ? '选择已开通的服务版本，无需填写req_key' : '可多选目录模型，或直接输入模型名称后回车') : '请先选择供应商和类别'}
                 options={(formCatalog?.models ?? [])
                   .filter((candidate) => candidate.category === selectedFormCategory)
                   .map((candidate) => ({
@@ -1004,7 +1028,7 @@ export default function ModelsTab({ onConfigureProvider }: { onConfigureProvider
               />
             </Form.Item>
           )}
-          {!modelEditing && formCatalog && (
+          {formCatalog && (
             <Alert
               type="info"
               showIcon

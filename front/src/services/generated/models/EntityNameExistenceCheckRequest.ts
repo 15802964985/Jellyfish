@@ -31,4 +31,3 @@ export type EntityNameExistenceCheckRequest = {
      */
     costume_names?: Array<string>;
 };
-

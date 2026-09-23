@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Self
 
+from app.core.contracts.creative_direction import CreativeFields
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.studio import ProjectStyle, ProjectVisualStyle
@@ -21,6 +22,7 @@ class ActorBase(BaseModel):
 
 
 class ActorCreate(ActorBase):
+    creative_direction: CreativeFields | None = None
     project_id: str | None = Field(None, description="可选：创建成功后写入 project_actor_links（与演员创建同一事务）")
     chapter_id: str | None = Field(None, description="可选：章节 ID")
     shot_id: str | None = Field(None, description="可选：分镜 ID")
@@ -71,6 +73,7 @@ class CharacterBase(BaseModel):
 
 
 class CharacterCreate(CharacterBase):
+    creative_direction: CreativeFields | None = None
     chapter_id: str | None = Field(None, description="可选：章节 ID")
     shot_id: str | None = Field(None, description="可选：创建成功后自动绑定的分镜 ID")
 

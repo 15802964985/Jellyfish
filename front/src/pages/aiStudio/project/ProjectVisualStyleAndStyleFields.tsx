@@ -15,12 +15,22 @@ export const PROJECT_STYLE_OPTIONS_BY_VISUAL: ProjectStyleOptionsByVisual = {
     { value: '真人都市', label: '真人都市' },
     { value: '真人科幻', label: '真人科幻' },
     { value: '真人古装', label: '真人古装' },
+    { value: '真人玄幻修真', label: '真人玄幻修真' },
+    { value: '真人仙侠', label: '真人仙侠' },
+    { value: '真人穿越', label: '真人穿越' },
   ],
   动漫: [
     { value: '动漫科幻', label: '动漫科幻' },
     { value: '动漫3D', label: '动漫3D' },
     { value: '国漫', label: '国漫' },
     { value: '水墨画', label: '水墨画' },
+    { value: '动漫穿越', label: '动漫穿越' },
+    { value: '动漫古装', label: '动漫古装' },
+    { value: '动漫武侠', label: '动漫武侠' },
+    { value: '动漫玄幻修真', label: '动漫玄幻修真' },
+    { value: '动漫仙侠', label: '动漫仙侠' },
+    { value: '动漫国风神话', label: '动漫国风神话' },
+    { value: '动漫末世科幻', label: '动漫末世科幻' },
   ],
 }
 const DEFAULT_VISUAL_STYLE_OPTIONS: OptionItem[] = [
@@ -79,7 +89,7 @@ export function ProjectVisualStyleAndStyleFields(props: FormModeProps | Controll
 
     return (
       <>
-        <Form.Item name="visual_style" label="视觉风格" rules={[{ required: true }]}>
+        <Form.Item name="visual_style" label="视觉风格" tooltip="选择画面表现形式：现实指真人写实质感，也可以表现玄幻、仙侠等虚构题材。" rules={[{ required: true }]}>
           <Select
             disabled={disabled}
             onChange={(v: string) => {
@@ -94,7 +104,7 @@ export function ProjectVisualStyleAndStyleFields(props: FormModeProps | Controll
           {({ getFieldValue }) => {
             const visual = (getFieldValue('visual_style') as string | undefined) ?? resolvedOptions.visualStyles[0]?.value ?? '现实'
             return (
-              <Form.Item name="style" label="视频风格" rules={[{ required: true }]}>
+              <Form.Item name="style" label="视频风格" tooltip="选择题材与美术方向，会用于相关图片和视频提示词；具体角色、服装、场景仍以剧本和参考图为准。" rules={[{ required: true }]}>
                 <Select disabled={disabled} options={resolvedOptions.stylesByVisual[visual] ?? []} />
               </Form.Item>
             )
@@ -109,7 +119,7 @@ export function ProjectVisualStyleAndStyleFields(props: FormModeProps | Controll
   return (
     <div className="space-y-3">
       <div>
-        <span className="text-gray-600 text-sm">{visualStyleLabel ?? '视觉风格'}</span>
+        <span title="现实表示真人写实质感，也支持玄幻仙侠题材" className="text-gray-600 text-sm">{visualStyleLabel ?? '视觉风格'}</span>
         <Select
           className="mt-1 w-full"
           disabled={disabled}
@@ -122,7 +132,7 @@ export function ProjectVisualStyleAndStyleFields(props: FormModeProps | Controll
         />
       </div>
       <div>
-        <span className="text-gray-600 text-sm">{styleLabel ?? '视频风格'}</span>
+        <span title="题材与美术方向，用于相关图片和视频提示词" className="text-gray-600 text-sm">{styleLabel ?? '视频风格'}</span>
         <Select
           className="mt-1 w-full"
           disabled={disabled}

@@ -9,6 +9,10 @@ import type { ShotAudioCuePlan } from './ShotAudioCuePlan';
 import type { VFXType } from './VFXType';
 export type ShotDetailCreate = {
     /**
+     * 按帧保存参考顺序；缺键自动推荐，空数组明确不使用参考图
+     */
+    frame_reference_selections?: (Record<string, Array<string>> | null);
+    /**
      * 镜头 ID（与 shots.id 共享主键）
      */
     id: string;
@@ -81,4 +85,3 @@ export type ShotDetailCreate = {
      */
     key_frame_prompt?: string;
 };
-

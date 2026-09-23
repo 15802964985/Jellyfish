@@ -15,4 +15,3 @@ export type ParsedScriptChapter = {
     author_prompt_hints?: Record<string, Array<string>>;
     warnings?: Array<string>;
 };
-

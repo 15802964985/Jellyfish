@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { Button, Space, notification } from 'antd'
-import type { ReactNode } from 'react'
+import { useEffect, useRef } from 'react'
+import { Button, notification } from 'antd'
 import type { RelationTaskState } from '../project/ProjectWorkbench/chapterDivisionTasks'
 import { useTaskUiStore } from './taskUiStore'
 
@@ -44,32 +43,12 @@ function formatStartedAt(startedAtTs?: number | null): string | null {
   }).format(new Date(startedAtTs * 1000))
 }
 
-function buildDescription(task: RelationTaskState, runningDescription: string, cancellingDescription: string): ReactNode {
-  const parts: string[] = []
-  parts.push(`进度 ${Math.max(0, Math.min(100, Math.round(task.progress)))}%`)
-  const elapsedLabel = formatElapsedMs(task.elapsedMs)
-  if (elapsedLabel) {
-    parts.push(task.cancelRequested || task.finishedAtTs ? `累计耗时 ${elapsedLabel}` : `已运行 ${elapsedLabel}`)
-  }
-  const startedAtLabel = formatStartedAt(task.startedAtTs)
-  if (startedAtLabel) {
-    parts.push(`开始于 ${startedAtLabel}`)
-  }
-  return (
-    <div className="space-y-1">
-      <div>{task.cancelRequested ? cancellingDescription : runningDescription}</div>
-      {parts.length > 0 ? <div className="text-xs opacity-80">{parts.join(' · ')}</div> : null}
-    </div>
-  )
-}
-
+/** 运行状态写入任务中心，完成时短暂提示；不再常驻通知遮挡关闭按钮。 */
 export function useRelationTaskNotification({
   task,
   settledTask,
   title,
   sourceLabel,
-  runningDescription,
-  cancellingDescription,
   successDescription,
   cancelledDescription,
   failedDescription,
@@ -81,10 +60,6 @@ export function useRelationTaskNotification({
   const settledRemoveTimersRef = useRef<Record<string, number>>({})
   const upsertTask = useTaskUiStore((state) => state.upsertTask)
   const removeTask = useTaskUiStore((state) => state.removeTask)
-  const description = useMemo(() => {
-    if (!task) return null
-    return buildDescription(task, runningDescription, cancellingDescription)
-  }, [cancellingDescription, runningDescription, task])
 
   useEffect(() => {
     const previousTaskId = previousTaskIdRef.current
@@ -119,29 +94,8 @@ export function useRelationTaskNotification({
       onCancel,
       onNavigate,
     })
-    notification.open({
-      key: task.taskId,
-      message: task.cancelRequested ? `${title}正在取消` : `${title}进行中`,
-      description,
-      duration: 0,
-      placement: 'topRight',
-      btn:
-        onNavigate || (onCancel && !task.cancelRequested) ? (
-          <Space size={8}>
-            {onNavigate ? (
-              <Button size="small" onClick={onNavigate}>
-                查看
-              </Button>
-            ) : null}
-            {onCancel && !task.cancelRequested ? (
-              <Button size="small" danger onClick={onCancel}>
-                取消任务
-              </Button>
-            ) : null}
-          </Space>
-        ) : undefined,
-    })
-  }, [description, onCancel, onNavigate, sourceLabel, task, title])
+    // 等待期间仅更新任务中心，避免每次轮询重弹通知、遮挡页面操作。
+  }, [onCancel, onNavigate, sourceLabel, task, title, upsertTask])
 
   useEffect(() => {
     if (!settledTask) return
@@ -197,7 +151,7 @@ export function useRelationTaskNotification({
         </div>
       ),
       duration: statusMeta.duration,
-      placement: 'topRight',
+      placement: 'bottomRight',
       btn: onNavigate ? <Button size="small" onClick={onNavigate}>查看</Button> : undefined,
     })
   }, [cancelledDescription, failedDescription, onNavigate, removeTask, settledTask, sourceLabel, successDescription, title, upsertTask])

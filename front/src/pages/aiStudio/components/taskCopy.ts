@@ -58,9 +58,9 @@ export const TASK_COPY = {
   },
   scriptSimplify: {
     title: '智能精简',
-    runningDescription: '精简完成后会自动回填最新文本。',
+    runningDescription: '后台精简中，可离开页面；完成后预览并自主采用。',
     cancellingDescription: '已发送取消请求，系统会在当前步骤结束后停止。',
-    successDescription: '智能精简已完成，最新文本已自动回填。',
+    successDescription: '智能精简已完成，请返回章节编辑预览并采用。',
     cancelledDescription: '智能精简已取消。',
     failedDescription: '智能精简失败，请稍后重试。',
     startedMessage: '已开始智能精简',
@@ -72,9 +72,9 @@ export const TASK_COPY = {
   },
   scriptOptimize: {
     title: '一键优化',
-    runningDescription: '优化完成后会自动回填原文内容。',
+    runningDescription: '后台优化中，可离开页面；完成后预览并自主采用。',
     cancellingDescription: '已发送取消请求，系统会在当前步骤结束后停止。',
-    successDescription: '一键优化已完成，原文内容已自动回填。',
+    successDescription: '优化稿已生成，尚未替换原文；请预览后采用。',
     cancelledDescription: '一键优化已取消。',
     failedDescription: '一键优化失败，请稍后重试。',
     startedMessage: '已开始一键优化',

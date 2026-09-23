@@ -9,4 +9,3 @@ export type PropInfoAnalysisResult = {
     issues: Array<string>;
     optimized_description: string;
 };
-

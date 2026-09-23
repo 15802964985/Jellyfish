@@ -21,7 +21,9 @@ from app.models.generation_artifacts import GenerationDispatchOutbox
 from app.models.studio import Chapter, FileItem, FileType, FileUsage, Project, Shot, ShotDetail, ShotDialogLine
 from app.models.task import GenerationTask, GenerationTaskStatus
 from app.models.task_links import GenerationTaskLink
-from app.schemas.studio.timeline import ProjectTimelineClipRead, ProjectTimelineRead
+from app.schemas.studio.timeline import ProjectTimelineClipRead, ProjectTimelineRead, ProjectEditPlan, EditVideoClip
+from app.models.studio_projects import ProjectEdit
+from app.services.studio.project_editing import validate_edit_plan, pin_edit_files
 from app.services.studio.file_usages import upsert_file_usage
 from app.services.worker.async_task_support import cancel_if_requested_async
 from app.services.worker.task_logging import log_task_event, log_task_failure
@@ -126,14 +128,60 @@ async def create_project_video_export_task(
     project_id: str,
     allow_partial: bool,
     include_subtitles: bool = True,
+    edit_revision: int | None = None,
 ) -> tuple[str, TaskStatus, bool]:
     """幂等创建项目导出任务，并与任务中心和可靠 Outbox 关联。"""
 
+    project = (await db.execute(select(Project).where(Project.id == project_id).with_for_update())).scalar_one_or_none()
+    if project is None:
+        raise LookupError("project_not_found")
     timeline = await build_project_timeline(db, project_id=project_id)
+    if edit_revision is not None:
+        row = await db.get(ProjectEdit, project_id, populate_existing=True)
+        if row is None or row.revision != edit_revision:
+            raise ValueError("工程版本已变化，请刷新核对后导出")
+        plan = ProjectEditPlan.model_validate(row.plan)
+        await validate_edit_plan(db, project_id, plan, plan)
+        metadata = (await db.execute(select(Shot, Chapter).join(Chapter, Chapter.id == Shot.chapter_id)
+            .where(Chapter.project_id == project_id))).all()
+        by_shot = {shot.id: (shot, chapter) for shot, chapter in metadata}
+        clips = []
+        cursor = 0.0
+        for index, clip in enumerate(plan.clips):
+            if index and plan.clips[index - 1].transition != "cut":
+                cursor -= plan.clips[index - 1].transition_seconds
+            shot, chapter = by_shot[clip.shot_id]
+            duration = clip.out_seconds - clip.in_seconds
+            clips.append(ProjectTimelineClipRead(id=clip.id, chapter_id=chapter.id, chapter_index=chapter.index,
+                chapter_title=chapter.title, shot_id=shot.id, shot_index=shot.index, label=clip.label,
+                file_id=clip.file_id, start_seconds=cursor, end_seconds=cursor + duration, duration_seconds=duration))
+            cursor += duration
+        timeline.clips = clips
+        timeline.missing_shot_ids = [shot.id for shot, _ in metadata if shot.id not in {c.shot_id for c in plan.clips}]
+        timeline.total_duration_seconds = cursor
+        timeline.ready_shots = len({c.shot_id for c in plan.clips})
+        subtitle_content, subtitle_count = _edit_srt(plan)
+    else:
+        plan = ProjectEditPlan(clips=[EditVideoClip(id=c.shot_id, shot_id=c.shot_id, file_id=c.file_id,
+            label=c.label, out_seconds=c.duration_seconds) for c in timeline.clips])
+        subtitle_content, subtitle_count = await _build_project_srt(db, timeline=timeline)
     if not timeline.clips:
         raise ValueError("project_has_no_generated_videos")
     if timeline.missing_shot_ids and not allow_partial:
         raise ValueError("project_video_export_incomplete")
+    media = {}
+    for file_id in {c.file_id for c in plan.clips} | {a.file_id for a in plan.audio}:
+        file = await db.get(FileItem, file_id)
+        if not file or not file.storage_key:
+            raise ValueError("导出引用的文件不存在")
+        media[file_id] = {"storage_key": file.storage_key, "checksum": file.checksum}
+    snapshot = {"timeline": timeline.model_dump(mode="json"), "plan": plan.model_dump(mode="json"),
+        "ratio": project.default_video_ratio, "name": project.name, "media": media,
+        "subtitle_text": subtitle_content.decode("utf-8-sig"), "subtitle_count": subtitle_count,
+        "edit_revision": edit_revision, "include_subtitles": include_subtitles}
+    # 最近成片不是本次编码输入，避免导出结束后改变同内容的摘要。
+    snapshot["timeline"]["latest_export_file_id"] = None
+    snapshot_hash = hashlib.sha256(json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     existing = (
         await db.execute(
             select(GenerationTask)
@@ -147,6 +195,8 @@ async def create_project_video_export_task(
         )
     ).scalars().first()
     if existing is not None:
+        if (existing.payload or {}).get("run_args", {}).get("snapshot_hash") != snapshot_hash:
+            raise ValueError("已有其他版本正在导出，请等待完成或取消后再导出当前工程")
         value = existing.status.value if hasattr(existing.status, "value") else str(existing.status)
         return existing.id, TaskStatus(value), True
 
@@ -159,6 +209,8 @@ async def create_project_video_export_task(
             "project_id": project_id,
             "allow_partial": allow_partial,
             "include_subtitles": include_subtitles,
+            "snapshot": snapshot,
+            "snapshot_hash": snapshot_hash,
         },
     )
     db.add(
@@ -169,6 +221,7 @@ async def create_project_video_export_task(
             relation_entity_id=project_id,
         )
     )
+    await pin_edit_files(db, project_id, plan, f"export:{record.id}")
     db.add(GenerationDispatchOutbox(task_id=record.id, payload={"task_id": record.id}))
     await db.flush()
     return record.id, record.status, False
@@ -238,6 +291,9 @@ async def _normalize_clip(
     target: Path,
     width: int,
     height: int,
+    in_seconds: float = 0,
+    duration_seconds: float | None = None,
+    volume: float = 1,
 ) -> None:
     """统一编码、画布、帧率和音频参数，保证后续无损顺序拼接。"""
 
@@ -262,8 +318,13 @@ async def _normalize_clip(
                 "-shortest",
             ]
         )
+    command.extend(["-ss", str(in_seconds)])
+    if duration_seconds is not None:
+        command.extend(["-t", str(duration_seconds)])
+    command.extend(["-af", f"volume={volume},apad"])
     command.extend(
         [
+            "-shortest",
             "-vf",
             video_filter,
             "-c:v",
@@ -381,10 +442,13 @@ async def _export_project_video(
     allow_partial: bool,
     include_subtitles: bool,
     store: SqlAlchemyTaskStore,
+    snapshot: dict | None = None,
+    snapshot_hash: str | None = None,
 ) -> dict[str, object]:
     """下载镜头、规范化后顺序拼接，并把成片登记回项目文件资产。"""
 
-    timeline = await build_project_timeline(db, project_id=project_id)
+    timeline = ProjectTimelineRead.model_validate(snapshot["timeline"]) if snapshot else await build_project_timeline(db, project_id=project_id)
+    plan = ProjectEditPlan.model_validate(snapshot["plan"]) if snapshot else None
     if not timeline.clips:
         raise RuntimeError("项目没有可导出的镜头视频")
     if timeline.missing_shot_ids and not allow_partial:
@@ -396,7 +460,9 @@ async def _export_project_video(
     ffprobe = shutil.which("ffprobe")
     if not ffmpeg or not ffprobe:
         raise RuntimeError("运行环境缺少 FFmpeg/FFprobe，无法导出成片")
-    width, height = _output_size(project.default_video_ratio)
+    width, height = _output_size(snapshot.get("ratio") if snapshot else project.default_video_ratio)
+    if plan and plan.resolution == 1080:
+        width, height = width * 3 // 2, height * 3 // 2
 
     with tempfile.TemporaryDirectory(prefix="jellyfish-project-export-") as temp_dir:
         workdir = Path(temp_dir)
@@ -409,7 +475,9 @@ async def _export_project_video(
                 raise RuntimeError(f"镜头视频文件不存在：{clip.shot_id}")
             source = workdir / f"source-{index:04d}.bin"
             target = workdir / f"clip-{index:04d}.mp4"
-            source.write_bytes(await storage.download_file(key=file_item.storage_key))
+            key = snapshot["media"][clip.file_id]["storage_key"] if snapshot else file_item.storage_key
+            source.write_bytes(await storage.download_file(key=key))
+            edit = plan.clips[index] if plan else None
             await _normalize_clip(
                 ffmpeg=ffmpeg,
                 ffprobe=ffprobe,
@@ -417,6 +485,9 @@ async def _export_project_video(
                 target=target,
                 width=width,
                 height=height,
+                in_seconds=edit.in_seconds if edit else 0,
+                duration_seconds=clip.duration_seconds,
+                volume=edit.volume if edit else 1,
             )
             normalized_paths.append(target)
             await store.set_progress(task_id, 10 + int(70 * (index + 1) / len(timeline.clips)))
@@ -428,27 +499,45 @@ async def _export_project_video(
             encoding="utf-8",
         )
         concat_output = workdir / "project-concat.mp4"
-        await _run_process(
-            [
-                ffmpeg,
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_file),
-                "-c",
-                "copy",
-                "-movflags",
-                "+faststart",
-                str(concat_output),
-            ]
-        )
-        subtitle_content, subtitle_count = await _build_project_srt(db, timeline=timeline)
+        if plan and any(c.transition != "cut" for c in plan.clips[:-1]):
+            await _run_process(build_transition_command(ffmpeg=ffmpeg, sources=normalized_paths, target=concat_output, plan=plan))
+        else:
+            await _run_process(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(concat_file),
+                    "-c",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    str(concat_output),
+                ]
+            )
+        if plan and plan.audio:
+            audio_paths = []
+            for index, audio in enumerate(plan.audio):
+                if await cancel_if_requested_async(store=store, task_id=task_id, session=db):
+                    return {}
+                path = workdir / f"audio-{index}.bin"
+                path.write_bytes(await storage.download_file(key=snapshot["media"][audio.file_id]["storage_key"]))
+                audio_paths.append(path)
+            mixed = workdir / "project-mixed.mp4"
+            await _mix_edit_audio(ffmpeg=ffmpeg, video=concat_output, target=mixed, plan=plan, sources=audio_paths)
+            concat_output = mixed
+        if snapshot:
+            subtitle_content = snapshot["subtitle_text"].encode("utf-8-sig") if snapshot["subtitle_text"] else b""
+            subtitle_count = snapshot["subtitle_count"]
+        else:
+            subtitle_content, subtitle_count = await _build_project_srt(db, timeline=timeline)
         output = concat_output
         if include_subtitles and subtitle_content:
             subtitle_path = workdir / "project-subtitles.srt"
@@ -462,6 +551,8 @@ async def _export_project_video(
             )
         content = output.read_bytes()
 
+    if await cancel_if_requested_async(store=store, task_id=task_id, session=db):
+        return {}
     file_id = uuid4().hex
     object_key = f"project-exports/{project_id}/{file_id}.mp4"
     stored = await storage.upload_file(
@@ -545,6 +636,8 @@ async def _export_project_video(
         "height": height,
         "subtitle_count": subtitle_count if include_subtitles else 0,
         "subtitle_file_id": subtitle_file_id,
+        "edit_revision": snapshot.get("edit_revision") if snapshot else None,
+        "snapshot_hash": snapshot_hash,
     }
 
 
@@ -569,6 +662,8 @@ async def run_project_video_export_task(task_id: str, run_args: dict) -> None:
                 allow_partial=bool(run_args.get("allow_partial")),
                 include_subtitles=bool(run_args.get("include_subtitles", True)),
                 store=store,
+                snapshot=run_args.get("snapshot"),
+                snapshot_hash=run_args.get("snapshot_hash"),
             )
             if not result:
                 return
@@ -594,3 +689,62 @@ __all__ = [
     "create_project_video_export_task",
     "run_project_video_export_task",
 ]
+
+
+def _edit_srt(plan: ProjectEditPlan) -> tuple[bytes, int]:
+    """按人工确定的成片绝对时间生成字幕，不重新按对白字数估算。"""
+    cues = [f"{i}\n{_srt_timestamp(c.start_seconds)} --> {_srt_timestamp(c.end_seconds)}\n{c.text.replace(chr(13), '').strip()}\n"
+        for i, c in enumerate(sorted(plan.subtitles, key=lambda c: c.start_seconds), 1)]
+    return ("\n".join(cues).encode("utf-8-sig") if cues else b"", len(cues))
+
+
+def build_edit_mix_command(*, ffmpeg: str, video: Path, target: Path, plan: ProjectEditPlan, sources: list[Path]) -> list[str]:
+    """编译多轨时间偏移、裁剪和增益；主轨决定长度，限幅避免叠音削波。"""
+    command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-i", str(video)]
+    filters = ["[0:a:0]aresample=48000,asetpts=PTS-STARTPTS[base]"]
+    labels = ["[base]"]
+    for index, (audio, source) in enumerate(zip(plan.audio, sources), 1):
+        command.extend(["-i", str(source)])
+        filters.append(f"[{index}:a:0]atrim=start={audio.in_seconds}:duration={audio.duration_seconds},"
+            f"asetpts=PTS-STARTPTS,aresample=48000,volume={audio.volume},"
+            f"adelay={round(audio.start_seconds * 1000)}:all=1[a{index}]")
+        labels.append(f"[a{index}]")
+    filters.append("".join(labels) + f"amix=inputs={len(labels)}:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95:level=0:latency=1[mix]")
+    command.extend(["-filter_complex", ";".join(filters), "-map", "0:v:0", "-map", "[mix]",
+        "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k", "-movflags", "+faststart", str(target)])
+    return command
+
+
+async def _mix_edit_audio(*, ffmpeg: str, video: Path, target: Path, plan: ProjectEditPlan, sources: list[Path]) -> None:
+    """调用统一混音编译器，离线验证与生产导出使用同一命令。"""
+    await _run_process(build_edit_mix_command(ffmpeg=ffmpeg, video=video, target=target, plan=plan, sources=sources))
+
+
+def build_transition_command(*, ffmpeg: str, sources: list[Path], target: Path, plan: ProjectEditPlan) -> list[str]:
+    """一次滤镜图完成转场及原声音轨交叉淡化，避免中间版本反复有损编码。"""
+    command = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-filter_complex_threads", "1"]
+    filters = []
+    for index, source in enumerate(sources):
+        command.extend(["-i", str(source)])
+        filters.extend([f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS,fps=25[v{index}]",
+            f"[{index}:a]aresample=48000,asetpts=PTS-STARTPTS[a{index}]"])
+    video, audio = "v0", "a0"
+    cursor = plan.clips[0].out_seconds - plan.clips[0].in_seconds
+    for index in range(1, len(sources)):
+        previous = plan.clips[index - 1]
+        next_video, next_audio = f"joinv{index}", f"joina{index}"
+        if previous.transition == "cut":
+            filters.append(f"[{video}][{audio}][v{index}][a{index}]concat=n=2:v=1:a=1[{next_video}][{next_audio}]")
+        else:
+            duration = previous.transition_seconds
+            cursor -= duration
+            filters.extend([f"[{video}][v{index}]xfade=transition={previous.transition}:duration={duration}:offset={cursor}[{next_video}]",
+                f"[{audio}][a{index}]acrossfade=d={duration}:c1=tri:c2=tri[{next_audio}]"])
+        # concat changes timebase and frame-rate metadata; normalize before any following xfade.
+        filters.append(f"[{next_video}]fps=25[clockv{index}]")
+        video, audio = f"clockv{index}", next_audio
+        cursor += plan.clips[index].out_seconds - plan.clips[index].in_seconds
+    command.extend(["-filter_complex", ";".join(filters), "-map", f"[{video}]", "-map", f"[{audio}]",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "25", "-c:a", "aac",
+        "-b:a", "192k", "-movflags", "+faststart", str(target)])
+    return command

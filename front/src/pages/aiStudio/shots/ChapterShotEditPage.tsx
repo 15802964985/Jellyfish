@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Badge, Button, Card, Divider, Empty, Layout, List, Modal, Popconfirm, Segmented, Space, Spin, Tabs, Tooltip, Typography, message } from 'antd'
+import { Badge, Button, Card, Divider, Empty, Layout, List, Popconfirm, Segmented, Space, Spin, Tabs, Tooltip, Typography, message } from 'antd'
 import { ArrowLeftOutlined, ClearOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import type {
   EntityNameExistenceItem,
@@ -25,7 +25,7 @@ import {
 import { executeAsyncTaskCreate, executeTaskCancel, notifyExistingTask } from '../components/taskActionHelpers'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { getChapterShotEditPath, getChapterShotsPath, getChapterStudioPath } from '../project/ProjectWorkbench/routes'
-import { DisplayImageCard } from '../assets/components/DisplayImageCard'
+import { PreparationAssetDialog, type PreparationAssetTarget } from './components/PreparationAssetDialog'
 import { ChapterShotAssetConfirmation } from './components/ChapterShotAssetConfirmation'
 import { ChapterShotBasicInfoSection } from './components/ChapterShotBasicInfoSection'
 import { ChapterShotDialogueConfirmation } from './components/ChapterShotDialogueConfirmation'
@@ -39,8 +39,6 @@ import {
   SCRIPT_EXTRACTION_RELATION_TYPE,
   useCancelableRelationTask,
 } from '../project/ProjectWorkbench/chapterDivisionTasks'
-import { StudioEntitiesApi } from '../../../services/studioEntities'
-import { resolveAssetUrl } from '../assets/utils'
 
 const { Header, Content } = Layout
 const extractTaskCopy = TASK_COPY.scriptExtract
@@ -210,26 +208,12 @@ export function ChapterShotEditPage() {
   const [selectedShotIds, setSelectedShotIds] = useState<string[]>(shotId ? [shotId] : [])
   const pendingExternalAssetCreateRef = useRef(false)
 
-  const [linkingOpen, setLinkingOpen] = useState(false)
-  const [linkingLoading, setLinkingLoading] = useState(false)
-  const [linkingActionLoading, setLinkingActionLoading] = useState(false)
-  const [linkingHint, setLinkingHint] = useState<string>('')
-  const [linkingKind, setLinkingKind] = useState<AssetKind>('scene')
-  const [linkingName, setLinkingName] = useState<string>('')
-  const [linkingThumb, setLinkingThumb] = useState<string | undefined>(undefined)
-  const [linkingItem, setLinkingItem] = useState<EntityNameExistenceItem | null>(null)
-
+  const [assetTarget, setAssetTarget] = useState<PreparationAssetTarget>()
   const [existenceByKindName, setExistenceByKindName] = useState<Record<AssetKind, Record<string, EntityNameExistenceItem>>>({
     scene: {},
     actor: {},
     prop: {},
     costume: {},
-  })
-  const existenceInFlightRef = useRef<Record<AssetKind, boolean>>({
-    scene: false,
-    actor: false,
-    prop: false,
-    costume: false,
   })
 
   const [dialogLoading, setDialogLoading] = useState(false)
@@ -703,7 +687,6 @@ export function ChapterShotEditPage() {
     }
 
     const handleFocus = () => {
-      if (!pendingExternalAssetCreateRef.current) return
       void refreshAfterExternalCreate()
     }
 
@@ -972,139 +955,8 @@ export function ChapterShotEditPage() {
     goShot(nextActionableShot.id)
   }, [nextActionableShot])
 
-  const openLinkingModal = useCallback(
-    async (kind: AssetKind, name: string, item: EntityNameExistenceItem, hint: string) => {
-      setLinkingKind(kind)
-      setLinkingName(name)
-      setLinkingItem(item)
-      setLinkingHint(hint)
-      setLinkingThumb(undefined)
-      setLinkingOpen(true)
-      if (!item.asset_id) return
-      setLinkingLoading(true)
-      try {
-        const entityType =
-          kind === 'scene' ? 'scene' : kind === 'prop' ? 'prop' : kind === 'costume' ? 'costume' : 'character'
-        const res = await StudioEntitiesApi.get(entityType as any, item.asset_id)
-        const data: any = res.data
-        const thumb = resolveAssetUrl(data?.thumbnail ?? data?.images?.[0]?.thumbnail ?? '')
-        setLinkingThumb(thumb || undefined)
-      } catch {
-        // ignore
-      } finally {
-        setLinkingLoading(false)
-      }
-    },
-    [],
-  )
-
-  const doLink = useCallback(async () => {
-    if (!projectId || !chapterId || !shotId) return
-    if (!linkingItem?.asset_id) return
-    setLinkingActionLoading(true)
-    try {
-      const res = await StudioShotsService.linkExistingAssetForPreparationApiApiV1StudioShotsShotIdPreparationLinkPost({
-        shotId,
-        requestBody: {
-          project_id: projectId,
-          chapter_id: chapterId,
-          entity_type: linkingKind === 'actor' ? 'character' : linkingKind,
-          linked_entity_id: linkingItem.asset_id,
-        },
-      })
-      message.success('已关联')
-      if (res.data?.state) {
-        applyPreparationState(res.data.state)
-      } else {
-        await loadPreparationState({ silent: true })
-      }
-      setLinkingOpen(false)
-    } catch {
-      message.error('关联失败')
-    } finally {
-      setLinkingActionLoading(false)
-    }
-  }, [applyPreparationState, chapterId, linkingItem?.asset_id, linkingKind, loadPreparationState, projectId, shotId])
-
-  const handleNewAsset = useCallback(
-    async (asset: AssetVM) => {
-      if (!projectId || !chapterId || !shotId) return
-      const name = asset.name.trim()
-      if (!name) return
-      try {
-        const req: any = { project_id: projectId, shot_id: shotId }
-        if (asset.kind === 'scene') req.scene_names = [name]
-        else if (asset.kind === 'prop') req.prop_names = [name]
-        else if (asset.kind === 'costume') req.costume_names = [name]
-        else req.character_names = [name]
-
-        const res = await StudioEntitiesService.checkEntityNamesExistenceApiV1StudioEntitiesExistenceCheckPost({
-          requestBody: req,
-        })
-        const data = res.data
-        const bucket =
-          asset.kind === 'scene'
-            ? data?.scenes
-            : asset.kind === 'prop'
-              ? data?.props
-              : asset.kind === 'costume'
-                ? data?.costumes
-                : data?.characters
-        const item = (bucket?.[0] as EntityNameExistenceItem | undefined) ?? null
-        if (!item) {
-          message.error('existence-check 返回为空')
-          return
-        }
-
-        if (!item.exists) {
-          Modal.confirm({
-            title: '当前无可关联资产，是否新建？',
-            okText: '新建',
-            cancelText: '取消',
-            onOk: () => {
-              pendingExternalAssetCreateRef.current = true
-              const open = (url: string) => window.open(url, '_blank', 'noopener,noreferrer')
-              const descQ = asset.description?.trim()
-                ? `&desc=${encodeURIComponent(asset.description.trim())}`
-                : ''
-              const styleQ =
-                `&visualStyle=${encodeURIComponent(projectVisualStyle)}` +
-                `&style=${encodeURIComponent(projectStyle)}`
-              const ctxQ =
-                `&projectId=${encodeURIComponent(projectId)}` +
-                `&chapterId=${encodeURIComponent(chapterId)}` +
-                `&shotId=${encodeURIComponent(shotId)}` +
-                styleQ
-              if (asset.kind === 'scene' || asset.kind === 'prop' || asset.kind === 'costume') {
-                open(
-                  `/assets?tab=${asset.kind}&create=1&name=${encodeURIComponent(name)}${descQ}${ctxQ}`,
-                )
-                return
-              }
-              open(
-                `/projects/${encodeURIComponent(projectId)}?tab=roles&create=1&name=${encodeURIComponent(name)}${descQ}${ctxQ}`,
-              )
-            },
-          })
-          return
-        }
-
-        if (item.exists && !item.linked_to_project) {
-          await openLinkingModal(asset.kind, name, item, '在资产库中存在同名资产，可关联')
-          return
-        }
-        if (item.exists && item.linked_to_project && !item.linked_to_shot) {
-          await openLinkingModal(asset.kind, name, item, '项目中存在同名资产，可关联')
-          return
-        }
-
-        message.info('该资产已关联到当前镜头')
-      } catch {
-        message.error('existence-check 调用失败')
-      }
-    },
-    [openLinkingModal, chapterId, projectId, projectStyle, projectVisualStyle, shotId],
-  )
+  /** Unified action keeps creation and explicit matching inside the current shot. */
+  const handleNewAsset = (asset: AssetVM) => setAssetTarget(asset)
 
   const ignoreCandidate = useCallback(
     async (asset: AssetVM) => {
@@ -1131,63 +983,22 @@ export function ChapterShotEditPage() {
   )
 
 
-  const prefetchExistenceForNewAssets = useCallback(
-    async (kind: AssetKind, items: AssetVM[]) => {
-      if (!projectId || !shotId) return
-      if (existenceInFlightRef.current[kind]) return
-      const missingNames = items
-        .filter((x) => x.status === 'new')
-        .map((x) => x.name.trim())
-        .filter(Boolean)
-        .filter((n) => !existenceByKindName[kind][n])
-      if (missingNames.length === 0) return
-
-      existenceInFlightRef.current[kind] = true
-      try {
-        const req: any = { project_id: projectId, shot_id: shotId }
-        if (kind === 'scene') req.scene_names = missingNames
-        else if (kind === 'prop') req.prop_names = missingNames
-        else if (kind === 'costume') req.costume_names = missingNames
-        else req.character_names = missingNames
-
-        const res = await StudioEntitiesService.checkEntityNamesExistenceApiV1StudioEntitiesExistenceCheckPost({
-          requestBody: req,
-        })
-        const data = res.data
-        const bucket =
-          kind === 'scene'
-            ? data?.scenes
-            : kind === 'prop'
-              ? data?.props
-              : kind === 'costume'
-                ? data?.costumes
-                : data?.characters
-        const list = Array.isArray(bucket) ? (bucket as EntityNameExistenceItem[]) : []
-        if (list.length === 0) return
-        setExistenceByKindName((prev) => {
-          const next = { ...prev, [kind]: { ...prev[kind] } }
-          for (const it of list) {
-            const key = it?.name?.trim?.() ? it.name.trim() : ''
-            if (!key) continue
-            next[kind][key] = it
-          }
-          return next
-        })
-      } catch {
-        // 静默：避免频繁 toast
-      } finally {
-        existenceInFlightRef.current[kind] = false
-      }
-    },
-    [existenceByKindName, projectId, shotId],
-  )
-
+  // Reload live matches after preparation updates; stale shot responses cannot overwrite the current one.
   useEffect(() => {
-    void prefetchExistenceForNewAssets('scene', unionAssets.scene)
-    void prefetchExistenceForNewAssets('actor', unionAssets.actor)
-    void prefetchExistenceForNewAssets('prop', unionAssets.prop)
-    void prefetchExistenceForNewAssets('costume', unionAssets.costume)
-  }, [prefetchExistenceForNewAssets, unionAssets])
+    if (!projectId || !shotId) return
+    let disposed = false
+    const names = (kind: AssetKind) => unionAssets[kind].filter(a => a.status === 'new').map(a => a.name.trim()).filter(Boolean)
+    const request = StudioEntitiesService.checkEntityNamesExistenceApiV1StudioEntitiesExistenceCheckPost({requestBody: {
+      project_id: projectId, shot_id: shotId, scene_names: names('scene'), character_names: names('actor'), prop_names: names('prop'), costume_names: names('costume'),
+    }})
+    setExistenceByKindName({scene:{}, actor:{}, prop:{}, costume:{}})
+    request.then(r => {
+      if (disposed) return
+      const index = (rows: EntityNameExistenceItem[] = []) => Object.fromEntries(rows.map(row => [row.name.trim(),row]))
+      setExistenceByKindName({scene:index(r.data?.scenes),actor:index(r.data?.characters),prop:index(r.data?.props),costume:index(r.data?.costumes)})
+    }).catch(() => { if (!disposed) message.warning('已有资产检查失败，仍可点击选择 / 新建后刷新列表') })
+    return () => { disposed = true; request.cancel() }
+  }, [projectId, shotId, unionAssets])
 
   if (!projectId || !chapterId || !shotId) {
     return <Navigate to="/projects" replace />
@@ -1451,7 +1262,8 @@ export function ChapterShotEditPage() {
             existenceByKindName={existenceByKindName}
             onToggleExpanded={toggleExpanded}
             onIgnoreCandidate={(asset) => void ignoreCandidate(asset)}
-            onHandleNewAsset={(asset) => void handleNewAsset(asset)}
+            onHandleNewAsset={handleNewAsset}
+            onCreateAsset={kind => setAssetTarget({kind, name: "", create: true})}
           />
 
           <Divider className="!my-1" />
@@ -1768,40 +1580,11 @@ export function ChapterShotEditPage() {
         </Card>
       </Content>
 
-      <Modal
-        title="关联资产"
-        open={linkingOpen}
-        onCancel={() => setLinkingOpen(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setLinkingOpen(false)} disabled={linkingActionLoading}>
-            取消
-          </Button>,
-          <Button
-            key="link"
-            type="primary"
-            loading={linkingActionLoading}
-            disabled={!linkingItem?.asset_id}
-            onClick={() => void doLink()}
-          >
-            关联
-          </Button>,
-        ]}
-        width={520}
-      >
-        <div className="space-y-3">
-          <Typography.Text>{linkingHint}</Typography.Text>
-          <DisplayImageCard
-            title={<div className="truncate">{linkingName || '—'}</div>}
-            imageAlt={linkingName || 'asset'}
-            imageUrl={linkingThumb}
-            placeholder={linkingLoading ? <Spin /> : '暂无图片'}
-            enablePreview
-            hoverable={false}
-            size="small"
-            imageHeightClassName="h-44"
-          />
-        </div>
-      </Modal>
+      {assetTarget && <PreparationAssetDialog key={shotId + ':' + assetTarget.kind + ':' + (assetTarget.candidateId || '')}
+        target={assetTarget} projectId={projectId} chapterId={chapterId} shotId={shotId}
+        visualStyle={projectVisualStyle} style={projectStyle} onClose={() => setAssetTarget(undefined)}
+        onSaved={state => { applyPreparationState(state); setExistenceByKindName({scene:{}, actor:{}, prop:{}, costume:{}}) }} />}
+
     </Layout>
   )
 }

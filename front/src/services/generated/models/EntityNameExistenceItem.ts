@@ -27,8 +27,19 @@ export type EntityNameExistenceItem = {
      */
     asset_id?: (string | null);
     /**
+     * 实际匹配资产名称，不代表已关联
+     */
+    matched_name?: (string | null);
+    /**
+     * 匹配资产当前图片
+     */
+    thumbnail?: (string | null);
+    /**
+     * 匹配资产图片文件 ID
+     */
+    file_id?: (string | null);
+    /**
      * 若已关联到项目，对应 Project*Link 的 id；否则为空
      */
     link_id?: (number | null);
 };
-

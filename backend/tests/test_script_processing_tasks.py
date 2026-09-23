@@ -46,6 +46,16 @@ from app.services.script_processing_tasks import (
 )
 
 
+@pytest.fixture(autouse=True)
+def creative_context_for_orchestration(monkeypatch):
+    """任务编排测试隔离配置存储；真实继承与版本在 creative_direction 集成测试覆盖。"""
+    from unittest.mock import AsyncMock
+    from app.core.contracts.creative_direction import CreativeRead
+    from app.services.studio import creative_direction
+    snapshot = CreativeRead(scope='global', entity_id='system', revision=0, overrides={}, inherited={}, effective={}, sources={}, fingerprint='isolated-test', warnings=[], provenance={})
+    monkeypatch.setattr(creative_direction, 'read_direction', AsyncMock(return_value=snapshot))
+
+
 @pytest.mark.asyncio
 async def test_create_script_import_analysis_task_freezes_approved_model() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
@@ -114,7 +124,7 @@ async def test_create_divide_task_creates_task_and_link() -> None:
                 }
             },
         }
-        assert task.payload["snapshot"] == {
+        assert {**task.payload["snapshot"], "run_args": {k:v for k,v in task.payload["snapshot"]["run_args"].items() if k not in {"creative_direction", "creative_context"}}} == {
             "operation": "divide",
             "run_args": {
                 "chapter_id": "chapter-1",
@@ -702,7 +712,7 @@ class _FakeDraft:
 
 
 class _FakeExtractorAgent:
-    def __init__(self, _llm) -> None:
+    def __init__(self, _llm, *, creative_context="") -> None:
         pass
 
     def extract(self, **_kwargs):

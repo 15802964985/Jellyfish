@@ -51,3 +51,12 @@ async def test_bounded_read_and_no_secrets(monkeypatch, status, body, expected):
 async def test_missing_source():
     """Missing metadata is not a successful official check."""
     assert (await docs.fetch_official_document(None)).status == "not_registered"
+
+
+@pytest.mark.asyncio
+async def test_allow_only_document_language_query(monkeypatch):
+    """Official language selectors work without permitting arbitrary query-based fetches."""
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *args, **kwargs: [(2, 1, 6, "", ("8.8.8.8", 443))])
+    await docs.validate_official_url("https://docs.volcengine.com/docs/85621/2533614?lang=zh")
+    with pytest.raises(ValueError):
+        await docs.validate_official_url("https://docs.volcengine.com/docs/85621/2533614?lang=zh&url=x")

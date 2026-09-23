@@ -1,3 +1,4 @@
+import { BackgroundTaskNotice } from '../../../components/BackgroundTaskNotice'
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Alert, Card, Button, Checkbox, Tag, Space, Table, Empty, Modal, Input, Dropdown, Upload, Pagination, Select, message } from 'antd'
 import type { MenuProps, TableColumnsType } from 'antd'
@@ -103,6 +104,21 @@ export function ChaptersTab() {
   const [importOpen, setImportOpen] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importBatch, setImportBatch] = useState<ScriptImportRead | null>(null)
+  // 仅保存恢复指针，临时分析材料不自动转为已保存业务草稿。
+  useEffect(() => {
+    if (!projectId) return
+    const key = `jellyfish_import_task:${projectId}`
+    if (importBatch?.status === 'analyzing') { try { sessionStorage.setItem(key, importBatch.id) } catch { /* 内存工作区仍保留 */ } }
+  }, [projectId, importBatch?.id, importBatch?.status])
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled=false, id:string|null=null
+    try { id=searchParams.get('importId') || sessionStorage.getItem(`jellyfish_import_task:${projectId}`) } catch { /* 无存储无需恢复 */ }
+    if(id)void StudioScriptImportsService.getScriptImportApiApiV1StudioScriptImportsImportIdGet({importId:id}).then(r=>{
+      if(!cancelled&&r.data&&r.data.project_id===projectId){void restoreScriptImportBatch(r.data);if(searchParams.get('importId'))setImportOpen(true)}
+    }).catch(()=>{})
+    return()=>{cancelled=true}
+  }, [projectId, searchParams.get('importId')])
   const [selectedImportChapters, setSelectedImportChapters] = useState<number[]>([])
   const [importChapterEdits, setImportChapterEdits] = useState<Record<number, ImportChapterEdit>>({})
   const [candidateDecisions, setCandidateDecisions] = useState<Record<string, ScriptImportCandidateDecision>>({})
@@ -470,6 +486,7 @@ export function ChaptersTab() {
             requestBody: { model_id: modelId },
           })
           if (!response.data?.task_id) throw new Error('分析任务创建失败')
+          window.dispatchEvent(new CustomEvent('jellyfish:task-accepted',{detail:{taskId:response.data.task_id,title:'剧本深度分析'}}))
           setImportBatch((current) => current ? { ...current, status: 'analyzing', error_message: '' } : current)
           message.success('AI 深度分析任务已创建，可在任务中心查看')
         },
@@ -684,6 +701,7 @@ export function ChaptersTab() {
   /** 清空当前导入工作区；仅处理前端状态，不改变已保存草稿。 */
   const resetScriptImportWorkspace = () => {
     setImportOpen(false)
+    try { sessionStorage.removeItem(`jellyfish_import_task:${projectId}`) } catch { /* 无存储 */ }
     setImportBatch(null)
     setSelectedImportChapters([])
     setImportChapterEdits({})
@@ -692,11 +710,14 @@ export function ChaptersTab() {
     setImportMediaPlan(null)
   }
 
-  /** 关闭临时预览时主动丢弃未保存批次，避免“上传即自动保存草稿”。 */
+  /** 模型任务与结果保留可恢复指针；普通未保存上传仍按临时预览处理。 */
   const handleCloseScriptImport = async () => {
     if (importing) return
-    if (importBatch?.status === 'analyzing') {
-      message.warning('AI 深度分析仍在进行，请先到任务中心取消后再关闭')
+    let trackedImport: string | null = null
+    try { trackedImport=sessionStorage.getItem(`jellyfish_import_task:${projectId}`) } catch { /* 无存储按服务端结果判断 */ }
+    if (importBatch && (importBatch.status === 'analyzing' || trackedImport === importBatch.id || Object.keys(importBatch.analysis_result || {}).length > 0)) {
+      setImportOpen(false)
+      message.info('分析任务及结果已保留，可返回此窗口或通过任务中心恢复；编辑草稿仍需主动保存')
       return
     }
     if (importBatch && !importBatch.is_saved && importBatch.status !== 'committed') {
@@ -761,7 +782,8 @@ export function ChaptersTab() {
       maskClosable={!importing}
       width={900}
     >
-      <div className="space-y-4">
+<div className="space-y-4">
+        <BackgroundTaskNotice active={importBatch?.status === 'analyzing'} />
         <div className="flex items-center justify-between gap-3 rounded border border-blue-100 bg-blue-50 px-3 py-2 text-sm">
           <span>支持自由格式智能解析；推荐结构可提高章节、画面、镜头和声音识别准确度。</span>
           <Button type="link" size="small" onClick={showScriptImportGuide}>查看格式与内容规范</Button>

@@ -8,6 +8,7 @@ import type { CameraShotType } from './CameraShotType';
 import type { ShotAudioCuePlan } from './ShotAudioCuePlan';
 import type { VFXType } from './VFXType';
 export type ShotDetailUpdate = {
+    frame_reference_selections?: (Record<string, Array<string>> | null);
     camera_shot?: (CameraShotType | null);
     angle?: (CameraAngle | null);
     movement?: (CameraMovement | null);
@@ -26,4 +27,3 @@ export type ShotDetailUpdate = {
     last_frame_prompt?: (string | null);
     key_frame_prompt?: (string | null);
 };
-

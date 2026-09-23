@@ -32,4 +32,3 @@ export type ShotVideoPromptPreviewRead = {
      */
     warnings?: Array<string>;
 };
-

@@ -19,4 +19,3 @@ export type ScriptDividerRequest = {
      */
     chapter_id?: (string | null);
 };
-

@@ -1,3 +1,4 @@
+from app.core.integrations.traced_http import create_http_client
 """Verified BigModel and TokenHub media contracts (2026-09-08), not generic OpenAI guessing."""
 import asyncio
 import base64
@@ -114,7 +115,7 @@ class DomesticImageApiAdapter:
         """Do not report success when no usable image is returned."""
         body = image_body(cfg.provider, inp)
         path = "/images/generations" if cfg.provider == "zhipu" else "/wand/hunyuan-image/v3-generation"
-        async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=False) as client:
+        async with create_http_client(timeout=timeout_s, follow_redirects=False) as client:
             payload = await request_json(client, cfg=cfg, method="POST", path=path, json=body)
         images = [ImageItem(url=row["url"]) for row in payload.get("data", [])
             if isinstance(row, dict) and isinstance(row.get("url"), str) and urlsplit(row["url"]).scheme == "https"]
@@ -168,7 +169,7 @@ class DomesticVideoApiAdapter:
         zhipu = cfg.provider == "zhipu"
         path = "/videos/generations" if zhipu else "/wand/hunyuan-video/generation"
         async with asyncio.timeout(3300):
-            async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=False) as client:
+            async with create_http_client(timeout=timeout_s, follow_redirects=False) as client:
                 created = await request_json(client, cfg=cfg, method="POST", path=path, json=body)
                 task_id = created.get("id" if zhipu else "task_id")
                 if not isinstance(task_id, str) or not task_id:

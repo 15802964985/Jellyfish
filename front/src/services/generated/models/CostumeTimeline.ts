@@ -20,4 +20,3 @@ export type CostumeTimeline = {
      */
     timeline_entries?: Array<CostumeTimelineEntry>;
 };
-

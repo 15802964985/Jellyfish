@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.core.contracts.creative_direction import CreativeFields
 from app.models.studio import ChapterStatus, ProjectStyle, ProjectVisualStyle
 
 
@@ -25,7 +26,18 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
+    creative_direction: CreativeFields | None = None
     id: str = Field(..., description="项目 ID")
+
+    @model_validator(mode='after')
+    def validate_creative_basics(self):
+        """新表单明确提交创作设定时校验核心三项；旧客户端省略时保持兼容。"""
+        if self.creative_direction is not None:
+            if not all(getattr(self.creative_direction,key) for key in ('presentation','treatment','primary_genre')):
+                raise ValueError('请选择画面表现与故事主题材')
+            if self.creative_direction.secondary_genres and not self.creative_direction.world_rules:
+                raise ValueError('混合题材必须填写世界规则说明融合方式')
+        return self
 
 
 class ProjectUpdate(BaseModel):

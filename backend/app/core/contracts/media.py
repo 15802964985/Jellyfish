@@ -103,7 +103,7 @@ class VideoEditMediaInput(BaseModel):
     """Source video and optional images are editing inputs, never frame/subject substitutes."""
     model_config = ConfigDict(extra='forbid')
     source: MediaReference
-    references: list[MediaReference] = Field(default_factory=list, max_length=5)
+    references: list[MediaReference] = Field(default_factory=list, max_length=9)
 
     @model_validator(mode='after')
     def validate_roles(self) -> 'VideoEditMediaInput':

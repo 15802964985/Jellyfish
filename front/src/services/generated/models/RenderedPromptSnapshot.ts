@@ -27,4 +27,3 @@ export type RenderedPromptSnapshot = {
     dropped_guidance_details?: Array<FrameGuidanceDecisionSnapshot>;
     reference_mappings?: Array<FrameReferenceMappingSnapshot>;
 };
-

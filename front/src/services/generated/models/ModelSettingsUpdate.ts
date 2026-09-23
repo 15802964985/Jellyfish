@@ -32,4 +32,3 @@ export type ModelSettingsUpdate = {
      */
     log_level?: LogLevel;
 };
-

@@ -85,6 +85,8 @@ class TaskStatusRead(BaseModel):
 
 
 class TaskListItemRead(BaseModel):
+    model_name: str | None = None
+    provider_name: str | None = None
     task_id: str
     task_kind: str = Field(..., description="业务任务类型")
     status: TaskStatus

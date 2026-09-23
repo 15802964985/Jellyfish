@@ -14,4 +14,3 @@ export type PaginatedData_ShotFrameImageRead_ = {
      */
     pagination: Pagination;
 };
-

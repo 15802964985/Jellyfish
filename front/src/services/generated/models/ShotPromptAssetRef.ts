@@ -27,4 +27,3 @@ export type ShotPromptAssetRef = {
      */
     thumbnail?: (string | null);
 };
-

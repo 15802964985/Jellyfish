@@ -28,14 +28,7 @@ from app.services.studio.generation.video import (
 )
 
 
-REQUIRED_FRAMES_BY_MODE: dict[str, tuple[ShotFrameType, ...]] = {
-    "first": (ShotFrameType.first,),
-    "last": (ShotFrameType.last,),
-    "key": (ShotFrameType.key,),
-    "first_last": (ShotFrameType.first, ShotFrameType.last),
-    "first_last_key": (ShotFrameType.first, ShotFrameType.last, ShotFrameType.key),
-    "text_only": (),
-}
+from app.services.studio.generation.video.build_context import REQUIRED_FRAMES_BY_MODE
 
 _ACTIVE_TASK_STATUSES = (
     GenerationTaskStatus.pending,
@@ -99,10 +92,11 @@ async def _reference_frames_ready(
     return _check("reference_frames_ready", True, "参考帧已就绪")
 
 
-async def _model_reference_mode_ready(db: AsyncSession, reference_mode: str) -> ShotVideoReadinessCheck:
+async def _model_reference_mode_ready(db: AsyncSession, reference_mode: str, model_id: str | None = None, subject_image_count: int = 0) -> ShotVideoReadinessCheck:
     """Readiness must validate selected frame mode against the actual default model, not just file existence."""
     settings = await db.get(ModelSettings, 1)
-    model = await db.get(Model, settings.default_video_model_id) if settings and settings.default_video_model_id else None
+    resolved_id = model_id or (settings.default_video_model_id if settings else None)
+    model = await db.get(Model, resolved_id) if resolved_id else None
     revision = await db.get(ModelConfigRevision, model.current_revision_id) if model and model.current_revision_id else None
     if revision is None:
         return _check("model_reference_mode", False, "视频模型缺少可执行配置版本")
@@ -112,6 +106,11 @@ async def _model_reference_mode_ready(db: AsyncSession, reference_mode: str) -> 
         return _check("model_reference_mode", False, "未知参考模式")
     if cap.requires_first_frame and ShotFrameType.first not in frames:
         return _check("model_reference_mode", False, "该视频型号必须使用首帧，请先生成/上传镜头首帧并选择首帧模式")
+    if reference_mode == 'subjects':
+        from app.core.integrations.video_capabilities import supports_studio_subject_images
+        verified = supports_studio_subject_images(revision.provider_key, revision.model_name)
+        valid = verified and 0 < subject_image_count <= (cap.max_total_subject_images or 0)
+        return _check('model_reference_mode', valid, '主体图片数量符合模型要求；提交前仍校验文件可用性' if valid else '请选择已核验的主体参考型号，并添加限额内的参考图片')
     if cap.requires_subject_reference:
         return _check("model_reference_mode", False, "该视频型号必须提供主体参考；当前镜头入口未提交主体素材，请使用支持该输入的入口")
     if not frames and not cap.supports_text_to_video:
@@ -125,9 +124,9 @@ async def _model_reference_mode_ready(db: AsyncSession, reference_mode: str) -> 
     return _check("model_reference_mode", True, "参考模式符合当前视频型号要求")
 
 
-async def _video_model_and_provider_ready(db: AsyncSession) -> tuple[ShotVideoReadinessCheck, ShotVideoReadinessCheck]:
+async def _video_model_and_provider_ready(db: AsyncSession, model_id: str | None = None) -> tuple[ShotVideoReadinessCheck, ShotVideoReadinessCheck]:
     settings = await db.get(ModelSettings, 1)
-    model_id = settings.default_video_model_id if settings else None
+    model_id = model_id or (settings.default_video_model_id if settings else None)
     if not model_id:
         return (
             _check("video_model_ready", False, "未配置默认视频模型"),
@@ -167,11 +166,27 @@ async def _video_model_and_provider_ready(db: AsyncSession) -> tuple[ShotVideoRe
     )
 
 
+async def _duration_for_model(db: AsyncSession, duration: int, model_id: str | None) -> ShotVideoReadinessCheck:
+    """A positive duration is insufficient when the selected model cannot generate that length."""
+    settings = await db.get(ModelSettings, 1)
+    resolved_id = model_id or (settings.default_video_model_id if settings else None)
+    model = await db.get(Model, resolved_id) if resolved_id else None
+    revision = await db.get(ModelConfigRevision, model.current_revision_id) if model and model.current_revision_id else None
+    if not revision:
+        return _check('duration_ready', duration > 0, '镜头时长已配置；需配置模型后核对上限' if duration > 0 else '请先配置镜头时长')
+    cap = resolve_video_capability(provider=revision.provider_key, model=revision.model_name)
+    ok = duration > 0 and (cap.min_seconds is None or duration >= cap.min_seconds) and (cap.max_seconds is None or duration <= cap.max_seconds) and (not cap.allowed_seconds or duration in cap.allowed_seconds)
+    allowed = '/'.join(map(str, sorted(cap.allowed_seconds))) if cap.allowed_seconds else f'{cap.min_seconds or "?"}–{cap.max_seconds or "?"}'
+    return _check('duration_ready', ok, f'本镜头 {duration} 秒，模型支持 {allowed} 秒' + ('' if ok else '；请调整时长或拆分动作，不会自动压缩剧情'))
+
+
 async def get_shot_video_readiness(
     db: AsyncSession,
     *,
     shot_id: str,
     reference_mode: str,
+    model_id: str | None = None,
+    subject_image_count: int = 0,
 ) -> ShotVideoReadinessRead:
     """实时聚合镜头视频生成准备度，不写入数据库状态。"""
     shot = await db.get(Shot, shot_id)
@@ -216,13 +231,15 @@ async def get_shot_video_readiness(
         prompt_message = f"视频提示词渲染失败：{exc}"
 
     active_video_task = await _has_active_video_task(db, shot_id=shot_id)
-    model_check, provider_check = await _video_model_and_provider_ready(db)
+    model_check, provider_check = await _video_model_and_provider_ready(db, model_id)
+    if detail is not None:
+        duration_check = await _duration_for_model(db, int(detail.duration or 0), model_id)
     checks = [
         _check("extraction_ready", extraction_ok, extraction_msg),
         duration_check,
         _check("prompt_ready", prompt_ok, prompt_message),
         await _reference_frames_ready(db, shot_id=shot_id, reference_mode=reference_mode),
-        await _model_reference_mode_ready(db, reference_mode),
+        await _model_reference_mode_ready(db, reference_mode, model_id, subject_image_count),
         model_check,
         provider_check,
         _check(

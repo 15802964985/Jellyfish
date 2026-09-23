@@ -27,4 +27,3 @@ export type ScriptExtractRequest = {
      */
     refresh_cache?: boolean;
 };
-

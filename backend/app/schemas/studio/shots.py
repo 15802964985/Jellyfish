@@ -139,6 +139,9 @@ class ShotAudioCuePlan(BaseModel):
 
 
 class ShotDetailBase(BaseModel):
+    frame_reference_selections: dict[Literal["first", "key", "last"], list[str]] | None = Field(
+        default=None, description="按帧保存参考顺序；缺键自动推荐，空数组明确不使用参考图"
+    )
     id: str = Field(..., description="镜头 ID（与 shots.id 共享主键）")
     camera_shot: CameraShotType = Field(..., description="景别")
     angle: CameraAngle = Field(..., description="机位角度")
@@ -173,6 +176,7 @@ class ShotDetailCreate(ShotDetailBase):
 
 
 class ShotDetailUpdate(BaseModel):
+    frame_reference_selections: dict[Literal["first", "key", "last"], list[str]] | None = None
     camera_shot: CameraShotType | None = None
     angle: CameraAngle | None = None
     movement: CameraMovement | None = None
@@ -310,9 +314,9 @@ ShotLinkedAssetType = Literal["character", "prop", "scene", "costume"]
 
 
 class ShotLinkedAssetItem(BaseModel):
-    """按分镜聚合返回的关联资产条目（角色/道具/场景/服装）。"""
+    """分镜参考条目，包括关联资产图片及主动补选的文件。"""
 
-    type: ShotLinkedAssetType = Field(..., description="实体类型：character/prop/scene/costume")
+    type: ShotLinkedAssetType | Literal["file"] = Field(..., description="实体类型：character/prop/scene/costume")
     id: str = Field(..., description="实体 ID（如 character_id/prop_id/scene_id/costume_id）")
     image_id: int | None = Field(
         None,
@@ -330,7 +334,7 @@ class ShotFramePromptMappingRead(BaseModel):
     """关键帧提示词渲染后的图片映射关系。"""
 
     token: str = Field(..., description="提示词中的图片占位 token，如 图1 / 图2")
-    type: ShotLinkedAssetType = Field(..., description="实体类型：character/prop/scene/costume")
+    type: ShotLinkedAssetType | Literal["file"] = Field(..., description="实体类型：character/prop/scene/costume")
     id: str = Field(..., description="实体 ID（如 character_id/prop_id/scene_id/costume_id）")
     name: str = Field(..., description="实体名称")
     file_id: str = Field(..., description="本次渲染与生成使用的文件 ID")
@@ -406,6 +410,8 @@ class ShotPreparationLinkEntityType(str, Enum):
 
 
 class ShotPreparationLinkRequest(BaseModel):
+    """明确关联目标与可选候选，支持不同名称资产的人工确认。"""
+    candidate_id: int | None = Field(None, description="要确认的当前镜头候选 ID")
     project_id: str = Field(..., description="项目 ID")
     chapter_id: str = Field(..., description="章节 ID")
     entity_type: ShotPreparationLinkEntityType = Field(..., description="准备页关联的实体类型")

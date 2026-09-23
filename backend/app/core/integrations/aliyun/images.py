@@ -1,6 +1,8 @@
 """阿里云百炼万相图片生成与编辑 API 适配。"""
 
 from __future__ import annotations
+from app.core.contracts.generation_recovery import confirm_media_receipt
+from app.core.integrations.traced_http import create_http_client
 from app.core.integrations.response_errors import raise_provider_error
 
 import asyncio
@@ -123,7 +125,7 @@ class AliyunImageApiAdapter:
         if not is_sync:
             headers["X-DashScope-Async"] = "enable"
 
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        async with create_http_client(timeout=timeout_s) as client:
             response = await client.post(root + path, headers=headers, json=body)
             raise_provider_error(response, provider=cfg.provider, api_key=cfg.api_key)
             payload = response.json()
@@ -132,6 +134,7 @@ class AliyunImageApiAdapter:
             status_value = str((payload.get("output") or {}).get("task_status") or "SUCCEEDED")
 
             if task_id and not images:
+                await confirm_media_receipt(task_id)
                 deadline = time.monotonic() + max(timeout_s, 300.0)
                 while time.monotonic() < deadline:
                     await asyncio.sleep(2)

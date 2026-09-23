@@ -18,4 +18,3 @@ export type AssetFileLinkRead = {
     note: string;
     file: FileRead;
 };
-

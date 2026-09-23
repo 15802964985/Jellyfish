@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.dependencies import get_db
@@ -17,6 +18,7 @@ from app.models.studio import (
     ProjectVisualStyle,
     Shot,
     ShotStatus,
+    ShotDetail,
 )
 
 
@@ -27,17 +29,23 @@ class _FakeStudioDB:
         self.projects: dict[str, Project] = {}
         self.chapters: dict[str, Chapter] = {}
         self.shots: dict[str, Shot] = {}
+        self.shot_details: dict[str, ShotDetail] = {}
 
     async def get(self, model: type, entity_id: str):  # noqa: ANN001
         if model is Project:
             return self.projects.get(entity_id)
         if model is Chapter:
             return self.chapters.get(entity_id)
+        if model is ShotDetail:
+            return self.shot_details.get(entity_id)
         if model is Shot:
             return self.shots.get(entity_id)
         return None
 
     def add(self, obj: object) -> None:
+        if isinstance(obj, ShotDetail):
+            self.shot_details[obj.id] = obj
+            return
         if isinstance(obj, Project):
             self.projects[obj.id] = obj
             return
@@ -229,7 +237,10 @@ def test_get_project_not_found_returns_api_response(client: TestClient) -> None:
     assert response.json() == {"code": 404, "message": "Project not found", "data": None, "meta": None}
 
 
-def test_delete_project_returns_empty_envelope(client: TestClient) -> None:
+def test_delete_project_returns_empty_envelope(client: TestClient, monkeypatch) -> None:
+    # 本例只核对响应封装；真实配置级联由数据库集成测试覆盖。
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr('app.services.studio.creative_direction.delete_owned_directions', AsyncMock())
     db = _FakeStudioDB()
     _seed_project(db, "proj-delete")
     app.dependency_overrides[get_db] = _override_db(db)
@@ -336,6 +347,7 @@ def test_create_shot_returns_created_envelope(client: TestClient) -> None:
     assert body["code"] == 201
     assert body["data"]["id"] == "shot-create"
     assert body["data"]["chapter_id"] == "ch-shot"
+    assert db.shot_details["shot-create"].duration == 4
 
 
 def test_get_shot_not_found_returns_api_response(client: TestClient) -> None:
@@ -386,3 +398,31 @@ def test_create_shot_validation_error_returns_api_response(client: TestClient) -
     assert body["data"] is None
     assert "chapter_id" in body["message"]
     assert "index" in body["message"]
+
+
+@pytest.mark.parametrize("visual,style", [
+    ("现实", "真人玄幻修真"), ("现实", "真人仙侠"),
+    ("现实", "真人穿越"), ("动漫", "动漫穿越"),
+    ("动漫", "动漫古装"), ("动漫", "动漫武侠"),
+    ("动漫", "动漫玄幻修真"), ("动漫", "动漫仙侠"),
+    ("动漫", "动漫国风神话"), ("动漫", "动漫末世科幻"),
+])
+def test_extended_style_project_roundtrip(client: TestClient, visual: str, style: str) -> None:
+    """新增风格须经过目录、项目保存回读与资产契约，防止仅前端可选而后端拒绝。"""
+    from app.schemas.studio.assets import AssetCreate
+    db = _FakeStudioDB()
+    app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        options = client.get("/api/v1/studio/projects/style-options").json()["data"]
+        assert style in [row["value"] for row in options["styles_by_visual_style"][visual]]
+        payload = {"id": "extended-style", "name": "新题材", "style": style, "visual_style": visual}
+        response = client.post("/api/v1/studio/projects", json=payload)
+        assert response.status_code == 201, response.text
+        saved = client.get("/api/v1/studio/projects/extended-style")
+        assert saved.json()["data"]["style"] == style
+        assert AssetCreate(id="asset", name="场景", style=style, visual_style=visual).style.value == style
+        payload["id"] = "wrong-group"
+        payload["visual_style"] = "动漫" if visual == "现实" else "现实"
+        assert client.post("/api/v1/studio/projects", json=payload).status_code == 400
+    finally:
+        app.dependency_overrides.clear()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Self
 
+from app.core.contracts.creative_direction import CreativeFields
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.studio import AssetQualityLevel, AssetViewAngle, ProjectStyle, ProjectVisualStyle
@@ -21,6 +22,7 @@ class AssetBase(BaseModel):
 
 
 class AssetCreate(BaseModel):
+    creative_direction: CreativeFields | None = None
     id: str
     name: str
     description: str = ""

@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from app.services.studio.shot_mood import append_shot_mood
+
 from typing import Any
 import re
 
@@ -134,6 +136,8 @@ def enrich_rendered_video_prompt(
     text = str(rendered_prompt or "").strip()
     # Check full lines independently: one existing heading must not hide the other constraints.
     lines = [line for line in _build_guidance_suffix(pack).splitlines() if line not in text]
+    # Explicit shot moods must survive custom templates that omit the atmosphere variable.
+    lines.extend(line for line in pack.atmosphere.splitlines() if line.startswith("镜头情绪：") and line not in text)
     report = quality_for_video_pack(pack)
     # Asset facts are input evidence, not extra characters or guessed measurements.
     for fact in report.facts:
@@ -397,7 +401,7 @@ async def build_shot_video_prompt_pack(
     descriptions = await read_linked_asset_descriptions(db, [
         SimpleNamespace(type=item.type, id=item.linked_entity_id)
         for item in overview.items if item.is_linked and item.linked_entity_id
-    ])
+    ], shot_id=shot_id)
     for item in overview.items:
         key = (item.type, item.linked_entity_id)
         if item.is_linked and key in descriptions:
@@ -446,6 +450,8 @@ async def build_shot_video_prompt_pack(
         dialogue_summary=dialogue_summary,
     )
 
+    from app.services.studio.creative_direction import read_direction
+    creative = await read_direction(db, "shot", shot.id)
     return ShotVideoPromptPackRead(
         shot_id=shot.id,
         title=shot.title or "",
@@ -487,8 +493,8 @@ async def build_shot_video_prompt_pack(
             movement=_enum_value(getattr(detail, "movement", None)),
             duration=getattr(detail, "duration", None),
         ),
-        atmosphere=str(getattr(detail, "atmosphere", "") or ""),
-        visual_style=_enum_value(getattr(project, "visual_style", None)),
-        style=_enum_value(getattr(project, "style", None)),
+        atmosphere=append_shot_mood(str(getattr(detail, "atmosphere", "") or ""), getattr(detail, "mood_tags", None)),
+        visual_style=" · ".join(filter(None,[creative.effective.get("presentation"),creative.effective.get("treatment")])),
+        style=" · ".join(filter(None,[creative.effective.get("primary_genre"),*(creative.effective.get("secondary_genres") or [])])),
         negative_prompt=DEFAULT_VIDEO_NEGATIVE_PROMPT,
     )

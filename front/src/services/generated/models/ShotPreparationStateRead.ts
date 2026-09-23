@@ -56,4 +56,3 @@ export type ShotPreparationStateRead = {
      */
     ready_for_generation: boolean;
 };
-

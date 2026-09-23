@@ -118,3 +118,6 @@ code {
   border-radius: 3px;
   font-family: 'Courier New', monospace;
 }
+
+/* Size asset cards by available panel width, preserving labels and action buttons. */
+.preparation-asset-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); }

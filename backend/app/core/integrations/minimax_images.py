@@ -1,3 +1,4 @@
+from app.core.integrations.traced_http import create_http_client
 """MiniMax image-01 explicit text/person-reference generation; no generic scene-reference claims."""
 import base64
 import io
@@ -58,7 +59,7 @@ class MinimaxImageApiAdapter:
     async def generate(self, *, cfg, inp, timeout_s):
         """Require actual images and expose the vendor request ID without credentials."""
         body = build_image_body(inp)
-        async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=False) as client:
+        async with create_http_client(timeout=timeout_s, follow_redirects=False) as client:
             payload = await request_json(client, cfg=cfg, method="POST", path="/image_generation", json=body)
         data = payload.get("data") or {}
         images = [ImageItem(b64_json=value) for value in data.get("image_base64", []) if isinstance(value, str) and value]

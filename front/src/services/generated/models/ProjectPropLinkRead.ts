@@ -25,4 +25,3 @@ export type ProjectPropLinkRead = {
      */
     thumbnail?: string;
 };
-

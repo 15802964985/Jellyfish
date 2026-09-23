@@ -8,4 +8,3 @@ export type ProjectAssetLinkCreate = {
     shot_id?: (string | null);
     asset_id: string;
 };
-

@@ -32,4 +32,3 @@ export type ProviderModelCandidate = {
      */
     capabilities?: Array<'text_generation' | 'text_to_image' | 'image_to_image' | 'text_to_video' | 'image_to_video' | 'reference_to_video' | 'video_edit' | 'text_to_speech'>;
 };
-

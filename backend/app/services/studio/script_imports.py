@@ -495,6 +495,13 @@ async def _resolve_candidate_entity(
         view_count=1, tags=["剧本导入"], **common
     )
     db.add(row)
+    await db.flush()
+    from app.services.studio.creative_direction import read_direction, write_direction
+    from app.core.contracts.creative_direction import CreativeWrite, CreativeFields
+    creative = await read_direction(db,'project',project.id)
+    fields = {} if entity_type == 'character' else {key:value for key,value in creative.effective.items() if key!='general_rules'}
+    await write_direction(db,entity_type,row.id,CreativeWrite(expected_revision=0,overrides=CreativeFields.model_validate(fields)),
+        provenance={'method':'project_copy','project_id':project.id,'fingerprint':creative.fingerprint})
     return row
 
 

@@ -1,4 +1,5 @@
-import { Card, Form, Input, Select, Switch, Button, message } from 'antd'
+import { Link } from 'react-router-dom'
+import { Card, Form, Input, Select, Switch, Button, Space, message } from 'antd'
 import { useAppStore } from '../store/useAppStore'
 import { useTranslation } from 'react-i18next'
 
@@ -15,7 +16,7 @@ const Settings: React.FC = () => {
   }
 
   return (
-    <Card title={t('settings.title')}>
+    <Card title={t('settings.title')} extra={<Space wrap><Link to="/web-generation"><Button>网页生成交接与导出</Button></Link><Link to="/settings/web-models"><Button>网页平台模型</Button></Link><Link to="/settings/web-accounts"><Button>网页平台账号</Button></Link><Link to="/settings/docker-images"><Button>Docker 镜像清单</Button></Link></Space>}>
       <Form
         form={form}
         layout="vertical"

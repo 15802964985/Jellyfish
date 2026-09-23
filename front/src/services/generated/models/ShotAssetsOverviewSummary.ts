@@ -20,4 +20,3 @@ export type ShotAssetsOverviewSummary = {
      */
     total_count: number;
 };
-

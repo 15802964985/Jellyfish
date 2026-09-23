@@ -11,4 +11,3 @@ export type FrameGuidanceDecisionSnapshot = {
     reason_tag?: string;
     reason: string;
 };
-

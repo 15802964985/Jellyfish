@@ -21,4 +21,3 @@ export type ApiResponse_ShotPreparationMutationResultRead_ = {
      */
     meta?: (Record<string, any> | null);
 };
-

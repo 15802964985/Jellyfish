@@ -24,4 +24,3 @@ export type ShotVideoReadinessRead = {
      */
     checks?: Array<ShotVideoReadinessCheck>;
 };
-

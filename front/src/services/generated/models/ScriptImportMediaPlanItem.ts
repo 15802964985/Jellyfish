@@ -10,4 +10,3 @@ export type ScriptImportMediaPlanItem = {
     segment_seconds?: Array<number>;
     warnings?: Array<string>;
 };
-

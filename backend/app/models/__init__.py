@@ -1,9 +1,12 @@
 """SQLAlchemy ORM 模型。"""
 
+from app.models.generation_recovery import GenerationRecovery
 from app.core.db import Base
 from app.models.base import TimestampMixin
 
 from app.models.llm import Model, ModelConfigRevision, ModelSettings, Provider
+from app.models.model_governance import ModelGovernanceRecord
+from app.models.generation_calls import GenerationCall
 from app.models.task import GenerationTask
 from app.models.task_links import GenerationTaskLink
 from app.models.generation_artifacts import GenerationArtifact, GenerationDispatchOutbox, GenerationTaskMediaReference
@@ -93,3 +96,8 @@ __all__ = [
     "ExperimentSession",
     "ExperimentMessage",
 ]
+
+from app.models.creative_direction import CreativeDirection, CreativeDirectionRevision
+
+from app.models.character_appearances import CharacterAppearance, ShotCharacterAppearance
+from app.models.web_generation import WebGenerationAccount

@@ -133,7 +133,12 @@ async def _resolve_snapshot_image_input(
             content_type = resolved.content_type or "image/png"
             if not content_type.startswith("image/"):
                 raise RuntimeError(f"resolved media type mismatch for file_id={reference.file_id}")
-            data_url = f"data:{content_type};base64,{base64.b64encode(resolved.content).decode('ascii')}"
+            content = resolved.content
+            if operation_input.edit_region is not None:
+                from app.services.generation.image_region import annotate_source
+                content = annotate_source(content, operation_input.edit_region)
+                content_type = "image/png"
+            data_url = f"data:{content_type};base64,{base64.b64encode(content).decode('ascii')}"
             # 先保留合法 file_id 通过外层 Pydantic 嵌套校验，再在返回前清空它，
             # 避免 OpenAI adapter 同时把项目 FileItem ID 当作供应商 file_id 发送。
             references.append(InputImageRef.model_construct(file_id=reference.file_id))
@@ -150,6 +155,7 @@ async def _resolve_snapshot_image_input(
         images=references,
         target_ratio=operation_input.target_ratio,
         resolution_profile=operation_input.resolution_profile,
+        size=operation_input.size,
         purpose=purpose,
         n=operation_input.count,
     )
@@ -177,12 +183,26 @@ async def _run_snapshot_image_generation(
         raise RuntimeError("image generation snapshot target is unsupported")
     provider_config = await _resolve_snapshot_provider_config(session, snapshot=snapshot)
     input_ = await _resolve_snapshot_image_input(session, task_id=task_id, snapshot=snapshot)
-    provider_task = ImageGenerationTask(provider_config=provider_config, input_=input_)
-    await provider_task.run()
-    result = await provider_task.get_result()
-    if result is None:
-        status_payload = await provider_task.status()
-        raise RuntimeError(str(status_payload.get("error") or "Image generation task returned no result"))
+    from app.core.contracts.generation_recovery import media_recovery
+    from app.core.contracts.image_generation import ImageGenerationResult
+    recovery = media_recovery.get()
+    cached = await recovery.load_result() if recovery else None
+    if cached is None:
+        provider_task = ImageGenerationTask(provider_config=provider_config, input_=input_)
+        await provider_task.run()
+        result = await provider_task.get_result()
+        if result is None:
+            status_payload = await provider_task.status()
+            raise RuntimeError(str(status_payload.get("error") or "Image generation task returned no result"))
+        if recovery:
+            await recovery.save_result(result.model_dump(mode="json"))
+    else:
+        result = ImageGenerationResult.model_validate(cached)
+    if snapshot.operation_input.edit_region is not None:
+        from app.services.generation.image_region import compose_result
+        result = await compose_result(session, task_id, snapshot, result)
+        if recovery is not None:
+            await recovery.save_result(result.model_dump(mode="json"))
     artifacts = await ArtifactStore().store_images(
         session,
         task_id=task_id,
@@ -207,6 +227,10 @@ async def _run_snapshot_image_generation(
             .values(file_id=artifacts[0].file_id)
         )
     result_payload = result.model_dump()
+    if snapshot.operation_input.edit_region is not None:
+        result_payload["edit_region"] = snapshot.operation_input.edit_region.model_dump()
+        result_payload["source_file_id"] = snapshot.media.references[0].file_id
+        result_payload["editing_method"] = "box_guided_local_composite"
     if artifacts:
         result_payload["file_ids"] = [artifact.file_id for artifact in artifacts]
         result_payload["file_id"] = artifacts[0].file_id

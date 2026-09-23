@@ -20,4 +20,3 @@ export type TaskLinkAdoptRead = {
      */
     is_adopted: boolean;
 };
-

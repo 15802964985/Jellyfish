@@ -36,6 +36,9 @@ from app.services.studio.media_assets import (
 )
 from app.services.studio.shot_tts import create_shot_tts_task
 
+from app.schemas.manual_media import ManualMediaTarget, ManualMediaSelection, ManualMediaState
+from app.services.studio.manual_media import read_media_target, adopt_media
+
 router = APIRouter()
 
 
@@ -227,3 +230,17 @@ async def delete_shot_audio_track_api(
 ) -> ApiResponse[None]:
     await delete_shot_audio_track(db, track_id=track_id)
     return empty_response()
+
+
+
+
+@router.get('/manual-selection', response_model=ApiResponse[ManualMediaState])
+async def manual_media_target_api(target: ManualMediaTarget = Depends(), db: AsyncSession = Depends(get_db, scope='function')):
+    """Read the business slot for an explicit local media confirmation."""
+    return success_response(await read_media_target(db, target))
+
+
+@router.post('/manual-selection', response_model=ApiResponse[ManualMediaState])
+async def adopt_manual_media_api(body: ManualMediaSelection, db: AsyncSession = Depends(get_db, scope='function')):
+    """Adopt a user-selected file; no model invocation or fake generation task is created."""
+    return success_response(await adopt_media(db, body))

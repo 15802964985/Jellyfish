@@ -1,26 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { LlmService, StudioProjectsService } from '../../../services/generated'
 import type { ProjectStyleOptionsRead } from '../../../services/generated'
-import type { ProjectStyleFieldOptions } from './ProjectVisualStyleAndStyleFields'
+import { PROJECT_STYLE_OPTIONS_BY_VISUAL, type ProjectStyleFieldOptions } from './ProjectVisualStyleAndStyleFields'
 
 const FALLBACK_OPTIONS: ProjectStyleFieldOptions = {
   visualStyles: [
     { value: '现实', label: '现实' },
     { value: '动漫', label: '动漫' },
   ],
-  stylesByVisual: {
-    现实: [
-      { value: '真人都市', label: '真人都市' },
-      { value: '真人科幻', label: '真人科幻' },
-      { value: '真人古装', label: '真人古装' },
-    ],
-    动漫: [
-      { value: '动漫科幻', label: '动漫科幻' },
-      { value: '动漫3D', label: '动漫3D' },
-      { value: '国漫', label: '国漫' },
-      { value: '水墨画', label: '水墨画' },
-    ],
-  },
+  stylesByVisual: PROJECT_STYLE_OPTIONS_BY_VISUAL,
   defaultStyleByVisual: {
     现实: '真人都市',
     动漫: '动漫3D',

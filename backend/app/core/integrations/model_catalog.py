@@ -16,12 +16,14 @@ from app.models.llm import ModelCategoryKey
 def builtin_provider_catalog(provider_key: str) -> ProviderModelCatalog | None:
     """Return the local execution catalogue without credentials, discovery or network traffic."""
     if provider_key == "jimeng":
-        from app.core.integrations.jimeng_media import IMAGE_MODEL, VIDEO_MODEL
+        from app.core.integrations.jimeng_media import IMAGE_V3, IMAGE_V4, VIDEO_V3
         return ProviderModelCatalog(provider_key="jimeng", source="provider_catalog", models=[
-            ProviderModelCandidate(name=IMAGE_MODEL, category=ModelCategoryKey.image, capabilities=["text_to_image"],
-                description="独立AK/SK视觉API，标准2K单图；本地参考图公网导出未开放，不复用网页积分"),
-            ProviderModelCandidate(name=VIDEO_MODEL, category=ModelCategoryKey.video, capabilities=["image_to_video"],
-                description="720P，5/10秒，首尾帧均必需；本地JPEG/PNG支持，非已有视频编辑")])
+            ProviderModelCandidate(name=IMAGE_V3, category=ModelCategoryKey.image, capabilities=["text_to_image", "image_to_image"],
+                description="Visual API服务版本（不是方舟Seedream型号）：3.0；无图走文生图，有1张图走智能参考；不自动升级4.0。参考模式输出尺寸由厂商调整"),
+            ProviderModelCandidate(name=IMAGE_V4, category=ModelCategoryKey.image, capabilities=["text_to_image"],
+                description="普通4.0服务，须单独开通；当前支持2K单图文生，公网参考导出尚未开放；不是SP服务"),
+            ProviderModelCandidate(name=VIDEO_V3, category=ModelCategoryKey.video, capabilities=["text_to_video", "image_to_video"],
+                description="服务版本：3.0；按纯文字/首帧/首尾帧及720P/1080P自动匹配req_key，5/10秒；各分辨率须有权限")])
     if provider_key in {"zhipu", "hunyuan"}:
         from app.core.integrations.domestic_media import IMAGE_MODELS, VIDEO_MODELS
         texts = ("glm-4.7", "glm-4.6", "glm-4-plus") if provider_key == "zhipu" else ("hy3", "hy4-preview", "hunyuan-role-latest")
@@ -57,7 +59,8 @@ def builtin_provider_catalog(provider_key: str) -> ProviderModelCatalog | None:
             ProviderModelCandidate(name=name, category=ModelCategoryKey.image,
                 capabilities=["text_to_image"],
                 description="标准档文生图；人物参考协议已有代码，但业务语义确认入口待接通，不接受通用参考图")
-            for name in ("image-01", "image-01-live")])
+            for name in ("image-01", "image-01-live")] + [ProviderModelCandidate(name='MiniMax-H3', category=ModelCategoryKey.video,
+                capabilities=['video_edit'], description='MiniMax-H3 使用 /v2/video_generation，与 Hailuo-02 /v1 不是同一型号；当前仅接通编辑入口')])
     if provider_key == "bfl":
         from app.core.integrations.bfl_images import BFL_MODELS
         return ProviderModelCatalog(provider_key="bfl", source="provider_catalog", models=[
@@ -313,7 +316,7 @@ _VIDU_MODELS = [
     _catalog_candidate("viduq3-drama", "video", "短剧/漫画场景参考生视频", provider_key="vidu", capabilities=["reference_to_video"]),
     _catalog_candidate("viduq3-ad", "video", "广告场景参考生视频", provider_key="vidu", capabilities=["reference_to_video"]),
     _catalog_candidate("viduq3-turbo", "video", "快速文生、图生与参考生视频", provider_key="vidu", capabilities=["text_to_video", "image_to_video", "reference_to_video"]),
-    _catalog_candidate("viduq2-pro", "video", "参考图与视频编辑", provider_key="vidu"),
+    _catalog_candidate("viduq2-pro", "video", "中国站视频主体编辑与参考生成", provider_key="vidu", capabilities=["reference_to_video","video_edit"]),
     _catalog_candidate("viduq2", "video", "文生与多参考图视频", provider_key="vidu"),
     _catalog_candidate("viduq2-turbo", "video", "快速单图视频", provider_key="vidu"),
     _catalog_candidate("viduq1", "video", "稳定镜头视频", provider_key="vidu"),
@@ -322,19 +325,23 @@ _VIDU_MODELS = [
 ]
 
 _KLING_MODELS = [
+    _catalog_candidate("kling-3.0-omni", "video", "新版原生视频编辑（需公网签名素材）", provider_key="kling", capabilities=["video_edit"]),
+    _catalog_candidate("kling-o1", "video", "新版O1原生视频编辑", provider_key="kling", capabilities=["video_edit"]),
     _catalog_candidate("kling-3.0-turbo", "video", "Kling 3.0 Turbo 文生视频", provider_key="kling"),
     _catalog_candidate("kling-3.0", "video", "Kling 3.0 Omni 文生、首帧和首尾帧图生视频", provider_key="kling"),
     _catalog_candidate("kling-v3", "image", "Kling Image 3.0 Omni 图片生成", provider_key="kling"),
 ]
 
 _VOLCENGINE_MODELS = [
+    _catalog_candidate("doubao-seedance-2-5-260628", "video", "Seedance2.5原片编辑，当前仅接通edit模式", provider_key="volcengine", capabilities=["video_edit"]),
     _catalog_candidate("doubao-seed-2.0-lite", "text", "豆包 Seed 2.0 Lite 文本生成", provider_key="volcengine"),
     _catalog_candidate("doubao-seedream-5.0-lite", "image", "豆包 Seedream 5.0 Lite 图片生成", provider_key="volcengine"),
-    _catalog_candidate("doubao-seedance-1.5-pro", "video", "豆包 Seedance 1.5 Pro 视频生成", provider_key="volcengine"),
+    _catalog_candidate("doubao-seedance-1.5-pro", "video", "豆包 Seedance 1.5 Pro 视频生成；2026-09-12核对：Agent Plan官网标注即将下线，当前正文未给出日期，需核对账户通知；不自动切换型号或渠道", provider_key="volcengine"),
 ]
 
 # Token Plan 兼容目录当前不返回视频项；这里维护已完成请求契约映射的官方模型。
 _ALIYUN_MODELS = [
+    _catalog_candidate("wan2.7-videoedit", "video", "万相视频编辑，需北京按量端点及公网签名素材", provider_key="aliyun_bailian", capabilities=["video_edit"]),
     _catalog_candidate("qwen3.8-max", "text", "中文剧本与复杂指令；账户地域/输出模式需核对", provider_key="aliyun_bailian"),
     _catalog_candidate("qwen3.8-flash", "text", "文本处理候选；具体延迟与质量需验收", provider_key="aliyun_bailian"),
     _catalog_candidate("wan2.7-image", "image", "已映射文生图与参考图；数量、尺寸以生成门禁为准", provider_key="aliyun_bailian", capabilities=["text_to_image", "image_to_image"]),

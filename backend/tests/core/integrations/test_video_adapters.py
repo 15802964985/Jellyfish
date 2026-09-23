@@ -161,7 +161,7 @@ async def test_vidu_video_create_and_get(monkeypatch: pytest.MonkeyPatch) -> Non
     cfg = ProviderConfig(provider="vidu", api_key="vidu-key")
     inp = _projected_video_input(
         prompt="a transition",
-        model="viduq2",
+        model="viduq2-pro",
         ratio="16:9",
         first_frame="first",
         last_frame="last",
@@ -174,22 +174,18 @@ async def test_vidu_video_create_and_get(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_vidu_video_payload_selects_text_and_reference_endpoints() -> None:
-    """无参考帧走文本端点，多图参考走 reference2video。"""
-    text_path, _ = build_create_video_request(
-        VideoGenerationInput(prompt="a city", model="viduq2", ratio="16:9")
-    )
-    reference_path, reference_body = build_create_video_request(
-        _projected_video_input(
-            prompt="same character",
-            model="viduq2",
-            ratio="16:9",
-            first_frame="first",
-            key_frames=["key"],
-        )
-    )
+    """Named subjects use the reference endpoint; timeline keys must never masquerade as subject images."""
+    text_path, _ = build_create_video_request(VideoGenerationInput(prompt="a city", model="viduq2", ratio="16:9"))
+    inp = _projected_video_input(prompt="@hero walks",model="viduq2",ratio="16:9",
+        subject_references=[_projected_subject(name="hero",images=["https://cdn.example/hero.png"])])
+    inp.resolution = '540p'
+    reference_path, reference_body = build_create_video_request(inp)
     assert text_path == "/ent/v2/text2video"
     assert reference_path == "/ent/v2/reference2video"
-    assert reference_body["images"] == ["data:image/png;base64,first", "data:image/png;base64,key"]
+    assert reference_body['subjects'][0]['images'] == ['https://cdn.example/hero.png']
+    assert reference_body['resolution'] == '540p'
+    with pytest.raises(ValueError, match='key frames'):
+        build_create_video_request(_projected_video_input(prompt='transition',model='viduq2-pro',ratio='16:9',first_frame='first',key_frames=['key']))
 
 
 def test_vidu_video_payload_keeps_subject_references_separate_from_frames() -> None:
